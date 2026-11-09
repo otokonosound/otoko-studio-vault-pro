@@ -13,11 +13,11 @@ struct Res {
     body: Vec<u8>,
 }
 
-fn call(port: u16, method: &str, path: &str, manage: bool, body: Option<&Json>) -> Res {
+/// `head` : les en-têtes en plus, chacun terminé par « \r\n ».
+fn call(port: u16, method: &str, path: &str, head: &str, body: Option<&Json>) -> Res {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     let data = body.map(|b| b.to_string()).unwrap_or_default();
-    let head = if manage { "X-Studio-Vault: 1\r\n" } else { "" };
     s.write_all(format!("{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n{head}Content-Length: {}\r\n\r\n{data}", data.len()).as_bytes()).unwrap();
     let mut raw = Vec::new();
     s.read_to_end(&mut raw).unwrap_or_else(|e| panic!("{method} {path} : {e} ({} octets reçus)", raw.len()));
@@ -141,16 +141,26 @@ fn the_other_pc_reads_and_writes_through_the_mini() {
     cfg.warm = false;
     let server = otoko_mobile::start(cfg).unwrap();
     let p = server.port();
+    let code = otoko_mobile::link_code(&tmp);
+    let app = format!("X-Studio-Vault: 1\r\nX-Otoko-Code: {code}\r\n");
+    let app = app.as_str();
 
     // Sans l'en-tête de l'application, rien.
-    assert_eq!(call(p, "GET", "/api/distant/base", false, None).status, 403);
-    assert_eq!(call(p, "POST", "/api/distant/ecrire", false, Some(&json!({ "changes": [] }))).status, 403);
+    assert_eq!(call(p, "GET", "/api/distant/base", "", None).status, 403);
+    assert_eq!(call(p, "POST", "/api/distant/ecrire", "", Some(&json!({ "changes": [] }))).status, 403);
+    // Un appareil de Tailscale qui ne connaît pas le code de liaison : rien non plus, ni lecture ni écriture.
+    assert_eq!(call(p, "GET", "/api/distant/base", "X-Studio-Vault: 1\r\n", None).status, 401);
+    assert_eq!(call(p, "GET", "/api/distant/etat", "X-Studio-Vault: 1\r\nX-Otoko-Code: AAAA-AAAA-AAAA-AAAA\r\n", None).status, 401);
+    assert_eq!(call(p, "POST", "/api/distant/ecrire", "X-Studio-Vault: 1\r\nX-Otoko-Code: \r\n", Some(&json!({ "changes": [] }))).status, 401);
+    // Le code recopié à la main, en minuscules et sans tirets, passe.
+    let typed = code.replace('-', "").to_lowercase();
+    assert_eq!(call(p, "GET", "/api/distant/etat", &format!("X-Studio-Vault: 1\r\nX-Otoko-Code: {typed}\r\n"), None).status, 200);
 
     // La copie de la base.
-    let state = json_of(&call(p, "GET", "/api/distant/etat", true, None));
+    let state = json_of(&call(p, "GET", "/api/distant/etat", app, None));
     assert_eq!(state["machine"].as_str(), Some(std::env::var("COMPUTERNAME").unwrap_or_default().as_str()), "le serveur dit sur quelle machine il tourne");
     let stamp = state["stamp"].as_str().unwrap().to_string();
-    let base = call(p, "GET", "/api/distant/base", true, None);
+    let base = call(p, "GET", "/api/distant/base", app, None);
     assert_eq!(base.status, 200);
     let copy = tmp.join("copie.db");
     std::fs::write(&copy, &base.body).unwrap();
@@ -162,7 +172,7 @@ fn the_other_pc_reads_and_writes_through_the_mini() {
     // Une écriture sur la copie arrive sur le PC principal.
     c.conn().execute("UPDATE tracks SET status = 'wip', notes = 'depuis l''autre PC' WHERE id = 1", []).unwrap();
     let (changes, last) = distant::pending(c.conn(), 100).unwrap();
-    let r = call(p, "POST", "/api/distant/ecrire", true, Some(&json!({ "changes": changes })));
+    let r = call(p, "POST", "/api/distant/ecrire", app, Some(&json!({ "changes": changes })));
     assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
     assert_eq!(json_of(&r)["applied"], 1);
     distant::sent(c.conn(), last).unwrap();
@@ -170,20 +180,20 @@ fn the_other_pc_reads_and_writes_through_the_mini() {
     let mini = Career::open(&tmp.join("carriere.db")).unwrap();
     let (status, notes): (String, String) = mini.conn().query_row("SELECT status, notes FROM tracks WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
     assert_eq!((status.as_str(), notes.as_str()), ("wip", "depuis l'autre PC"));
-    let now = json_of(&call(p, "GET", "/api/distant/etat", true, None))["stamp"].as_str().unwrap().to_string();
+    let now = json_of(&call(p, "GET", "/api/distant/etat", app, None))["stamp"].as_str().unwrap().to_string();
     assert_ne!(now, stamp, "l'état change avec la base");
 
     // Une demande hors des tables suivies est refusée.
-    assert_eq!(call(p, "POST", "/api/distant/ecrire", true, Some(&json!({ "changes": [{ "table": "sqlite_master", "op": "set", "row": { "name": "x" } }] }))).status, 400);
+    assert_eq!(call(p, "POST", "/api/distant/ecrire", app, Some(&json!({ "changes": [{ "table": "sqlite_master", "op": "set", "row": { "name": "x" } }] }))).status, 400);
 
     // Les mises à jour proposées.
-    assert_eq!(call(p, "GET", "/maj/pc", false, None).status, 404);
+    assert_eq!(call(p, "GET", "/maj/pc", "", None).status, 404);
     let dir = tmp.join("majs");
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("Otoko-Studio-Vault-Pro-1.2.0-installation.exe"), b"installateur").unwrap();
     std::fs::write(tmp.join(otoko_mobile::UPDATES_FILE), dir.to_string_lossy().as_bytes()).unwrap();
-    assert_eq!(json_of(&call(p, "GET", "/api/maj", false, None))["pc"], "1.2.0");
-    let f = call(p, "GET", "/maj/pc", false, None);
+    assert_eq!(json_of(&call(p, "GET", "/api/maj", "", None))["pc"], "1.2.0");
+    let f = call(p, "GET", "/maj/pc", "", None);
     assert_eq!((f.status, f.body.as_slice()), (200, b"installateur".as_slice()));
 
     server.stop();

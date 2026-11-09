@@ -643,14 +643,23 @@ fn stamp(db: &Path) -> String {
     format!("{}-{}", t(db), t(&PathBuf::from(format!("{}-wal", db.display()))))
 }
 
-/// L'autre PC passe par Tailscale ou cet ordinateur, jamais par le Wi-Fi : c'est ce qui autorise à écrire dans la base.
-fn distant_ok(_st: &State, req: &Request, c: &mut Conn) -> std::io::Result<bool> {
+/// L'en-tête où l'autre PC donne le code de liaison du PC principal.
+pub const LINK_HEADER: &str = "X-Otoko-Code";
+
+/// L'autre PC passe par Tailscale ou cet ordinateur, jamais par le Wi-Fi, et donne le code de liaison de ce PC : c'est ce
+/// qui autorise à lire toute la base et à y écrire. Tout appareil de Tailscale n'est pas l'autre PC.
+fn distant_ok(st: &State, req: &Request, c: &mut Conn) -> std::io::Result<bool> {
     if is_lan(req.peer) {
         c.error(403, "L'autre PC se connecte par Tailscale, pas par le Wi-Fi.")?;
         return Ok(false);
     }
     if req.header("X-Studio-Vault") != Some("1") {
         c.error(403, "Requête refusée.")?;
+        return Ok(false);
+    }
+    let Some(data) = st.cfg.db.parent() else { return Ok(false) };
+    if !req.header(LINK_HEADER).is_some_and(|code| crate::link_matches(data, code)) {
+        c.error(401, "Code de liaison absent ou faux : recopie celui du PC principal (Réglages › Général › Travailler depuis un autre PC).")?;
         return Ok(false);
     }
     Ok(true)

@@ -144,7 +144,7 @@ fn main() {
     let (jobs_tx, jobs_rx) = mpsc::channel();
     let poll = Rc::new(Timer::default());
     // Relié au PC principal : on travaille sur une copie de sa base.
-    let lien = if flag("--selftest") || flag("--demo") { None } else { distant::address().map(|url| distant::boot(&url)) };
+    let lien = if flag("--selftest") || flag("--demo") { None } else { distant::address().map(|url| distant::boot(&url, &distant::code())) };
     let base = if lien.is_some() { distant::base_path() } else { career::default_path() };
     let state = Rc::new(RefCell::new(State {
         jobs: jobs_tx,

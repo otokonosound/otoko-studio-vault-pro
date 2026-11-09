@@ -57,7 +57,7 @@ pub enum Done {
     /// Le tour du lien avec le PC principal : (état du PC principal, faut-il reprendre sa base).
     Distant(Result<(String, bool), String>),
     DistantCopy(Result<String, String>),
-    RemoteTest { url: String, connect: bool, result: Result<String, String> },
+    RemoteTest { url: String, code: String, connect: bool, result: Result<String, String> },
     /// Un morceau arrivé du PC principal.
     Audio { id: i64, at: f64, result: Result<(), String> },
 }
@@ -170,7 +170,7 @@ pub fn collect(app: &AppWindow, st: &mut State, rx: &mpsc::Receiver<Done>) {
             Done::EngineDone(r) => crate::mastrage::engine_done(app, st, r),
             Done::Distant(r) => crate::distant::ticked(app, st, r),
             Done::DistantCopy(r) => crate::distant::copied(app, st, r),
-            Done::RemoteTest { url, connect, result } => crate::distant::tried(app, &url, connect, result),
+            Done::RemoteTest { url, code, connect, result } => crate::distant::tried(app, &url, &code, connect, result),
             Done::Audio { id, at, result } => crate::distant::audio_landed(app, st, id, at, result),
         }
     }

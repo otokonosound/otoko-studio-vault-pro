@@ -1,6 +1,10 @@
 //! Le client distant : le PC principal reste le centre et un autre PC travaille sur une copie de sa base. Les lectures sont
 //! locales, donc instantanées. Chaque écriture de la copie est notée par des déclencheurs dans `_journal`, puis envoyée
 //! au PC principal, qui l'applique. Aucun autre module n'a besoin de savoir qu'il travaille sur une copie.
+//!
+//! Seules les colonnes modifiées sur la copie partent : la ligne d'avant la première modification est gardée dans
+//! `_avant_<table>`, et une ligne créée sur la copie est notée dans `_nouvelles`. Le PC principal ne perd donc pas ce qu'il a
+//! changé de son côté entre-temps (une analyse, un statut), et une ligne qu'il a supprimée ne revient pas.
 
 use rusqlite::types::{Value, ValueRef};
 use rusqlite::{Connection, params_from_iter};
@@ -37,17 +41,40 @@ fn key_of(table: &str) -> Option<&'static [&'static str]> {
     TABLES.iter().find(|t| t.0 == table).map(|t| t.1)
 }
 
-/// Prépare une copie fraîche : le journal, les déclencheurs, les identifiants à part.
+/// Prépare une copie : le journal, les déclencheurs, les lignes d'avant, les identifiants à part. Se relance sans risque sur
+/// une copie déjà prête (au démarrage, après une mise à jour du logiciel) : les déclencheurs sont refaits avec les colonnes
+/// du moment.
 pub fn install(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch("CREATE TABLE IF NOT EXISTS _journal (n INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, op TEXT NOT NULL, k1, k2);")?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS _journal (n INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, op TEXT NOT NULL, k1, k2);
+         CREATE TABLE IF NOT EXISTS _nouvelles (tbl TEXT NOT NULL, k1, k2, UNIQUE (tbl, k1, k2));",
+    )?;
     for (table, keys) in TABLES {
         let (k1, k2) = (keys[0], keys.get(1).copied());
         let vals = |row: &str| format!("{row}.{k1}, {}", k2.map(|k| format!("{row}.{k}")).unwrap_or_else(|| "NULL".into()));
         let only = |row: &str| if table == "settings" { format!(" WHEN {row}.key LIKE 'pub\\_%' ESCAPE '\\' OR {row}.key LIKE 'artist\\_%' ESCAPE '\\'") } else { String::new() };
+        // La table des lignes d'avant suit les colonnes de la table (une mise à jour du logiciel peut en ajouter).
+        let cols = columns(conn, table)?;
+        let before = format!("_avant_{table}");
+        conn.execute_batch(&format!("CREATE TABLE IF NOT EXISTS {before} AS SELECT * FROM {table} WHERE 0;"))?;
+        let have = columns(conn, &before)?;
+        for c in cols.iter().filter(|c| !have.contains(c)) {
+            conn.execute_batch(&format!("ALTER TABLE {before} ADD COLUMN {c};"))?;
+        }
+        conn.execute_batch(&format!("CREATE UNIQUE INDEX IF NOT EXISTS {before}_cle ON {before} ({});", keys.join(", ")))?;
+        let list = cols.join(", ");
+        let olds = cols.iter().map(|c| format!("OLD.{c}")).collect::<Vec<_>>().join(", ");
         conn.execute_batch(&format!(
-            "CREATE TRIGGER IF NOT EXISTS _ji_{table} AFTER INSERT ON {table}{w} BEGIN INSERT INTO _journal (tbl, op, k1, k2) VALUES ('{table}', 'set', {new}); END;
-             CREATE TRIGGER IF NOT EXISTS _ju_{table} AFTER UPDATE ON {table}{w} BEGIN INSERT INTO _journal (tbl, op, k1, k2) VALUES ('{table}', 'set', {new}); END;
-             CREATE TRIGGER IF NOT EXISTS _jd_{table} AFTER DELETE ON {table}{wo} BEGIN INSERT INTO _journal (tbl, op, k1, k2) VALUES ('{table}', 'del', {old}); END;",
+            "DROP TRIGGER IF EXISTS _ji_{table}; DROP TRIGGER IF EXISTS _ju_{table}; DROP TRIGGER IF EXISTS _jd_{table};
+             CREATE TRIGGER _ji_{table} AFTER INSERT ON {table}{w} BEGIN
+                 INSERT OR IGNORE INTO _nouvelles (tbl, k1, k2) VALUES ('{table}', {new});
+                 INSERT INTO _journal (tbl, op, k1, k2) VALUES ('{table}', 'set', {new});
+             END;
+             CREATE TRIGGER _ju_{table} AFTER UPDATE ON {table}{w} BEGIN
+                 INSERT OR IGNORE INTO {before} ({list}) VALUES ({olds});
+                 INSERT INTO _journal (tbl, op, k1, k2) VALUES ('{table}', 'set', {new});
+             END;
+             CREATE TRIGGER _jd_{table} AFTER DELETE ON {table}{wo} BEGIN INSERT INTO _journal (tbl, op, k1, k2) VALUES ('{table}', 'del', {old}); END;",
             w = only("NEW"),
             wo = only("OLD"),
             new = vals("NEW"),
@@ -81,7 +108,7 @@ fn from_json(v: &Json) -> Value {
     }
 }
 
-/// Une ligne de la copie, en JSON.
+/// Une ligne de la copie (ou sa version d'avant, dans `_avant_<table>`), en JSON.
 fn row_json(conn: &Connection, table: &str, keys: &[&str], k: &[Value]) -> rusqlite::Result<Option<Json>> {
     let wh: Vec<String> = keys.iter().enumerate().map(|(i, c)| format!("{c} = ?{}", i + 1)).collect();
     let mut st = conn.prepare(&format!("SELECT * FROM {table} WHERE {}", wh.join(" AND ")))?;
@@ -113,10 +140,30 @@ pub fn pending(conn: &Connection, limit: i64) -> rusqlite::Result<(Vec<Json>, i6
         seen.push(id);
         let Some(keys) = key_of(&table) else { continue };
         let k: Vec<Value> = if keys.len() > 1 { vec![k1, k2] } else { vec![k1] };
+        let key: Map<String, Json> = keys.iter().zip(&k).map(|(c, v)| (c.to_string(), value_json(v))).collect();
         if op == "del" {
-            let key: Map<String, Json> = keys.iter().zip(&k).map(|(c, v)| (c.to_string(), value_json(v))).collect();
             out.push(json!({ "table": table, "op": "del", "key": key }));
-        } else if let Some(row) = row_json(conn, &table, keys, &k)? {
+            continue;
+        }
+        let Some(row) = row_json(conn, &table, keys, &k)? else { continue };
+        if is_new(conn, &table, &k)? {
+            // Créée ici : elle part entière.
+            out.push(json!({ "table": table, "op": "set", "row": row }));
+        } else if let Some(before) = has_table(conn, &format!("_avant_{table}"))?.then(|| row_json(conn, &format!("_avant_{table}"), keys, &k)).transpose()?.flatten() {
+            // Modifiée ici : seulement ce qui a changé depuis la ligne d'avant. « row » reste pour un PC principal d'avant
+            // cette version, qui ne connaît que la ligne entière.
+            let changes: Map<String, Json> = row
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter(|(c, v)| !keys.contains(&c.as_str()) && before.get(c.as_str()) != Some(*v))
+                .map(|(c, v)| (c.clone(), v.clone()))
+                .collect();
+            if !changes.is_empty() {
+                out.push(json!({ "table": table, "op": "set", "key": key, "changes": changes, "row": row }));
+            }
+        } else {
+            // Notée avant cette version (pas de ligne d'avant) : la ligne entière, comme avant.
             out.push(json!({ "table": table, "op": "set", "row": row }));
         }
     }
@@ -134,9 +181,34 @@ fn value_json(v: &Value) -> Json {
     }
 }
 
-/// Les écritures sont arrivées : elles sortent du journal.
+fn has_table(conn: &Connection, name: &str) -> rusqlite::Result<bool> {
+    conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1", [name], |r| r.get::<_, i64>(0)).map(|n| n > 0)
+}
+
+/// La ligne a-t-elle été créée sur la copie (et pas encore envoyée) ?
+fn is_new(conn: &Connection, table: &str, k: &[Value]) -> rusqlite::Result<bool> {
+    if !has_table(conn, "_nouvelles")? {
+        return Ok(false);
+    }
+    let k2 = k.get(1).cloned().unwrap_or(Value::Null);
+    conn.query_row("SELECT COUNT(*) FROM _nouvelles WHERE tbl = ?1 AND k1 IS ?2 AND k2 IS ?3", rusqlite::params![table, k[0], k2], |r| r.get::<_, i64>(0)).map(|n| n > 0)
+}
+
+/// Les écritures sont arrivées : elles sortent du journal, avec les lignes d'avant et les marques de création des lignes
+/// qui n'attendent plus rien.
 pub fn sent(conn: &Connection, last: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM _journal WHERE n <= ?1", [last])?;
+    if has_table(conn, "_nouvelles")? {
+        conn.execute("DELETE FROM _nouvelles WHERE NOT EXISTS (SELECT 1 FROM _journal j WHERE j.tbl = _nouvelles.tbl AND j.k1 IS _nouvelles.k1 AND j.k2 IS _nouvelles.k2)", [])?;
+    }
+    for (table, keys) in TABLES {
+        let before = format!("_avant_{table}");
+        if !has_table(conn, &before)? {
+            continue;
+        }
+        let k2 = keys.get(1).map(|k| format!("{before}.{k}")).unwrap_or_else(|| "NULL".into());
+        conn.execute(&format!("DELETE FROM {before} WHERE NOT EXISTS (SELECT 1 FROM _journal j WHERE j.tbl = '{table}' AND j.k1 IS {before}.{} AND j.k2 IS {k2})", keys[0]), [])?;
+    }
     Ok(())
 }
 
@@ -162,6 +234,26 @@ pub fn apply(conn: &Connection, changes: &[Json]) -> Result<usize, String> {
             let vals: Vec<Value> = keys.iter().map(|k| key.get(*k).map(from_json).unwrap_or(Value::Null)).collect();
             let wh: Vec<String> = keys.iter().enumerate().map(|(i, k)| format!("{k} = ?{}", i + 1)).collect();
             n += tx.execute(&format!("DELETE FROM {table} WHERE {}", wh.join(" AND ")), params_from_iter(vals.iter())).map_err(e)?;
+            continue;
+        }
+        if let Some(changes) = c["changes"].as_object() {
+            // Seulement les colonnes changées sur la copie, et seulement si la ligne existe encore ici : ce que le PC
+            // principal a modifié d'autre est gardé, et une ligne qu'il a supprimée ne revient pas.
+            let key = c["key"].as_object().ok_or("clé absente")?;
+            if table == "settings" && !key.get("key").and_then(|k| k.as_str()).is_some_and(shared_setting) {
+                continue;
+            }
+            if !keys.iter().all(|k| key.contains_key(*k)) {
+                return Err(format!("clé incomplète pour {table}"));
+            }
+            let cols: Vec<&String> = changes.keys().filter(|k| known.contains(k) && !keys.contains(&k.as_str())).collect();
+            if cols.is_empty() {
+                continue;
+            }
+            let sets = cols.iter().enumerate().map(|(i, c)| format!("{c} = ?{}", i + 1)).collect::<Vec<_>>().join(", ");
+            let wh = keys.iter().enumerate().map(|(i, k)| format!("{k} = ?{}", cols.len() + i + 1)).collect::<Vec<_>>().join(" AND ");
+            let vals: Vec<Value> = cols.iter().map(|c| from_json(&changes[c.as_str()])).chain(keys.iter().map(|k| from_json(&key[*k]))).collect();
+            n += tx.execute(&format!("UPDATE {table} SET {sets} WHERE {wh}"), params_from_iter(vals.iter())).map_err(e)?;
             continue;
         }
         let row = c["row"].as_object().ok_or("ligne absente")?;
@@ -234,6 +326,76 @@ mod tests {
     }
 
     #[test]
+    fn what_the_mini_changed_meanwhile_stays() {
+        let (mini, copy) = (base(), base());
+        install(&copy).unwrap();
+        // Pendant que l'autre PC travaille, le PC principal analyse le morceau et en supprime un autre.
+        mini.execute("UPDATE tracks SET bpm = 124, status = 'wip' WHERE id = 1", []).unwrap();
+        mini.execute("DELETE FROM tracks WHERE id = 2", []).unwrap();
+        // L'autre PC renomme le premier et annote le second.
+        copy.execute("UPDATE tracks SET title = 'Nuit blanche' WHERE id = 1", []).unwrap();
+        copy.execute("UPDATE tracks SET title = 'Jour (v2)' WHERE id = 1", []).unwrap();
+        copy.execute("UPDATE tracks SET notes = 'à revoir' WHERE id = 2", []).unwrap();
+        let (changes, last) = pending(&copy, 1000).unwrap();
+        assert_eq!(changes[0]["changes"], json!({ "title": "Jour (v2)" }), "seulement la colonne changée : {changes:?}");
+        assert_eq!(apply(&mini, &changes).unwrap(), 1, "la ligne supprimée n'est pas comptée");
+        sent(&copy, last).unwrap();
+        let (title, bpm, status): (String, f64, String) = mini.query_row("SELECT title, bpm, status FROM tracks WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!((title.as_str(), bpm, status.as_str()), ("Jour (v2)", 124.0, "wip"), "l'analyse et le statut du PC principal restent");
+        assert_eq!(mini.query_row("SELECT COUNT(*) FROM tracks WHERE id = 2", [], |r| r.get::<_, i64>(0)).unwrap(), 0, "une ligne supprimée ne revient pas");
+        // Tout est parti : plus rien d'avant à garder.
+        assert_eq!(copy.query_row("SELECT COUNT(*) FROM _avant_tracks", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        // La modification suivante part de la ligne telle qu'elle est maintenant.
+        copy.execute("UPDATE tracks SET notes = 'fini' WHERE id = 1", []).unwrap();
+        let (changes, _) = pending(&copy, 1000).unwrap();
+        assert_eq!(changes[0]["changes"], json!({ "notes": "fini" }));
+    }
+
+    #[test]
+    fn a_row_made_on_the_copy_arrives_whole() {
+        let (mini, copy) = (base(), base());
+        install(&copy).unwrap();
+        copy.execute("INSERT INTO tags (name) VALUES ('nuit')", []).unwrap();
+        let tag = copy.last_insert_rowid();
+        copy.execute("UPDATE tags SET name = 'nuit blanche' WHERE id = ?1", [tag]).unwrap();
+        copy.execute("INSERT INTO track_tags (track_id, tag_id) VALUES (1, ?1)", [tag]).unwrap();
+        let (changes, last) = pending(&copy, 1000).unwrap();
+        assert!(changes.iter().all(|c| c.get("changes").is_none()), "créée ici : la ligne entière, même modifiée ensuite");
+        apply(&mini, &changes).unwrap();
+        sent(&copy, last).unwrap();
+        assert_eq!(mini.query_row("SELECT name FROM tags WHERE id = ?1", [tag], |r| r.get::<_, String>(0)).unwrap(), "nuit blanche");
+        assert_eq!(copy.query_row("SELECT COUNT(*) FROM _nouvelles", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        // Envoyée une fois : la suite ne renvoie que ce qui change.
+        copy.execute("UPDATE tags SET name = 'nuit' WHERE id = ?1", [tag]).unwrap();
+        let (changes, _) = pending(&copy, 1000).unwrap();
+        assert_eq!(changes[0]["changes"], json!({ "name": "nuit" }));
+    }
+
+    #[test]
+    fn a_copy_from_an_older_version_is_brought_up_to_date() {
+        let (mini, copy) = (base(), base());
+        // Les déclencheurs d'avant : le journal seul, sans lignes d'avant.
+        copy.execute_batch(
+            "CREATE TABLE _journal (n INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, op TEXT NOT NULL, k1, k2);
+             CREATE TRIGGER _ju_tracks AFTER UPDATE ON tracks BEGIN INSERT INTO _journal (tbl, op, k1, k2) VALUES ('tracks', 'set', NEW.id, NULL); END;",
+        )
+        .unwrap();
+        copy.execute("UPDATE tracks SET title = 'Ancienne' WHERE id = 1", []).unwrap();
+        // Au démarrage suivant, la copie est remise à jour : l'écriture en attente part comme avant, ligne entière.
+        install(&copy).unwrap();
+        install(&copy).unwrap();
+        copy.execute("UPDATE tracks SET notes = 'nouvelle' WHERE id = 2", []).unwrap();
+        let (changes, last) = pending(&copy, 1000).unwrap();
+        assert_eq!(changes.len(), 2);
+        assert!(changes[0].get("changes").is_none() && changes[0]["row"]["title"] == "Ancienne");
+        assert_eq!(changes[1]["changes"], json!({ "notes": "nouvelle" }));
+        apply(&mini, &changes).unwrap();
+        sent(&copy, last).unwrap();
+        assert_eq!(waiting(&copy), 0);
+        assert_eq!(mini.query_row("SELECT notes FROM tracks WHERE id = 2", [], |r| r.get::<_, String>(0)).unwrap(), "nouvelle");
+    }
+
+    #[test]
     fn a_request_cannot_reach_other_tables_or_columns() {
         let mini = base();
         assert!(apply(&mini, &[json!({ "table": "sqlite_master", "op": "set", "row": { "name": "x" } })]).is_err());
@@ -241,5 +403,12 @@ mod tests {
         // Une colonne inconnue est ignorée : son nom n'entre jamais dans la requête.
         apply(&mini, &[json!({ "table": "tracks", "op": "set", "row": { "id": 1, "path": "a.wav", "filename": "a.wav", "x = 1; --": "y", "title": "Ok" } })]).unwrap();
         assert_eq!(mini.query_row("SELECT title FROM tracks WHERE id = 1", [], |r| r.get::<_, String>(0)).unwrap(), "Ok");
+        // Pareil pour les colonnes changées : la clé ne bouge pas, une colonne inconnue n'entre pas dans la requête.
+        apply(&mini, &[json!({ "table": "tracks", "op": "set", "key": { "id": 1 }, "changes": { "id": 9, "x = 1; --": "y", "title": "Bien" } })]).unwrap();
+        assert_eq!(mini.query_row("SELECT title FROM tracks WHERE id = 1", [], |r| r.get::<_, String>(0)).unwrap(), "Bien");
+        assert!(apply(&mini, &[json!({ "table": "release_tracks", "op": "set", "key": { "release_id": 1 }, "changes": { "position": 2 } })]).is_err(), "clé incomplète");
+        // Un réglage propre à une machine ne passe pas non plus par là.
+        apply(&mini, &[json!({ "table": "settings", "op": "set", "key": { "key": "accent_color" }, "changes": { "value": "#000000" } })]).unwrap();
+        assert_eq!(mini.query_row("SELECT value FROM settings WHERE key = 'accent_color'", [], |r| r.get::<_, String>(0)).unwrap(), "#123456");
     }
 }

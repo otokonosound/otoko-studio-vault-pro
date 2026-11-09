@@ -124,6 +124,12 @@ pub fn fill(app: &AppWindow, st: &mut State) {
     if g.get_remote_address().is_empty() {
         g.set_remote_address(crate::distant::address().unwrap_or_default().into());
     }
+    if g.get_remote_code().is_empty() {
+        g.set_remote_code(crate::distant::code().into());
+    }
+    // Le code que l'autre PC doit recopier : seulement si ce PC n'en suit pas un autre (et jamais pendant l'autotest).
+    let main = crate::distant::address().is_none() && !st.selftest;
+    g.set_link_code(if main { otoko_mobile::link_code(&crate::library::data_dir()) } else { String::new() }.into());
     crate::majs::push(app, st);
     if let Some(c) = st.career.as_ref() {
         g.set_auto_status(lib::flag(c.conn(), statuts::FLAG, true));
@@ -441,6 +447,21 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     cp_on!(app, state, on_update_install, |app, st| { crate::majs::install(&app, st); });
     cp_on!(app, state, on_remote_test, |app, st| { crate::distant::try_address(&app, st, false); });
     cp_on!(app, state, on_remote_connect, |app, st| { crate::distant::try_address(&app, st, true); });
+    cp_on!(app, state, on_link_copy, |app, st| {
+        let _ = st;
+        let code = app.global::<CPrefs>().get_link_code();
+        if crate::publish::copy(&code) {
+            app.set_message("Code de liaison copié : colle-le sur l'autre PC, à côté de l'adresse de ce PC.".into());
+        }
+    });
+    cp_on!(app, state, on_link_renew, |app, st| {
+        if st.selftest {
+            return;
+        }
+        let code = otoko_mobile::link_renew(&crate::library::data_dir());
+        app.global::<CPrefs>().set_link_code(code.into());
+        app.set_message("Nouveau code de liaison : l'autre PC devra recopier celui-ci.".into());
+    });
     cp_on!(app, state, on_remote_leave, |app, st| {
         let _ = st;
         crate::distant::set_address(None);
