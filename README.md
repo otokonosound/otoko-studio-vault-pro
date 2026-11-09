@@ -10,23 +10,23 @@ Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 
 ## Ce qu'il fait
 
-- **Bibliothèque** : tempo, tonalité, sonie, énergie et ambiance détectés tout seuls ; recherche du genre `bpm:120-128 key:Am` ; tableau ou cartes ; vues gardées ; palette Ctrl+K pour tout trouver.
-- **Écoute** : forme d'onde, repères, boucle A-B, notes, file d'attente, comparaison de deux morceaux à volume égal, morceaux compatibles et roue de Camelot.
+- **Bibliothèque** : tempo, tonalité, loudness, énergie et ambiance détectés tout seuls ; recherche du genre `bpm:120-128 key:Am` ; tableau ou cartes ; vues gardées ; palette Ctrl+K pour tout trouver.
+- **Écoute** : waveform, marqueurs, boucle A-B, notes, file d'attente, comparaison de deux morceaux à volume égal, morceaux compatibles et roue de Camelot.
 - **Outils** : renommer, réorganiser, trouver les doublons (Ctrl+Z annule), compléter genres et artistes, éditer en lot, exporter en CSV.
 - **Ton logiciel de musique, quel qu'il soit** : FL Studio, Ableton Live, Cubase, Reaper, Bitwig… Le projet de chaque morceau s'ouvre d'un clic, et le dossier où tu exportes est surveillé : chaque nouvel export rejoint son morceau, rangé comme version.
-- **Production** : un tableau de l'idée à la sortie, des statuts qui avancent tout seuls sur preuve, tes commandes et ton carnet de clients, le constructeur de set, l'Atelier Suno pour tes prompts.
+- **Production** : un tableau de l'idée à la sortie, des statuts qui avancent tout seuls sur preuve, tes commandes et ton carnet de clients, un outil pour construire tes sets DJ, l'Atelier Suno pour tes prompts.
 - **Mastering** : le moteur libre PhaseLimiter, installé d'un clic. Mesures avant et après, écoute à volume égal, un EP entier avec les mêmes réglages. L'original n'est jamais touché.
 - **Sorties** : la galerie, le compte à rebours, la prochaine étape et ce qui reste à faire, le planning, le contrôle avant publication, la discographie en PDF ou en page web.
 - **Publier** : un texte par plateforme (SoundCloud, Instagram, story), six tons, tes propres modèles. Tout reste hors ligne.
 - **Statistiques** : création, musique, avancement, parcours.
 - **Écouter partout** : ta bibliothèque sur ton téléphone et dans Android Auto, avec des morceaux gardés hors ligne.
 - **Partager** : un lien privé pour faire écouter un morceau ou une sortie, avec mot de passe et date de fin si tu veux. La personne n'a rien à installer, et tu vois les écoutes.
-- **Rester tranquille** : ta musique reste chez toi. Rien n'est envoyé dans un nuage. Ta base est sauvegardée chaque jour, tu peux revenir à une date ou repartir de zéro.
+- **Rester tranquille** : ta musique reste chez toi. Rien ne part dans le cloud. Ta base est sauvegardée chaque jour, tu peux revenir à une date ou repartir de zéro.
 - **Le confort** : sombre ou clair, couleur d'accent, raccourcis modifiables, l'icône près de l'horloge (Ouvrir, Vérifier une mise à jour, Fermer le logiciel), mise à jour en un clic, travail depuis un autre PC.
 
 ## Installer en 2 minutes
 
-1. Va sur la page des [versions](https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest) et télécharge `Otoko-Studio-Vault-Pro-…-installation.exe`.
+1. Va sur la page [Releases](https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest) et télécharge `Otoko-Studio-Vault-Pro-…-installation.exe`.
 2. Double-clique dessus. Si Windows affiche « Windows a protégé votre ordinateur », clique sur **Informations complémentaires** puis **Exécuter quand même** : le programme n'a pas de certificat payant.
 3. Le logiciel s'ouvre et te guide : ton nom d'artiste, puis ton dossier de musique. C'est tout.
 
@@ -44,7 +44,7 @@ Windows 10 ou 11, 64 bits. C'est tout : le reste s'installe tout seul quand tu e
 | L'écoute légère en données mobiles et les liens | ffmpeg | Le même bouton |
 | Le mastering | [PhaseLimiter](https://github.com/ai-mastering/phaselimiter), libre | Le bouton **Installer le moteur** de la page Mastering |
 
-Ces trois outils viennent de leurs sources officielles et leur empreinte est vérifiée avant l'installation.
+Ces trois outils viennent de leurs sources officielles, et leur hash SHA-256 (ou leur signature) est vérifié avant l'installation.
 
 ## Ta vie privée
 
@@ -55,7 +55,7 @@ Ces trois outils viennent de leurs sources officielles et leur empreinte est vé
 
 ## Le code
 
-Ce dépôt contient tout le code : le logiciel en Rust et Slint, le serveur mobile, l'app Android en Kotlin et l'installateur.
+Ce repo contient tout le code : le logiciel en Rust et Slint, le serveur mobile, l'app Android en Kotlin et l'installateur.
 
 ```bat
 rem Le logiciel et l'installateur (Rust, Inno Setup 6)

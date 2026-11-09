@@ -4,7 +4,7 @@ Aucune connaissance technique nécessaire. Compte **2 minutes** pour le logiciel
 
 ## 1. Installer le logiciel
 
-1. Sur la page des [versions](https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest), télécharge `Otoko-Studio-Vault-Pro-…-installation.exe`.
+1. Sur la page [Releases](https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest), télécharge `Otoko-Studio-Vault-Pro-…-installation.exe`.
 2. Double-clique sur le fichier.
 3. Si Windows affiche « Windows a protégé votre ordinateur » : clique sur **Informations complémentaires**, puis **Exécuter quand même**.
 4. Laisse l'installation se faire, puis clique sur **Terminer**. Le logiciel s'ouvre.
@@ -86,4 +86,4 @@ Le téléphone reçoit la sienne depuis ton PC : un bandeau te propose de l'inst
 | L'app n'apparaît pas dans la voiture | Vérifie la case **Sources inconnues** (étape 5), puis rebranche le téléphone |
 | Le mastering ne démarre pas | Clique sur **Installer le moteur** en haut de la page Mastering |
 
-Une question ou un souci : ouvre un [ticket](https://github.com/otokonosound/otoko-studio-vault-pro/issues).
+Une question ou un souci : ouvre une [issue](https://github.com/otokonosound/otoko-studio-vault-pro/issues).
