@@ -460,11 +460,17 @@ pub struct Outcome {
 }
 
 fn command(exe: &Path, args: &[String], cwd: &Path, low_priority: bool) -> Command {
-    use std::os::windows::process::CommandExt;
     let mut c = Command::new(exe);
     c.args(args).current_dir(cwd);
     // Pas de fenêtre ; « inférieure à la normale » si demandé : la musique et le reste passent d'abord.
-    c.creation_flags(0x0800_0000 | if low_priority { 0x0000_4000 } else { 0 });
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000 | if low_priority { 0x0000_4000 } else { 0 });
+    }
+    // Ailleurs (la base se teste aussi hors de Windows) : rien à cacher.
+    #[cfg(not(windows))]
+    let _ = low_priority;
     c
 }
 

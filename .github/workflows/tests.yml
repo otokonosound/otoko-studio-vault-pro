@@ -1,0 +1,33 @@
+# Les tests du logiciel, du serveur mobile et de la base, sur Windows comme chez l'utilisateur.
+# Les essais longs ou qui demandent des données personnelles restent marqués #[ignore] et se lancent à la main.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Compilation
+        run: cargo build --workspace --tests --locked
+      - name: Tests
+        run: cargo test --workspace --locked
