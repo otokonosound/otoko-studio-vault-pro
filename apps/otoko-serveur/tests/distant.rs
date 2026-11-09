@@ -192,7 +192,9 @@ fn the_other_pc_reads_and_writes_through_the_mini() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("Otoko-Studio-Vault-Pro-1.2.0-installation.exe"), b"installateur").unwrap();
     std::fs::write(tmp.join(otoko_mobile::UPDATES_FILE), dir.to_string_lossy().as_bytes()).unwrap();
-    assert_eq!(json_of(&call(p, "GET", "/api/maj", "", None))["pc"], "1.2.0");
+    let maj = json_of(&call(p, "GET", "/api/maj", "", None));
+    assert_eq!(maj["pc"], "1.2.0");
+    assert_eq!(maj["pc_sha256"], otoko_mobile::complements::sha256_of(&dir.join("Otoko-Studio-Vault-Pro-1.2.0-installation.exe")).unwrap(), "l'empreinte de l'installateur proposé");
     let f = call(p, "GET", "/maj/pc", "", None);
     assert_eq!((f.status, f.body.as_slice()), (200, b"installateur".as_slice()));
 

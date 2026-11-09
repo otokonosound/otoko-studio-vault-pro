@@ -176,6 +176,11 @@ fn fetch_from(code: Option<&str>, url: &str) -> Result<String, String> {
 /// Ce que dit le PC principal quand le code de liaison manque ou ne va pas.
 pub const REFUSED_CODE: &str = "Le PC principal refuse le code de liaison : recopie celui qu'il affiche (Réglages › Général › Travailler depuis un autre PC).";
 
+/// Lit un petit fichier texte (une empreinte publiée, par exemple).
+pub fn fetch_text(url: &str) -> Result<String, String> {
+    fetch(url)
+}
+
 pub fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&fetch(url)?).map_err(|e| e.to_string())
 }

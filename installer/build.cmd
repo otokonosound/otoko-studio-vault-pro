@@ -41,4 +41,7 @@ rem Signature (seulement si un certificat est indique : voir sign.cmd).
 call "%~dp0sign.cmd" stage\otoko.exe stage\otoko-serveur.exe || exit /b 1
 "%ISCC%" /Q /DAppVersion=%VERSION% otoko.iss || exit /b 1
 call "%~dp0sign.cmd" "..\dist\Otoko-Studio-Vault-Pro-%VERSION%-installation.exe" || exit /b 1
+rem L'empreinte a publier a cote de l'installateur (Releases) : le logiciel ne lance une mise a jour que si elle correspond.
+rem GitHub donne aussi la sienne (digest) ; ce fichier sert si elle manque.
+powershell -NoProfile -Command "$f='..\dist\Otoko-Studio-Vault-Pro-%VERSION%-installation.exe'; (Get-FileHash -Algorithm SHA256 $f).Hash.ToLower() + '  ' + (Split-Path $f -Leaf) | Set-Content -Encoding ascii ($f + '.sha256')" || exit /b 1
 echo Programme d'installation : %~dp0..\dist\Otoko-Studio-Vault-Pro-%VERSION%-installation.exe

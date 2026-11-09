@@ -574,9 +574,12 @@ fn route(st: &State, req: &Request, c: &mut Conn) -> Out {
     }
     match &p[1..] {
         ["maj"] => {
-            let pc = crate::newest_installer(&st.cfg).map(|x| x.0);
+            let found = crate::newest_installer(&st.cfg);
+            let pc_sha256 = found.as_ref().and_then(|(_, f)| installer_sha256(f));
+            let pc = found.map(|x| x.0);
             let apk = st.cfg.apk.as_ref().and_then(|a| std::fs::read_to_string(a.with_extension("version")).ok()).and_then(|t| t.trim().parse::<i64>().ok());
-            Ok(c.json(200, &json!({ "pc": pc, "apk_code": apk }))?)
+            // L'empreinte de l'installateur : l'autre PC ne lance que le fichier qui a exactement celle-ci.
+            Ok(c.json(200, &json!({ "pc": pc, "pc_sha256": pc_sha256, "apk_code": apk }))?)
         }
         ["distant", "etat"] => {
             if !distant_ok(st, req, c)? {
@@ -635,6 +638,24 @@ fn route(st: &State, req: &Request, c: &mut Conn) -> Out {
         }
         _ => Ok(c.error(404, "Adresse inconnue.")?),
     }
+}
+
+/// L'empreinte SHA-256 d'un installateur, recalculée seulement quand le fichier change (il pèse des dizaines de Mo, et
+/// `/api/maj` est demandé par chaque appareil).
+fn installer_sha256(f: &Path) -> Option<String> {
+    type Known = Option<(PathBuf, std::time::SystemTime, u64, String)>;
+    static LAST: Mutex<Known> = Mutex::new(None);
+    let m = std::fs::metadata(f).ok()?;
+    let (when, len) = (m.modified().ok()?, m.len());
+    let mut g = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((p, w, l, h)) = g.as_ref() {
+        if p == f && *w == when && *l == len {
+            return Some(h.clone());
+        }
+    }
+    let h = crate::complements::sha256_of(f).ok()?;
+    *g = Some((f.to_path_buf(), when, len, h.clone()));
+    Some(h)
 }
 
 /// L'état de la base : change à chaque écriture, sans la lire.
