@@ -217,6 +217,20 @@ fn columns(conn: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
     conn.prepare(&format!("PRAGMA table_info({table})"))?.query_map([], |r| r.get::<_, String>(1))?.collect()
 }
 
+/// Une vue enregistrée qui arrive : sa condition (nouvelle, ou celle déjà là si seuls les paramètres changent) doit rester
+/// une simple lecture des morceaux (`library::view_condition_ok`).
+fn view_ok(conn: &Connection, c: &Json) -> bool {
+    let sent = if c["changes"].is_object() { &c["changes"] } else { &c["row"] };
+    if sent.get("where_sql").is_none() && sent.get("params").is_none() {
+        return true;
+    }
+    let id = c["key"]["id"].as_i64().or(c["row"]["id"].as_i64());
+    let now: Option<(String, String)> = id.and_then(|id| conn.query_row("SELECT where_sql, IFNULL(params, '[]') FROM saved_views WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?))).ok());
+    let w = sent["where_sql"].as_str().map(str::to_string).or(now.as_ref().map(|n| n.0.clone())).unwrap_or_default();
+    let p = sent["params"].as_str().map(str::to_string).or(now.map(|n| n.1)).unwrap_or_else(|| "[]".into());
+    super::library::view_condition_ok(conn, &w, &p)
+}
+
 /// Sur le PC principal : applique ce qu'envoie la copie. La dernière écriture gagne. Rend le nombre de lignes appliquées.
 pub fn apply(conn: &Connection, changes: &[Json]) -> Result<usize, String> {
     let e = |x: rusqlite::Error| x.to_string();
@@ -234,6 +248,10 @@ pub fn apply(conn: &Connection, changes: &[Json]) -> Result<usize, String> {
             let vals: Vec<Value> = keys.iter().map(|k| key.get(*k).map(from_json).unwrap_or(Value::Null)).collect();
             let wh: Vec<String> = keys.iter().enumerate().map(|(i, k)| format!("{k} = ?{}", i + 1)).collect();
             n += tx.execute(&format!("DELETE FROM {table} WHERE {}", wh.join(" AND ")), params_from_iter(vals.iter())).map_err(e)?;
+            continue;
+        }
+        if table == "saved_views" && !view_ok(&tx, c) {
+            // Une condition douteuse n'entre pas dans la base ; le reste de l'envoi passe.
             continue;
         }
         if let Some(changes) = c["changes"].as_object() {
@@ -393,6 +411,27 @@ mod tests {
         sent(&copy, last).unwrap();
         assert_eq!(waiting(&copy), 0);
         assert_eq!(mini.query_row("SELECT notes FROM tracks WHERE id = 2", [], |r| r.get::<_, String>(0)).unwrap(), "nouvelle");
+    }
+
+    #[test]
+    fn a_saved_view_from_the_copy_stays_a_simple_read() {
+        let mini = base();
+        let view = |id: i64, w: &str, p: &str| json!({ "table": "saved_views", "op": "set", "row": { "id": id, "name": "Vue", "where_sql": w, "params": p } });
+        let good = [view(1, "bpm BETWEEN ? AND ? AND LOWER(genre) = LOWER(?)", "[120, 128, \"house\"]"), view(2, "file_format = 'wav' AND id IN (SELECT track_id FROM release_tracks)", "[]")];
+        assert_eq!(apply(&mini, &good).unwrap(), 2);
+        let bad = [
+            view(3, "1); DELETE FROM tracks; --", "[]"),
+            view(4, "id IN (WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT x FROM c)", "[]"),
+            view(5, "length(randomblob(1000000000)) > 0", "[]"),
+            view(6, "bpm > ?", "[]"),
+            view(7, "no_such_column = 1", "[]"),
+        ];
+        assert_eq!(apply(&mini, &bad).unwrap(), 0, "aucune condition douteuse n'entre");
+        // Modifier seulement les paramètres d'une vue : vérifiés avec sa condition déjà là.
+        let params = |p: &str| json!({ "table": "saved_views", "op": "set", "key": { "id": 1 }, "changes": { "params": p } });
+        assert_eq!(apply(&mini, &[params("[100, 110, \"techno\"]")]).unwrap(), 1);
+        assert_eq!(apply(&mini, &[params("[100]")]).unwrap(), 0, "un paramètre manque");
+        assert_eq!(mini.query_row("SELECT COUNT(*) FROM saved_views", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
     }
 
     #[test]

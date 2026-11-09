@@ -567,6 +567,23 @@ pub fn children(conn: &Connection, id: i64) -> rusqlite::Result<Vec<Row>> {
     rows(conn, "parent_id = ?", &[Value::Integer(id)], "added_at")
 }
 
+/// Une condition de vue enregistrée reçue d'ailleurs (l'autre PC) : elle est exécutée telle quelle à chaque affichage, donc
+/// elle doit être une seule expression qui ne fait que lire les morceaux, avec autant de paramètres que prévu. Les mots
+/// qui servent à faire tourner SQLite sans fin ou à remplir la mémoire sont refusés.
+pub fn view_condition_ok(conn: &Connection, where_sql: &str, params: &str) -> bool {
+    const REFUSED: [&str; 9] = ["recursive", "randomblob", "zeroblob", "printf", "format", "load_extension", "pragma", "attach", "detach"];
+    let w = where_sql.trim();
+    if w.is_empty() || w.contains(';') || w.contains("--") || w.contains("/*") {
+        return false;
+    }
+    let lower = w.to_lowercase();
+    if lower.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).any(|word| REFUSED.contains(&word)) {
+        return false;
+    }
+    let Ok(st) = conn.prepare(&format!("SELECT COUNT(*) FROM tracks WHERE ({w})")) else { return false };
+    st.readonly() && st.parameter_count() == json_params(params).len()
+}
+
 /// Enregistre la vue affichée (condition, paramètres, recherche) sous un nom.
 pub fn save_view(conn: &Connection, name: &str, where_sql: &str, params: &[Value], search: &str) -> rusqlite::Result<i64> {
     conn.execute("INSERT INTO saved_views (name, where_sql, params, search) VALUES (?1, ?2, ?3, ?4)", rusqlite::params![name, where_sql, params_json(params), search])?;
