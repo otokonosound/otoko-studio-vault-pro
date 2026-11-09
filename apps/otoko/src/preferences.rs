@@ -94,6 +94,7 @@ pub fn fill(app: &AppWindow, st: &mut State) {
     g.set_alias(setting(st, "artist_alias").into());
     g.set_aliases(model(prefs::aliases(c.conn()).into_iter().map(SharedString::from).collect()));
     g.set_continuous(lib::flag(c.conn(), "continuous_play", true));
+    g.set_pick_advance(lib::flag(c.conn(), "pick_advance", true));
     g.set_accents(model(prefs::ACCENTS.iter().filter_map(|a| prefs::parse_hex(a.1)).map(rgb).collect()));
     g.set_accent_names(model(prefs::ACCENTS.iter().map(|a| SharedString::from(a.0)).collect()));
     let acc = setting(st, "accent_color");

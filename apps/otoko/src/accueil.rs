@@ -207,6 +207,7 @@ pub fn act(app: &AppWindow, st: &mut State, what: &str) {
         }
         "to_publish" => crate::bibliotheque::open_view(app, st, "À publier", lib::TO_PUBLISH_SQL),
         "missing" => crate::bibliotheque::open_view(app, st, "Fichiers manquants", "missing = 1"),
+        "triage" => crate::bibliotheque::triage(app, st),
         "to_master" => crate::bibliotheque::open_view(app, st, "À masteriser", "missing = 0 AND status = 'to_master'"),
         "copies" => crate::bibliotheque::open_view(app, st, "Une seule copie", otoko_library::career::copies::SINGLE_SQL),
         "copies-setup" => {
