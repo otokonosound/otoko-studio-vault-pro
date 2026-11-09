@@ -1,0 +1,1420 @@
+// Carrière › Bibliothèque : la navigation à gauche (vues, mes vues, sorties, dossiers, genres…),
+// les pastilles et la recherche, le tableau aux colonnes choisies, le panneau de détails à droite.
+// Tout passe par le global `Lib`, rempli et écouté côté Rust (bibliotheque.rs).
+import { Theme } from "theme.slint";
+import { Icon, Btn, TBtn, Hit } from "components.slint";
+import { ListView, ScrollView, TextEdit } from "std-widgets.slint";
+
+export struct NavUi {
+    section: string,
+    label: string,
+    count: int,
+    color: color,
+    has-color: bool,
+    depth: int,
+    header: bool,
+    active: bool,
+    // Vue enregistrée ou dossier surveillé : on peut les retirer.
+    removable: bool,
+}
+
+export struct ColUi {
+    key: string,
+    label: string,
+    width: length,
+    // Position après la colonne Titre (qui prend la place restante).
+    x: length,
+    // 1 croissant, -1 décroissant, 0 pas trié par elle.
+    sort: int,
+    shown: bool,
+    right: bool,
+}
+
+export struct LibRowUi {
+    id: int,
+    cells: [string],
+    pick: int,
+    status-color: color,
+    playable: bool,
+    missing: bool,
+    archived: bool,
+    selected: bool,
+    playing: bool,
+    children: int,
+    cover: image,
+    has-cover: bool,
+    color: color,
+    wave: image,
+    has-wave: bool,
+}
+
+export struct LibFieldUi {
+    key: string,
+    label: string,
+    value: string,
+    // 0 texte, 1 choix dans une liste, 2 lecture seule.
+    kind: int,
+    choices: [string],
+    labels: [string],
+    // Édition en lot : les morceaux n'ont pas la même valeur.
+    mixed: bool,
+}
+
+export struct VersionUi {
+    id: int,
+    title: string,
+    sub: string,
+}
+
+export struct MarkUi {
+    x: float,
+    label: string,
+}
+
+export struct WheelUi {
+    code: string,
+    keys: string,
+    count: int,
+    x: length,
+    y: length,
+    current: bool,
+    compatible: bool,
+}
+
+export struct DlgItemUi {
+    id: int,
+    text: string,
+    sub: string,
+    checked: bool,
+    checkable: bool,
+    star: bool,
+    header: bool,
+}
+
+export struct DlgBtnUi {
+    id: string,
+    label: string,
+    primary: bool,
+}
+
+export global Lib {
+    in property <[NavUi]> nav;
+    in property <[ColUi]> cols;
+    in property <[ColUi]> all-cols;
+    in property <length> fixed-width;
+    // La colonne Onde : sa position après le titre (négative : pas montrée) et sa largeur.
+    in property <length> wave-x: -1px;
+    in property <length> wave-w;
+    in property <[LibRowUi]> rows;
+    in property <string> count-text;
+    in-out property <string> query;
+    in property <string> chip-release;
+    in property <string> chip-nature;
+    in property <string> chip-status;
+    in property <string> chip-genre;
+    in property <bool> chip-keep;
+    in property <bool> chip-unanalyzed;
+    in property <[string]> statuses;
+    in property <[string]> status-labels;
+    in property <[string]> genres;
+    in property <bool> filtered;
+    in property <string> title: "Tous les morceaux";
+    in property <string> help;
+    in property <string> scan-text;
+    in property <bool> scanning;
+    in property <int> selected-count;
+    in property <bool> selection-archived;
+    // Défilement du tableau (réglé pour montrer un morceau ouvert depuis ailleurs) et hauteur visible.
+    in-out property <length> table-scroll;
+    in-out property <length> table-view-h;
+    // Panneau de détails.
+    in property <bool> details-open;
+    in property <int> details-id;
+    in property <string> details-title;
+    in property <string> details-sub;
+    // Édition en lot (Ctrl+E sur plusieurs morceaux) : leur nombre, sinon 0.
+    in property <int> details-batch;
+    // 0 Infos, 1 Analyse, 2 Sortie, 3 Versions.
+    in-out property <int> details-tab;
+    in property <string> details-measures;
+    // Tempo, tonalité ou ambiance corrigés à la main : l'analyse n'y touche plus.
+    in property <bool> details-locked;
+    in property <string> details-tap;
+    in property <[VersionUi]> details-releases;
+    // Préférences : hauteur des lignes (aéré / compact), pochettes dans le tableau.
+    in property <length> row-h: 40px;
+    in property <bool> show-covers: true;
+    // Tableau ou cartes (avec pochettes), au choix (QCM du 4 novembre 2026).
+    in-out property <bool> cards;
+    callback cards-changed(bool);
+    // Demandes venues d'un raccourci ou de la palette : chercher, enregistrer la vue, aide.
+    in property <int> focus-search;
+    in property <int> ask-view;
+    in property <int> ask-help;
+    // Une touche du tableau : vrai si un raccourci (modifiable) l'a prise.
+    callback shortcut(string, bool, bool, bool) -> bool;
+    in property <[LibFieldUi]> fields;
+    in property <string> details-tags;
+    in property <string> details-info;
+    in property <[VersionUi]> versions;
+    in property <image> details-cover;
+    in property <bool> details-has-cover;
+    in property <string> details-error;
+    in property <bool> details-attached;
+    // Dialogue (renommer, réorganiser, doublons, compléter, rattacher) : vide quand il est fermé.
+    in property <string> dialog;
+    in property <string> dialog-title;
+    in property <string> dialog-text;
+    in property <string> dialog-input-label;
+    in-out property <string> dialog-input;
+    in property <string> dialog-input2-label;
+    in property <string> dialog-input2;
+    in property <string> dialog-flag-label;
+    in property <bool> dialog-flag;
+    in property <[DlgItemUi]> dialog-items;
+    in property <[DlgBtnUi]> dialog-buttons;
+    in property <string> undo-label;
+    in property <string> analysis-text;
+    in property <bool> analysing;
+    // Lecteur : une barre fine, ouverte en grand au clic.
+    in property <bool> player-open;
+    in-out property <bool> player-big;
+    in property <string> player-title;
+    in property <string> player-sub;
+    in property <bool> player-paused;
+    in property <[float]> player-peaks;
+    in property <[MarkUi]> player-markers;
+    in property <float> player-loop-a: -1;
+    in property <float> player-loop-b: -1;
+    in property <int> player-queue;
+    in property <[string]> player-queue-list;
+    in-out property <string> player-notes;
+    in property <string> player-compare;
+    in property <image> player-cover;
+    in property <bool> player-has-cover;
+    in property <float> player-pos;
+    in property <string> player-time;
+    callback player-toggle();
+    callback player-stop();
+    callback player-seek(float);
+    callback player-next();
+    callback player-prev();
+    callback player-loop(string);
+    callback player-mark(float);
+    callback player-unmark(int);
+    callback player-switch();
+    callback player-notes-edited(string);
+    // Roue de Camelot.
+    in property <bool> wheel-open;
+    in property <[WheelUi]> wheel;
+    in property <string> wheel-text;
+    callback dialog-input-edited(string);
+    callback dialog-toggle(int);
+    callback dialog-button(string);
+    callback nav-clicked(int);
+    callback nav-remove(int);
+    callback search(string);
+    callback set-chip(string, string);
+    callback reset();
+    callback save-view(string);
+    callback sort(string);
+    callback toggle-col(string);
+    callback row-clicked(int, bool, bool);
+    callback row-double(int);
+    callback play(int);
+    callback action(string);
+    callback key(string);
+    callback scan();
+    callback add-folder();
+    callback field-edited(string, string);
+    callback tags-edited(string);
+    callback version-clicked(int);
+    callback close-details();
+    callback details-tab-changed(int);
+    // Correction rapide de l'analyse : tempo ×2 ou ÷2, tempo tapé, retour à l'analyse.
+    callback bpm-scale(float);
+    callback tap();
+    callback tap-keep();
+    callback unlock();
+}
+
+component LChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    in property <bool> menu;
+    callback clicked;
+    width: lt.preferred-width + (menu ? 30px : 22px);
+    height: 28px;
+    border-radius: 14px;
+    background: on ? Theme.ember-soft : (ta.has-hover ? Theme.ink3 : Theme.ink2);
+    border-width: 1px;
+    border-color: on ? Theme.ember : Theme.line2;
+    lt := Text { x: 11px; text: root.text; color: root.on ? Theme.ember : Theme.text2; font-size: 11.5px; font-weight: 700; vertical-alignment: center; height: parent.height; }
+    if root.menu: Icon { x: parent.width - 19px; y: (parent.height - 10px) / 2; source: @image-url("icons/chevron.svg"); width: 10px; height: 10px; tint: root.on ? Theme.ember : Theme.text3; }
+    ta := Hit { ring-radius: 14px; clicked => { root.clicked(); } }
+}
+
+component MenuRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    height: 28px;
+    border-radius: 6px;
+    background: ta.has-hover ? Theme.ink3 : transparent;
+    if root.on: Icon { x: 9px; y: (parent.height - 12px) / 2; source: @image-url("icons/check.svg"); width: 12px; height: 12px; tint: Theme.ember; }
+    Text { x: 27px; width: parent.width - 37px; text: root.text; color: root.on ? Theme.ember : Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+    ta := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// Un onglet du panneau de détails.
+component DTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    height: 28px;
+    horizontal-stretch: 1;
+    border-radius: 7px;
+    background: root.on ? Theme.ink4 : (ta.has-hover ? Theme.ink3 : transparent);
+    Text { text: root.text; color: root.on ? Theme.text : Theme.text2; font-size: 12px; font-weight: 700; }
+    ta := Hit { ring-radius: 7px; clicked => { root.clicked(); } }
+}
+
+// Le panneau de détails d'un morceau (ou d'une sélection), en quatre onglets.
+component DetailsPanel inherits Rectangle {
+    property <string> menu-field;
+    property <[string]> menu-choices;
+    property <[string]> menu-labels;
+    width: 340px;
+    border-radius: 12px;
+    background: Theme.ink2;
+    clip: true;
+    ScrollView {
+        VerticalLayout {
+            padding: 14px;
+            spacing: 8px;
+            alignment: start;
+            HorizontalLayout {
+                spacing: 10px;
+                Rectangle {
+                    width: 72px;
+                    height: 72px;
+                    border-radius: 8px;
+                    background: Theme.ink3;
+                    clip: true;
+                    if Lib.details-has-cover: Image { width: 72px; height: 72px; source: Lib.details-cover; image-fit: cover; }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 3px;
+                    Text { text: Lib.details-title; color: Theme.text; font-size: 15px; font-weight: 800; font-family: Theme.display-font; wrap: word-wrap; }
+                    Text { text: Lib.details-sub; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+                }
+                Rectangle {
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 6px;
+                    background: xa.has-hover ? Theme.ink4 : transparent;
+                    Icon { source: @image-url("icons/close.svg"); width: 12px; height: 12px; tint: Theme.text2; }
+                    xa := Hit { ring-radius: 6px; clicked => { Lib.close-details(); } }
+                }
+            }
+            if Lib.details-batch == 0: Rectangle {
+                height: 32px;
+                border-radius: 9px;
+                background: Theme.ink1;
+                HorizontalLayout {
+                    padding: 2px;
+                    spacing: 2px;
+                    for t[ti] in ["Infos", "Analyse", "Sortie", "Versions"]: DTab { text: t; on: Lib.details-tab == ti; clicked => { Lib.details-tab-changed(ti); } }
+                }
+            }
+            if Lib.details-error != "": Text { text: Lib.details-error; color: Theme.danger; font-size: 11.5px; wrap: word-wrap; }
+            for f in Lib.fields: VerticalLayout {
+                spacing: 3px;
+                Text { text: f.label; color: Theme.text3; font-size: 10.5px; font-weight: 700; }
+                if f.kind == 0: Rectangle {
+                    height: f.key == "notes" ? 60px : 30px;
+                    border-radius: 7px;
+                    background: Theme.ink3;
+                    if f.mixed && fti.text == "": Text { x: 9px; text: "≠ plusieurs valeurs"; color: Theme.ember2; font-size: 12px; vertical-alignment: center; height: 30px; }
+                    fti := TextInput {
+                        x: 9px;
+                        y: f.key == "notes" ? 6px : 0;
+                        width: parent.width - 18px;
+                        height: f.key == "notes" ? parent.height - 12px : parent.height;
+                        text: f.value;
+                        color: Theme.text;
+                        font-size: 12.5px;
+                        vertical-alignment: f.key == "notes" ? top : center;
+                        single-line: f.key != "notes";
+                        wrap: f.key == "notes" ? word-wrap : no-wrap;
+                        edited => { Lib.field-edited(f.key, self.text); }
+                    }
+                }
+                if f.kind == 1: Rectangle {
+                    height: 30px;
+                    border-radius: 7px;
+                    background: fa.has-hover ? Theme.ink4 : Theme.ink3;
+                    Text { x: 9px; text: f.value; color: Theme.text; font-size: 12.5px; vertical-alignment: center; height: parent.height; }
+                    Icon { x: parent.width - 21px; y: (parent.height - 11px) / 2; source: @image-url("icons/chevron.svg"); width: 11px; height: 11px; tint: Theme.text3; }
+                    fa := Hit {
+                        ring-radius: 7px;
+                        clicked => {
+                            root.menu-field = f.key;
+                            root.menu-choices = f.choices;
+                            root.menu-labels = f.labels;
+                            field-popup.show();
+                        }
+                    }
+                }
+                if f.kind == 2: Text { text: f.value; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+            }
+
+            // ---------- Infos
+            if Lib.details-batch == 0 && Lib.details-tab == 0: VerticalLayout {
+                spacing: 3px;
+                Text { text: "TAGS (séparés par des virgules)"; color: Theme.text3; font-size: 10.5px; font-weight: 700; }
+                Rectangle {
+                    height: 30px;
+                    border-radius: 7px;
+                    background: Theme.ink3;
+                    TextInput {
+                        x: 9px;
+                        width: parent.width - 18px;
+                        height: 100%;
+                        text: Lib.details-tags;
+                        color: Theme.text;
+                        font-size: 12.5px;
+                        vertical-alignment: center;
+                        single-line: true;
+                        edited => { Lib.tags-edited(self.text); }
+                    }
+                }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 0: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Fiche projet (remix, set, prod…)"; height: 28px; clicked => { Lib.action("project"); } }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 0: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Écrire les tags dans le fichier"; height: 28px; clicked => { Lib.action("write-tags"); } }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 0: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Ouvrir le dossier"; height: 28px; ghost: true; clicked => { Lib.action("folder"); } }
+                Btn { text: Lib.selection-archived ? "Sortir des archives" : "Archiver"; height: 28px; ghost: true; clicked => { Lib.action("archive"); } }
+            }
+
+            // ---------- Analyse : corriger vite ce qui est faux
+            if Lib.details-batch == 0 && Lib.details-tab == 1: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Tempo ÷ 2"; height: 28px; clicked => { Lib.bpm-scale(0.5); } }
+                Btn { text: "Tempo × 2"; height: 28px; clicked => { Lib.bpm-scale(2.0); } }
+                Btn { text: "Taper"; height: 28px; primary: true; clicked => { Lib.tap(); } }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 1 && Lib.details-tap != "": HorizontalLayout {
+                spacing: 8px;
+                Text { horizontal-stretch: 1; text: Lib.details-tap; color: Theme.lagoon; font-size: 12px; vertical-alignment: center; }
+                Btn { text: "Garder"; height: 26px; clicked => { Lib.tap-keep(); } }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 1 && Lib.details-locked: HorizontalLayout {
+                spacing: 8px;
+                Text { horizontal-stretch: 1; text: "Corrigé à la main : l'analyse n'y touche plus."; color: Theme.text2; font-size: 11.5px; wrap: word-wrap; vertical-alignment: center; }
+                Btn { text: "Rendre à l'analyse"; ghost: true; height: 26px; clicked => { Lib.unlock(); } }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 1: Text { text: Lib.details-measures; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+            if Lib.details-batch == 0 && Lib.details-tab == 1: HorizontalLayout {
+                alignment: start;
+                Btn { text: "Analyser à nouveau"; height: 28px; ghost: true; clicked => { Lib.action("analyze"); } }
+            }
+
+            // ---------- Sortie
+            if Lib.details-batch == 0 && Lib.details-tab == 2 && Lib.details-releases.length > 0: Text { text: "DANS LES SORTIES"; color: Theme.text3; font-size: 10.5px; font-weight: 700; }
+            if Lib.details-batch == 0 && Lib.details-tab == 2: VerticalLayout {
+                for v in Lib.details-releases: Rectangle {
+                    height: 36px;
+                    border-radius: 7px;
+                    background: rla.has-hover ? Theme.ink3 : transparent;
+                    Text { x: 8px; y: 3px; width: parent.width - 16px; text: v.title; color: Theme.text; font-size: 12px; font-weight: 600; overflow: elide; }
+                    Text { x: 8px; y: 19px; width: parent.width - 16px; text: v.sub; color: Theme.text3; font-size: 10.5px; overflow: elide; }
+                    rla := Hit { ring-radius: 7px; clicked => { Lib.action("release:" + v.id); } }
+                }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 2: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Préparer la publication"; height: 28px; clicked => { Lib.action("publish"); } }
+                Btn { text: "Ajouter à une sortie…"; height: 28px; ghost: true; clicked => { Lib.action("add-to-release"); } }
+            }
+
+            // ---------- Versions et fichier
+            if Lib.details-batch == 0 && Lib.details-tab == 3 && Lib.versions.length > 0: Text { text: "VERSIONS ET STEMS"; color: Theme.text3; font-size: 10.5px; font-weight: 700; }
+            if Lib.details-batch == 0 && Lib.details-tab == 3: VerticalLayout {
+                for v in Lib.versions: Rectangle {
+                    height: 36px;
+                    border-radius: 7px;
+                    background: va.has-hover ? Theme.ink3 : transparent;
+                    Text { x: 8px; y: 3px; width: parent.width - 16px; text: v.title; color: Theme.text; font-size: 12px; font-weight: 600; overflow: elide; }
+                    Text { x: 8px; y: 19px; width: parent.width - 16px; text: v.sub; color: Theme.text3; font-size: 10.5px; overflow: elide; }
+                    va := Hit { ring-radius: 7px; clicked => { Lib.version-clicked(v.id); } }
+                }
+            }
+            if Lib.details-batch > 0 || Lib.details-tab == 3: Text { text: Lib.details-info; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+            if Lib.details-batch == 0 && Lib.details-tab == 3: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Ouvrir le projet"; height: 28px; primary: true; clicked => { Lib.action("open-project"); } }
+                Btn { text: "Masteriser"; height: 28px; ghost: true; clicked => { Lib.action("master"); } }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 3: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Rattacher à un morceau…"; height: 28px; ghost: true; clicked => { Lib.action("attach"); } }
+                if Lib.details-attached: Btn { text: "Détacher"; height: 28px; ghost: true; clicked => { Lib.action("detach"); } }
+            }
+
+            // ---------- Édition en lot
+            if Lib.details-batch > 0: HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Écrire les tags dans les fichiers"; height: 28px; clicked => { Lib.action("write-tags"); } }
+                Btn { text: "Genre et ambiance…"; height: 28px; ghost: true; clicked => { Lib.action("genre"); } }
+            }
+        }
+    }
+    field-popup := PopupWindow {
+        x: 14px;
+        y: 120px;
+        width: 300px;
+        height: min(400px, 14px + root.menu-labels.length * 28px);
+        Rectangle {
+            background: Theme.ink2;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.line2;
+            ScrollView {
+                VerticalLayout {
+                    padding: 6px;
+                    for l[li] in root.menu-labels: MenuRow { text: l; clicked => { Lib.field-edited(root.menu-field, root.menu-choices[li]); field-popup.close(); } }
+                }
+            }
+        }
+    }
+}
+
+export component LibraryView inherits Rectangle {
+    property <string> view-name;
+    // Trop étroit pour le tableau et le panneau de détails côte à côte.
+    property <bool> tight;
+    changed width => { root.tight = root.width < 1320px; }
+    init => { root.tight = root.width < 1320px; }
+    // Un raccourci ou la palette demande : la recherche, enregistrer la vue, l'aide de la recherche.
+    property <int> want-search: Lib.focus-search;
+    property <int> want-view: Lib.ask-view;
+    property <int> want-help: Lib.ask-help;
+    changed want-search => { search.focus(); }
+    changed want-view => { root.view-name = ""; view-popup.show(); }
+    changed want-help => { help-popup.show(); }
+    VerticalLayout {
+    width: 100%;
+    height: 100%;
+    spacing: 10px;
+    HorizontalLayout {
+    vertical-stretch: 1;
+    spacing: 12px;
+
+    // ---------- navigation
+    VerticalLayout {
+        width: 236px;
+        spacing: 8px;
+        ListView {
+            vertical-stretch: 1;
+            for n[i] in Lib.nav: Rectangle {
+                height: n.header ? 30px : 28px;
+                border-radius: 7px;
+                background: n.active ? Theme.ink3 : (na.has-hover && !n.header ? Theme.ink2 : transparent);
+                if n.header: Text { x: 8px; y: 12px; text: n.section; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 0.6px; }
+                if !n.header && n.has-color: Rectangle { x: 10px + n.depth * 14px; y: (parent.height - 8px) / 2; width: 8px; height: 8px; border-radius: 4px; background: n.color; }
+                if !n.header: Text {
+                    x: 24px + n.depth * 14px;
+                    width: parent.width - 24px - n.depth * 14px - 44px;
+                    text: n.label;
+                    color: n.active ? Theme.text : Theme.text2;
+                    font-size: 12.5px;
+                    font-weight: n.active ? 700 : 500;
+                    vertical-alignment: center;
+                    height: parent.height;
+                    overflow: elide;
+                }
+                if !n.header && !(n.removable && na.has-hover): Text { x: parent.width - 42px; width: 34px; text: n.count; color: Theme.text3; font-size: 11px; font-family: Theme.mono-font; horizontal-alignment: right; vertical-alignment: center; height: parent.height; }
+                na := TouchArea { enabled: !n.header; mouse-cursor: pointer; clicked => { Lib.nav-clicked(i); } }
+                if n.removable && na.has-hover: Rectangle {
+                    x: parent.width - 28px;
+                    width: 22px;
+                    height: 22px;
+                    y: 3px;
+                    border-radius: 6px;
+                    background: ra.has-hover ? Theme.ink4 : transparent;
+                    Icon { source: @image-url("icons/close.svg"); width: 11px; height: 11px; tint: Theme.text2; }
+                    ra := TouchArea { mouse-cursor: pointer; clicked => { Lib.nav-remove(i); } }
+                }
+            }
+        }
+        Text { text: Lib.scan-text; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+        if Lib.analysis-text != "": HorizontalLayout {
+            spacing: 6px;
+            Text { horizontal-stretch: 1; text: Lib.analysis-text; color: Theme.lagoon; font-size: 11px; wrap: word-wrap; vertical-alignment: center; }
+            if Lib.analysing: Btn { text: "Arrêter"; height: 24px; ghost: true; clicked => { Lib.action("stop-analysis"); } }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Btn { text: "+ Dossier"; height: 28px; clicked => { Lib.add-folder(); } }
+            Btn { text: Lib.scanning ? "Analyse…" : "Mettre à jour"; height: 28px; ghost: true; clicked => { Lib.scan(); } }
+        }
+    }
+
+    // ---------- tableau
+    VerticalLayout {
+        horizontal-stretch: 1;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 34px;
+                border-radius: 10px;
+                background: Theme.ink2;
+                Icon { x: 12px; source: @image-url("icons/search.svg"); width: 14px; height: 14px; tint: Theme.text3; }
+                if Lib.query == "": Text { x: 34px; width: parent.width - 70px; text: "Rechercher : titre, genre… ou bpm:120-128 key:Am camelot:8A status:terminé"; color: Theme.text3; font-size: 12.5px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                search := TextInput {
+                    x: 34px;
+                    width: parent.width - 70px;
+                    height: 100%;
+                    text: Lib.query;
+                    color: Theme.text;
+                    font-size: 12.5px;
+                    vertical-alignment: center;
+                    single-line: true;
+                    edited => { Lib.query = self.text; Lib.search(self.text); }
+                }
+                Rectangle {
+                    x: parent.width - 30px;
+                    width: 24px;
+                    height: 24px;
+                    y: 5px;
+                    border-radius: 12px;
+                    background: ha.has-hover ? Theme.ink4 : Theme.ink3;
+                    Text { text: "?"; color: Theme.text2; font-size: 12px; font-weight: 800; }
+                    ha := TouchArea { mouse-cursor: pointer; clicked => { help-popup.show(); } }
+                }
+                help-popup := PopupWindow {
+                    x: parent.width - 520px;
+                    y: 38px;
+                    width: 520px;
+                    Rectangle {
+                        background: Theme.ink2;
+                        border-radius: 10px;
+                        border-width: 1px;
+                        border-color: Theme.line2;
+                        VerticalLayout {
+                            padding: 14px;
+                            Text { text: Lib.help; color: Theme.text; font-size: 12px; wrap: word-wrap; }
+                        }
+                    }
+                }
+            }
+            Text { text: Lib.count-text; width: min(self.preferred-width, 300px); color: Theme.text3; font-size: 12px; vertical-alignment: center; overflow: elide; }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            // Sortie et nature : un menu chacune (la rangée tient avec le panneau de détails ouvert).
+            LChip {
+                text: Lib.chip-release == "" ? "Sortie" : Lib.chip-release == "single" ? "Singles" : Lib.chip-release == "ep" ? "EP" : "Albums";
+                on: Lib.chip-release != "";
+                menu: true;
+                clicked => { release-popup.show(); }
+            }
+            LChip {
+                text: Lib.chip-nature == "" ? "Nature" : Lib.chip-nature == "remix" ? "Remix" : Lib.chip-nature == "edit" ? "Edits" : Lib.chip-nature == "mashup" ? "Mashups" : Lib.chip-nature == "set" ? "Sets" : "Prods";
+                on: Lib.chip-nature != "";
+                menu: true;
+                clicked => { nature-popup.show(); }
+            }
+            LChip { text: "Gardés"; on: Lib.chip-keep; clicked => { Lib.set-chip("keep", Lib.chip-keep ? "" : "1"); } }
+            LChip { text: "Non analysés"; on: Lib.chip-unanalyzed; clicked => { Lib.set-chip("unanalyzed", Lib.chip-unanalyzed ? "" : "1"); } }
+            status-chip := LChip {
+                text: Lib.chip-status == "" ? "Statut" : "Statut : " + Lib.chip-status;
+                on: Lib.chip-status != "";
+                menu: true;
+                clicked => { status-popup.show(); }
+            }
+            genre-chip := LChip {
+                text: Lib.chip-genre == "" ? "Genre" : "Genre : " + Lib.chip-genre;
+                on: Lib.chip-genre != "";
+                menu: true;
+                clicked => { genre-popup.show(); }
+            }
+            if Lib.filtered: TBtn { icon: @image-url("icons/close.svg"); width: 28px; height: 28px; clicked => { Lib.reset(); } }
+            Rectangle { horizontal-stretch: 1; }
+            if Lib.filtered: Btn { text: "Garder la vue…"; height: 28px; clicked => { root.view-name = ""; view-popup.show(); } }
+            Btn { text: Lib.cards ? "Tableau" : "Cartes"; height: 28px; ghost: true; clicked => { Lib.cards-changed(!Lib.cards); } }
+            Btn { text: "Outils"; height: 28px; ghost: true; clicked => { tools-popup.show(); } }
+            Btn { text: "Colonnes"; height: 28px; ghost: true; clicked => { cols-popup.show(); } }
+        }
+        release-popup := PopupWindow {
+            x: 0;
+            y: 80px;
+            width: 200px;
+            Rectangle {
+                background: Theme.ink2;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                VerticalLayout {
+                    padding: 6px;
+                    for c in [{ k: "", t: "Toutes les sorties" }, { k: "single", t: "Singles" }, { k: "ep", t: "EP" }, { k: "album", t: "Albums" }]: MenuRow {
+                        text: c.t;
+                        on: Lib.chip-release == c.k;
+                        clicked => { Lib.set-chip("release", c.k); }
+                    }
+                }
+            }
+        }
+        nature-popup := PopupWindow {
+            x: 90px;
+            y: 80px;
+            width: 200px;
+            Rectangle {
+                background: Theme.ink2;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                VerticalLayout {
+                    padding: 6px;
+                    for c in [{ k: "", t: "Toutes les natures" }, { k: "remix", t: "Remix" }, { k: "edit", t: "Edits" }, { k: "mashup", t: "Mashups" }, { k: "set", t: "Sets" }, { k: "prod", t: "Prods" }]: MenuRow {
+                        text: c.t;
+                        on: Lib.chip-nature == c.k;
+                        clicked => { Lib.set-chip("nature", c.k); }
+                    }
+                }
+            }
+        }
+        status-popup := PopupWindow {
+            x: 520px;
+            y: 80px;
+            width: 220px;
+            Rectangle {
+                background: Theme.ink2;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                VerticalLayout {
+                    padding: 6px;
+                    MenuRow { text: "Tous les statuts"; on: Lib.chip-status == ""; clicked => { Lib.set-chip("status", ""); } }
+                    for s[si] in Lib.status-labels: MenuRow { text: s; on: Lib.chip-status == s; clicked => { Lib.set-chip("status", Lib.statuses[si]); } }
+                }
+            }
+        }
+        genre-popup := PopupWindow {
+            x: 620px;
+            y: 80px;
+            width: 240px;
+            height: min(420px, 20px + (Lib.genres.length + 1) * 28px);
+            Rectangle {
+                background: Theme.ink2;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                ScrollView {
+                    VerticalLayout {
+                        padding: 6px;
+                        MenuRow { text: "Tous les genres"; on: Lib.chip-genre == ""; clicked => { Lib.set-chip("genre", ""); } }
+                        for g in Lib.genres: MenuRow { text: g; on: Lib.chip-genre == g; clicked => { Lib.set-chip("genre", g); } }
+                    }
+                }
+            }
+        }
+        tools-popup := PopupWindow {
+            x: parent.width - 700px;
+            y: 80px;
+            width: 660px;
+            Rectangle {
+                background: Theme.ink2;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                HorizontalLayout {
+                    padding: 6px;
+                    spacing: 6px;
+                    VerticalLayout {
+                        width: 320px;
+                        alignment: start;
+                        MenuRow { text: "Analyser la sélection (ou tout l'affiché)  (Ctrl+Maj+A)"; clicked => { Lib.action("analyze"); } }
+                        MenuRow { text: "Analyser les morceaux jamais analysés"; clicked => { Lib.action("analyze-missing"); } }
+                        MenuRow { text: "Morceaux compatibles (tonalité et tempo)  (Ctrl+Maj+K)"; clicked => { Lib.action("compatible"); } }
+                        MenuRow { text: "Roue de Camelot"; clicked => { Lib.action("wheel"); } }
+                        MenuRow { text: "Comparer les deux morceaux sélectionnés  (Ctrl+D)"; clicked => { Lib.key("compare"); } }
+                        MenuRow { text: "Ajouter la sélection à la file  (Q)"; clicked => { Lib.key("q"); } }
+                        MenuRow { text: "Voir la file de lecture…"; clicked => { Lib.action("queue"); } }
+                        MenuRow { text: "Ajouter au mastering  (Ctrl+Maj+M)"; clicked => { Lib.action("master"); } }
+                        MenuRow { text: "Éditer les tags (un ou plusieurs)…  (Ctrl+E)"; clicked => { Lib.action("edit-tags"); } }
+                        MenuRow { text: "Genre et ambiance…  (Ctrl+G)"; clicked => { Lib.action("genre"); } }
+                        MenuRow { text: "Genres proposés par lots…"; clicked => { Lib.action("batches"); } }
+                        MenuRow { text: "Construire un set (sélection ou vue)…"; clicked => { Lib.action("set-builder"); } }
+                        MenuRow { text: "Carnet de clients…"; clicked => { Lib.action("clients"); } }
+                    }
+                    VerticalLayout {
+                        width: 320px;
+                        alignment: start;
+                        MenuRow { text: "Renommer la sélection…  (F2)"; clicked => { Lib.action("rename"); } }
+                        MenuRow { text: "Réorganiser la sélection en dossiers…"; clicked => { Lib.action("reorganize"); } }
+                        MenuRow { text: Lib.undo-label == "" ? "Rien à annuler" : "Annuler : " + Lib.undo-label + "  (Ctrl+Z)"; clicked => { Lib.action("undo"); } }
+                        MenuRow { text: "Écrire les tags dans les fichiers (sélection)"; clicked => { Lib.action("write-tags"); } }
+                        MenuRow { text: "Compléter genres et artistes…"; clicked => { Lib.action("complete"); } }
+                        MenuRow { text: "Classer remix, edits et mashups…"; clicked => { Lib.action("nature"); } }
+                        MenuRow { text: "Statuts automatiques…"; clicked => { Lib.action("statuses"); } }
+                        MenuRow { text: "Doublons…"; clicked => { Lib.action("dupes"); } }
+                        MenuRow { text: "Dossiers en double…"; clicked => { Lib.action("dupe-folders"); } }
+                        MenuRow { text: "Dossiers surveillés et archives…"; clicked => { Lib.action("watch"); } }
+                        MenuRow { text: "Changer l'emplacement de la bibliothèque…"; clicked => { Lib.action("relocate"); } }
+                        MenuRow { text: "Exporter la vue en CSV…"; clicked => { Lib.action("export-csv"); } }
+                        MenuRow { text: "Retirer la sélection de la bibliothèque"; clicked => { Lib.action("forget"); } }
+                    }
+                }
+            }
+        }
+        cols-popup := PopupWindow {
+            x: parent.width - 240px;
+            y: 80px;
+            width: 230px;
+            Rectangle {
+                background: Theme.ink2;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                VerticalLayout {
+                    padding: 6px;
+                    for c in Lib.all-cols: MenuRow { text: c.label == "" ? "Sélection (P / X)" : c.label; on: c.shown; clicked => { Lib.toggle-col(c.key); } }
+                }
+            }
+        }
+        view-popup := PopupWindow {
+            x: parent.width - 420px;
+            y: 80px;
+            width: 320px;
+            close-policy: close-on-click-outside;
+            Rectangle {
+                background: Theme.ink2;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text { text: "Nom de la vue (elle apparaît dans « Mes vues », ici et sur le téléphone)"; color: Theme.text2; font-size: 11.5px; wrap: word-wrap; }
+                    Rectangle {
+                        height: 32px;
+                        border-radius: 8px;
+                        background: Theme.ink3;
+                        vn := TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: 100%;
+                            text: root.view-name;
+                            color: Theme.text;
+                            font-size: 12.5px;
+                            vertical-alignment: center;
+                            single-line: true;
+                            edited => { root.view-name = self.text; }
+                            accepted => { Lib.save-view(self.text); view-popup.close(); }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: end;
+                        Btn { text: "Enregistrer"; primary: true; height: 28px; clicked => { Lib.save-view(root.view-name); view-popup.close(); } }
+                    }
+                }
+            }
+        }
+
+        // ---------- en-tête et lignes
+        table := Rectangle {
+            vertical-stretch: 1;
+            border-radius: 12px;
+            background: Theme.ink2;
+            clip: true;
+            property <length> title-w: max(220px, self.width - 56px - Lib.fixed-width - 12px);
+            VerticalLayout {
+                Rectangle {
+                    height: 32px;
+                    background: Theme.ink3;
+                    for c in Lib.cols: Rectangle {
+                        x: 56px + (c.key == "title" ? 0 : table.title-w + c.x);
+                        width: c.key == "title" ? table.title-w : c.width;
+                        Text {
+                            x: c.right ? 0 : 6px;
+                            width: parent.width - 12px;
+                            text: c.label + (c.sort == 1 ? " ↑" : c.sort == -1 ? " ↓" : "");
+                            color: c.sort != 0 ? Theme.text : Theme.text3;
+                            font-size: 11px;
+                            font-weight: 700;
+                            horizontal-alignment: c.right ? right : left;
+                            vertical-alignment: center;
+                            height: parent.height;
+                            overflow: elide;
+                        }
+                        TouchArea { mouse-cursor: pointer; clicked => { Lib.sort(c.key); } }
+                    }
+                }
+                rows-scope := FocusScope {
+                    vertical-stretch: 1;
+                    property <bool> keyboard;
+                    changed height => { Lib.table-view-h = self.height; }
+                    init => { Lib.table-view-h = self.height; }
+                    focus-gained(reason) => { self.keyboard = reason == FocusReason.tab-navigation; }
+                    focus-lost(reason) => { self.keyboard = false; }
+                    key-pressed(e) => {
+                        // Les raccourcis de Studio Vault (modifiables dans Réglages › Carrière) d'abord.
+                        if (Lib.shortcut(e.text, e.modifiers.control, e.modifiers.shift, e.modifiers.alt)) { return EventResult.accept; }
+                        // Tab passe de A à B pendant une comparaison ; sinon il va à la commande suivante.
+                        if (e.text == Key.Tab && Lib.player-compare != "") { Lib.key(e.text); return EventResult.accept; }
+                        // Puis les touches fixes du tableau : naviguer, ouvrir.
+                        if (!e.modifiers.control && (e.text == Key.Return || e.text == Key.UpArrow || e.text == Key.DownArrow || e.text == Key.Home || e.text == Key.End || e.text == Key.PageUp || e.text == Key.PageDown || e.text == Key.Escape)) {
+                            Lib.key(e.text);
+                            return EventResult.accept;
+                        }
+                        return EventResult.reject;
+                    }
+                    // Cartes : pochette, titre, les trois colonnes suivantes.
+                    if Lib.cards: cards := ScrollView {
+                        property <int> cols: max(1, floor(self.visible-width / 176px));
+                        content-height: ceil(Lib.rows.length / self.cols) * 216px;
+                        for r[i] in Lib.rows: Rectangle {
+                            x: mod(i, cards.cols) * 176px + 8px;
+                            y: floor(i / cards.cols) * 216px;
+                            width: 164px;
+                            height: 208px;
+                            border-radius: 12px;
+                            background: r.selected ? Theme.ember-soft : (cta.has-hover ? Theme.ink3 : Theme.ink2);
+                            border-width: 1px;
+                            border-color: r.selected ? Theme.ember : Theme.line2;
+                            opacity: r.missing ? 0.5 : 1;
+                            cta := TouchArea {
+                                pointer-event(e) => {
+                                    if (e.kind == PointerEventKind.down) {
+                                        rows-scope.focus();
+                                        if (e.button == PointerEventButton.left) {
+                                            Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                                        } else if (e.button == PointerEventButton.right) {
+                                            if (!r.selected) { Lib.row-clicked(i, false, false); }
+                                            menu.show();
+                                        }
+                                    }
+                                }
+                                double-clicked => { Lib.row-double(i); }
+                            }
+                            Rectangle {
+                                x: 8px;
+                                y: 8px;
+                                width: 148px;
+                                height: 148px;
+                                border-radius: 9px;
+                                background: r.color.with-alpha(0.25);
+                                clip: true;
+                                if r.has-cover: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
+                                if !r.has-cover || cpa.has-hover || r.playing: Rectangle {
+                                    background: r.has-cover ? #00000066 : transparent;
+                                    Icon { source: r.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg"); width: 22px; height: 22px; tint: r.playable ? (r.has-cover ? #ffffff : r.color) : Theme.text3; }
+                                }
+                                cpa := TouchArea { enabled: r.playable; mouse-cursor: pointer; clicked => { Lib.play(i); } }
+                            }
+                            Text { x: 10px; y: 160px; width: parent.width - 20px; text: r.cells[0]; color: r.playing ? Theme.lagoon : Theme.text; font-size: 12.5px; font-weight: 600; overflow: elide; }
+                            Text {
+                                x: 10px;
+                                y: 180px;
+                                width: parent.width - 20px;
+                                // La colonne Onde n'a pas de texte : les cartes montrent les trois suivantes.
+                                property <int> off: Lib.wave-x >= 0 ? 1 : 0;
+                                text: (r.cells.length > 1 + self.off ? r.cells[1 + self.off] : "") + (r.cells.length > 2 + self.off && r.cells[2 + self.off] != "" ? " · " + r.cells[2 + self.off] : "") + (r.cells.length > 3 + self.off && r.cells[3 + self.off] != "" ? " · " + r.cells[3 + self.off] : "");
+                                color: Theme.text3;
+                                font-size: 11px;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                    if !Lib.cards: ListView {
+                        content-y <=> Lib.table-scroll;
+                        for r[i] in Lib.rows: Rectangle {
+                            height: Lib.row-h;
+                            background: r.selected ? Theme.ember-soft : (rta.has-hover ? Theme.ink3 : transparent);
+                            opacity: r.missing ? 0.5 : 1;
+                            rta := TouchArea {
+                                pointer-event(e) => {
+                                    if (e.kind == PointerEventKind.down) {
+                                        rows-scope.focus();
+                                        if (e.button == PointerEventButton.left) {
+                                            Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                                        } else if (e.button == PointerEventButton.right) {
+                                            if (!r.selected) { Lib.row-clicked(i, false, false); }
+                                            menu.show();
+                                        }
+                                    }
+                                }
+                                double-clicked => { Lib.row-double(i); }
+                            }
+                            // Pochette (clic : écouter).
+                            Rectangle {
+                                x: 10px;
+                                width: Lib.row-h - 8px;
+                                height: Lib.row-h - 8px;
+                                y: 4px;
+                                border-radius: 6px;
+                                background: r.color.with-alpha(0.25);
+                                clip: true;
+                                if r.has-cover && Lib.show-covers: Image { width: parent.width; height: parent.height; source: r.cover; image-fit: cover; }
+                                if !r.has-cover || !Lib.show-covers || pa.has-hover || r.playing: Rectangle {
+                                    background: r.has-cover && Lib.show-covers ? #00000066 : transparent;
+                                    Icon { source: r.playing ? @image-url("icons/pause.svg") : @image-url("icons/play.svg"); width: 12px; height: 12px; tint: r.playable ? (r.has-cover && Lib.show-covers ? #ffffff : r.color) : Theme.text3; }
+                                }
+                                pa := TouchArea { enabled: r.playable; mouse-cursor: pointer; clicked => { Lib.play(i); } }
+                            }
+                            if r.has-wave && Lib.wave-x >= 0: Image {
+                                x: 56px + table.title-w + Lib.wave-x + 6px;
+                                y: (parent.height - self.height) / 2;
+                                width: Lib.wave-w - 12px;
+                                height: min(24px, parent.height - 10px);
+                                source: r.wave;
+                                image-fit: fill;
+                                colorize: r.playing ? Theme.lagoon : (r.selected ? Theme.ember : Theme.text3);
+                            }
+                            for c[ci] in Lib.cols: Text {
+                                x: 56px + (c.key == "title" ? 0 : table.title-w + c.x) + (c.right ? 0 : 6px);
+                                width: (c.key == "title" ? table.title-w : c.width) - 12px;
+                                height: parent.height;
+                                text: (c.key == "title" && r.children > 0 ? r.cells[ci] + "  · " + r.children + " v." : r.cells[ci]);
+                                color: c.key == "status" ? r.status-color
+                                    : c.key == "pick" ? (r.pick == 1 ? Theme.ok : Theme.danger)
+                                    : c.key == "title" ? (r.playing ? Theme.lagoon : Theme.text)
+                                    : (c.key == "path" || c.key == "camelot" || c.key == "mood_auto") ? Theme.text3 : Theme.text2;
+                                font-size: c.key == "title" ? 13px : 12px;
+                                font-weight: c.key == "title" ? 600 : (c.key == "pick" || c.key == "status" ? 700 : 400);
+                                font-family: (c.key == "bpm" || c.key == "lufs" || c.key == "duration_s" || c.key == "camelot" || c.key == "track_no") ? Theme.mono-font : Theme.ui-font;
+                                horizontal-alignment: c.right ? right : left;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                    if rows-scope.keyboard: Rectangle {
+                        border-width: 2px;
+                        border-color: Theme.ember;
+                        border-radius: 4px;
+                    }
+                }
+            }
+            menu := PopupWindow {
+                x: 300px;
+                y: 120px;
+                width: 260px;
+                Rectangle {
+                    background: Theme.ink2;
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: Theme.line2;
+                    VerticalLayout {
+                        padding: 6px;
+                        MenuRow { text: "Écouter"; clicked => { Lib.action("play"); } }
+                        MenuRow { text: "Détails (I)"; clicked => { Lib.action("details"); } }
+                        MenuRow { text: "Éditer les tags…  (Ctrl+E)"; clicked => { Lib.action("edit-tags"); } }
+                        MenuRow { text: "Genre et ambiance…  (Ctrl+G)"; clicked => { Lib.action("genre"); } }
+                        MenuRow { text: "Garder (P)"; clicked => { Lib.action("keep"); } }
+                        MenuRow { text: "Rejeter (X)"; clicked => { Lib.action("reject"); } }
+                        MenuRow { text: "Neutre (N)"; clicked => { Lib.action("neutral"); } }
+                        MenuRow { text: "Tempo × 2"; clicked => { Lib.bpm-scale(2.0); } }
+                        MenuRow { text: "Tempo ÷ 2"; clicked => { Lib.bpm-scale(0.5); } }
+                        MenuRow { text: Lib.selection-archived ? "Sortir des archives" : "Archiver"; clicked => { Lib.action("archive"); } }
+                        MenuRow { text: "Ouvrir le projet"; clicked => { Lib.action("open-project"); } }
+                        MenuRow { text: "Partager (lien d'écoute)…"; clicked => { Lib.action("share"); } }
+                        MenuRow { text: "Ajouter au mastering"; clicked => { Lib.action("master"); } }
+                        MenuRow { text: "Préparer la publication"; clicked => { Lib.action("publish"); } }
+                        MenuRow { text: "Ajouter à une sortie…"; clicked => { Lib.action("add-to-release"); } }
+                        MenuRow { text: "Fiche projet (remix, mashup, set, prod)…"; clicked => { Lib.action("project"); } }
+                        MenuRow { text: "Renommer…  (F2)"; clicked => { Lib.action("rename"); } }
+                        MenuRow { text: "Rattacher à un morceau…"; clicked => { Lib.action("attach"); } }
+                        MenuRow { text: "Ouvrir le dossier"; clicked => { Lib.action("folder"); } }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------- détails
+    if Lib.details-open && !root.tight: DetailsPanel { }
+    }
+    }
+
+    // Fenêtre étroite : le panneau passe par-dessus le tableau, qui garde sa largeur.
+    if Lib.details-open && root.tight: DetailsPanel {
+        x: parent.width - self.width;
+        y: 0;
+        height: parent.height;
+        drop-shadow-blur: 26px;
+        drop-shadow-offset-x: -8px;
+        drop-shadow-color: #00000070;
+    }
+
+    // ---------- roue de Camelot
+    if Lib.wheel-open: Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #00000088;
+        TouchArea { clicked => { Lib.action("wheel-close"); } }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 460px;
+            height: 520px;
+            border-radius: 14px;
+            background: Theme.ink1;
+            border-width: 1px;
+            border-color: Theme.line2;
+            TouchArea { }
+            Text { x: 18px; y: 14px; text: "Roue de Camelot"; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; }
+            Text { x: 18px; y: 42px; width: parent.width - 36px; text: Lib.wheel-text; color: Theme.text2; font-size: 11.5px; wrap: word-wrap; }
+            Rectangle { x: 230px - 170px; y: 300px - 170px; width: 340px; height: 340px; border-radius: 170px; border-width: 1px; border-color: Theme.line2; }
+            Rectangle { x: 230px - 112px; y: 300px - 112px; width: 224px; height: 224px; border-radius: 112px; border-width: 1px; border-color: Theme.line2; }
+            for w in Lib.wheel: Rectangle {
+                x: w.x - 25px;
+                y: w.y - 25px;
+                width: 50px;
+                height: 50px;
+                border-radius: 25px;
+                background: w.current ? Theme.ember : w.compatible ? Theme.lagoon-soft : (wa.has-hover ? Theme.ink3 : Theme.ink2);
+                border-width: 1px;
+                border-color: w.compatible ? Theme.lagoon : Theme.line2;
+                VerticalLayout {
+                    alignment: center;
+                    Text { text: w.code; color: w.current ? #1C0802 : Theme.text; font-size: 13px; font-weight: 800; horizontal-alignment: center; }
+                    Text { text: w.count > 0 ? w.count : ""; color: w.current ? #1C0802 : Theme.text3; font-size: 10px; horizontal-alignment: center; }
+                }
+                wa := TouchArea { mouse-cursor: pointer; clicked => { Lib.action("wheel:" + w.code); } }
+            }
+        }
+    }
+}
+
+// Le dialogue des outils (renommer, réorganiser, doublons, compléter, rattacher, classer, ranger
+// les albums) : posé par-dessus toute la Carrière (app.slint), il s'ouvre depuis n'importe quel onglet.
+export component ToolDialog inherits Rectangle {
+    width: 100%;
+    height: 100%;
+    background: #00000088;
+    TouchArea { }
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 30px;
+        width: min(860px, parent.width - 40px);
+        height: parent.height - 60px;
+        border-radius: 14px;
+        background: Theme.ink1;
+        border-width: 1px;
+        border-color: Theme.line2;
+        VerticalLayout {
+            padding: 18px;
+            spacing: 10px;
+            Text { text: Lib.dialog-title; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; }
+            if Lib.dialog-text != "": Text { text: Lib.dialog-text; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+            if Lib.dialog-input-label != "": VerticalLayout {
+                vertical-stretch: 0;
+                spacing: 4px;
+                Text { text: Lib.dialog-input-label; color: Theme.text3; font-size: 10.5px; font-weight: 700; }
+                Rectangle {
+                    height: 32px;
+                    border-radius: 8px;
+                    background: Theme.ink3;
+                    TextInput {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        height: 100%;
+                        text: Lib.dialog-input;
+                        color: Theme.text;
+                        font-size: 12.5px;
+                        font-family: Theme.mono-font;
+                        vertical-alignment: center;
+                        single-line: true;
+                        edited => { Lib.dialog-input = self.text; Lib.dialog-input-edited(self.text); }
+                    }
+                }
+            }
+            if Lib.dialog-input2-label != "": HorizontalLayout {
+                spacing: 8px;
+                Text { text: Lib.dialog-input2-label; color: Theme.text3; font-size: 11.5px; font-weight: 700; vertical-alignment: center; }
+                Text { horizontal-stretch: 1; text: Lib.dialog-input2; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                Btn { text: "Choisir…"; height: 28px; clicked => { Lib.dialog-button("choose-root"); } }
+            }
+            if Lib.dialog-flag-label != "": Rectangle {
+                height: 26px;
+                Rectangle {
+                    x: 0;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 5px;
+                    background: Lib.dialog-flag ? Theme.ember : Theme.ink3;
+                    border-width: 1px;
+                    border-color: Lib.dialog-flag ? Theme.ember : Theme.line2;
+                    if Lib.dialog-flag: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+                }
+                Text { x: 26px; text: Lib.dialog-flag-label; color: Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                Hit { ring-radius: 5px; clicked => { Lib.dialog-button("flag"); } }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 10px;
+                background: Theme.ink2;
+                clip: true;
+                ListView {
+                    for it[ii] in Lib.dialog-items: Rectangle {
+                        height: it.header ? 30px : (it.sub == "" ? 30px : 42px);
+                        background: !it.header && dia.has-hover ? Theme.ink3 : transparent;
+                        if it.checkable: Rectangle {
+                            x: 10px;
+                            y: (parent.height - 18px) / 2;
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 5px;
+                            background: it.checked ? Theme.ember : Theme.ink3;
+                            border-width: 1px;
+                            border-color: it.checked ? Theme.ember : Theme.line2;
+                            if it.checked: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+                        }
+                        Text {
+                            x: it.checkable ? 38px : 12px;
+                            y: it.sub == "" || it.header ? 0 : 5px;
+                            width: parent.width - (it.checkable ? 50px : 24px);
+                            height: it.sub == "" || it.header ? parent.height : 18px;
+                            text: (it.star ? "★ " : "") + it.text;
+                            color: it.header ? Theme.text3 : (it.star ? Theme.ember2 : Theme.text);
+                            font-size: it.header ? 11px : 12.5px;
+                            font-weight: it.header ? 800 : 600;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if it.sub != "" && !it.header: Text {
+                            x: it.checkable ? 38px : 12px;
+                            y: 22px;
+                            width: parent.width - (it.checkable ? 50px : 24px);
+                            text: it.sub;
+                            color: Theme.text3;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                        dia := TouchArea { enabled: !it.header; mouse-cursor: pointer; clicked => { Lib.dialog-toggle(ii); } }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: end;
+                for b in Lib.dialog-buttons: Btn { text: b.label; primary: b.primary; height: 32px; clicked => { Lib.dialog-button(b.id); } }
+                Btn { text: "Fermer"; ghost: true; height: 32px; clicked => { Lib.dialog-button("close"); } }
+            }
+        }
+    }
+}
+
+// La forme d'onde du lecteur : clic pour aller à un endroit, clic droit pour un repère ou la boucle.
+component PlayerWave inherits Rectangle {
+    border-radius: 8px;
+    background: Theme.ink1;
+    clip: true;
+    property <float> menu-at;
+    if Lib.player-loop-a >= 0 && Lib.player-loop-b >= 0: Rectangle {
+        x: parent.width * Lib.player-loop-a;
+        width: parent.width * (Lib.player-loop-b - Lib.player-loop-a);
+        background: Theme.lagoon-soft;
+    }
+    for p[i] in Lib.player-peaks: Rectangle {
+        x: parent.width * i / max(1, Lib.player-peaks.length);
+        width: max(1px, parent.width / max(1, Lib.player-peaks.length) - 1px);
+        height: max(2px, (parent.height - 12px) * p);
+        y: (parent.height - self.height) / 2;
+        background: i / max(1, Lib.player-peaks.length) <= Lib.player-pos ? Theme.ember : Theme.ink4;
+    }
+    if Lib.player-peaks.length == 0: Rectangle {
+        x: 0;
+        y: (parent.height - 4px) / 2;
+        height: 4px;
+        width: parent.width * Lib.player-pos;
+        background: Theme.ember;
+    }
+    for m[mi] in Lib.player-markers: Rectangle {
+        x: parent.width * m.x;
+        width: 2px;
+        background: Theme.ember2;
+        Text { x: 4px; y: 2px; text: m.label; color: Theme.ember2; font-size: 10px; font-weight: 700; }
+    }
+    if Lib.player-loop-a >= 0: Rectangle { x: parent.width * Lib.player-loop-a; width: 2px; background: Theme.lagoon; Text { x: 3px; y: parent.height - 14px; text: "A"; color: Theme.lagoon; font-size: 10px; font-weight: 800; } }
+    if Lib.player-loop-b >= 0: Rectangle { x: parent.width * Lib.player-loop-b; width: 2px; background: Theme.lagoon; Text { x: 3px; y: parent.height - 14px; text: "B"; color: Theme.lagoon; font-size: 10px; font-weight: 800; } }
+    Rectangle { x: parent.width * Lib.player-pos; width: 2px; background: Theme.text; }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) {
+                if (e.button == PointerEventButton.left) {
+                    Lib.player-seek(self.mouse-x / self.width);
+                } else if (e.button == PointerEventButton.right) {
+                    root.menu-at = self.mouse-x / self.width;
+                    wave-menu.show();
+                }
+            }
+        }
+    }
+    wave-menu := PopupWindow {
+        x: parent.width * root.menu-at;
+        y: 0;
+        width: 230px;
+        Rectangle {
+            background: Theme.ink2;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 6px;
+                MenuRow { text: "Ajouter un repère ici"; clicked => { Lib.player-mark(root.menu-at); } }
+                for m[mi] in Lib.player-markers: MenuRow { text: "Retirer « " + m.label + " »"; clicked => { Lib.player-unmark(mi); } }
+            }
+        }
+    }
+}
+
+// Lecture, pause, précédent, suivant.
+component PlayerKeys inherits HorizontalLayout {
+    in property <length> size: 40px;
+    spacing: 4px;
+    alignment: center;
+    VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/prev.svg"); tint: Theme.text; clicked => { Lib.player-prev(); } } }
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: root.size;
+            height: root.size;
+            border-radius: root.size / 2;
+            background: pta.has-hover ? Theme.ember.brighter(0.08) : Theme.ember;
+            Icon { source: Lib.player-paused ? @image-url("icons/play.svg") : @image-url("icons/pause.svg"); width: 15px; height: 15px; tint: #1C0802; }
+            pta := Hit { ring-radius: root.size / 2; clicked => { Lib.player-toggle(); } }
+        }
+    }
+    VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/next.svg"); tint: Theme.text; clicked => { Lib.player-next(); } } }
+}
+
+// Boucle A-B et comparaison.
+component PlayerLoop inherits HorizontalLayout {
+    spacing: 4px;
+    alignment: start;
+    Btn { text: "A"; width: 34px; height: 26px; ghost: Lib.player-loop-a < 0; clicked => { Lib.player-loop("a"); } }
+    Btn { text: "B"; width: 34px; height: 26px; ghost: Lib.player-loop-b < 0; clicked => { Lib.player-loop("b"); } }
+    if Lib.player-loop-a >= 0 || Lib.player-loop-b >= 0: TBtn { icon: @image-url("icons/close.svg"); width: 26px; height: 26px; clicked => { Lib.player-loop("clear"); } }
+    if Lib.player-compare != "": Btn { text: "Écouter A"; height: 26px; primary: Lib.player-compare == "A"; ghost: Lib.player-compare != "A"; clicked => { if (Lib.player-compare != "A") { Lib.player-switch(); } } }
+    if Lib.player-compare != "": Btn { text: "Écouter B"; height: 26px; primary: Lib.player-compare == "B"; ghost: Lib.player-compare != "B"; clicked => { if (Lib.player-compare != "B") { Lib.player-switch(); } } }
+}
+
+// Le lecteur, en bas de la fenêtre, quelle que soit la page : une barre fine qui ne prend pas la place du travail, qui
+// s'ouvre en grand au clic (pochette, onde, repères, notes, file).
+export component PlayerBar inherits Rectangle {
+    height: Lib.player-big ? 262px : 58px;
+    background: Theme.ink2;
+
+    // ---------- la barre fine
+    if !Lib.player-big: HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 12px;
+        Rectangle {
+            width: 280px;
+            border-radius: 8px;
+            background: ota.has-hover ? Theme.ink3 : transparent;
+            Rectangle {
+                x: 0;
+                width: 44px;
+                height: 44px;
+                border-radius: 7px;
+                background: Theme.ink3;
+                clip: true;
+                if Lib.player-has-cover: Image { width: 44px; height: 44px; source: Lib.player-cover; image-fit: cover; }
+            }
+            Text { x: 54px; y: 5px; width: parent.width - 60px; text: Lib.player-title; color: Theme.text; font-size: 13px; font-weight: 800; overflow: elide; }
+            Text { x: 54px; y: 24px; width: parent.width - 60px; text: Lib.player-sub; color: Theme.text3; font-size: 11px; overflow: elide; }
+            ota := Hit { ring-radius: 8px; clicked => { Lib.player-big = true; } }
+        }
+        PlayerKeys { size: 36px; }
+        PlayerWave { horizontal-stretch: 1; }
+        VerticalLayout { alignment: center; Text { text: Lib.player-time; color: Theme.text2; font-size: 11.5px; font-family: Theme.mono-font; } }
+        if Lib.player-compare != "": VerticalLayout { alignment: center; PlayerLoop { } }
+        VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/chevron-up.svg"); width: 30px; height: 30px; clicked => { Lib.player-big = true; } } }
+        VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/close.svg"); width: 30px; height: 30px; clicked => { Lib.player-stop(); } } }
+    }
+
+    // ---------- le lecteur ouvert
+    if Lib.player-big: HorizontalLayout {
+        padding: 14px;
+        spacing: 16px;
+        VerticalLayout {
+            width: 176px;
+            spacing: 8px;
+            alignment: start;
+            Rectangle {
+                width: 176px;
+                height: 176px;
+                border-radius: 10px;
+                background: Theme.ink3;
+                clip: true;
+                if Lib.player-has-cover: Image { width: 176px; height: 176px; source: Lib.player-cover; image-fit: cover; }
+            }
+            PlayerKeys { size: 40px; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    alignment: center;
+                    spacing: 1px;
+                    Text { text: Lib.player-title; color: Theme.text; font-size: 17px; font-weight: 800; font-family: Theme.display-font; overflow: elide; }
+                    Text { text: Lib.player-sub; color: Theme.text3; font-size: 11.5px; overflow: elide; }
+                }
+                VerticalLayout { alignment: center; Text { text: Lib.player-time; color: Theme.text2; font-size: 12px; font-family: Theme.mono-font; } }
+                VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/chevron.svg"); width: 30px; height: 30px; clicked => { Lib.player-big = false; } } }
+                VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/close.svg"); width: 30px; height: 30px; clicked => { Lib.player-stop(); } } }
+            }
+            PlayerWave { vertical-stretch: 1; min-height: 90px; }
+            HorizontalLayout {
+                spacing: 6px;
+                height: 26px;
+                PlayerLoop { }
+                for m[mi] in Lib.player-markers: Rectangle {
+                    width: ml.preferred-width + 16px;
+                    border-radius: 7px;
+                    background: ma.has-hover ? Theme.ink4 : Theme.ink3;
+                    ml := Text { text: m.label; color: Theme.ember2; font-size: 11px; font-weight: 700; }
+                    ma := Hit { ring-radius: 7px; clicked => { Lib.player-seek(m.x); } }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+        }
+        VerticalLayout {
+            width: 290px;
+            spacing: 6px;
+            Text { text: "NOTES"; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                clip: true;
+                TextEdit { width: 100%; height: 100%; text <=> Lib.player-notes; font-size: 12.5px; edited(t) => { Lib.player-notes-edited(t); } }
+            }
+            Text { text: Lib.player-queue > 0 ? "FILE (" + Lib.player-queue + ")" : "FILE VIDE"; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; }
+            for q in Lib.player-queue-list: Text { text: q; color: Theme.text2; font-size: 11.5px; overflow: elide; }
+        }
+    }
+}

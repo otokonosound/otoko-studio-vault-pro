@@ -1,0 +1,847 @@
+// Carrière › Sorties (comme l'écran Sorties de Studio Vault) : la galerie des pochettes, la fiche
+// de la sortie (modifiable, enregistrée à chaque changement), le planning à rebours depuis la date.
+// Tout passe par le global `Rel`, rempli et écouté côté Rust (sorties.rs).
+import { Theme } from "theme.slint";
+import { Btn, Hit } from "components.slint";
+import { ListView, ScrollView, TextEdit } from "std-widgets.slint";
+
+export struct RelTileUi {
+    id: int,
+    title: string,
+    sub: string,
+    done: int,
+    total: int,
+    cover: image,
+    has-cover: bool,
+    color: color,
+    initials: string,
+}
+
+export struct RelTrackUi {
+    id: int,
+    title: string,
+    sub: string,
+    warn: bool,
+}
+
+export struct RelStepUi {
+    key: string,
+    label: string,
+    done: bool,
+    due: string,
+    late: bool,
+}
+
+// Un point du pilotage : 0 prêt à cocher, 1 à voir, 2 bloquant.
+export struct RelPointUi {
+    level: int,
+    text: string,
+    action: string,
+    label: string,
+}
+
+export struct QcCellUi {
+    // 0 bon, 1 à voir, 2 problème, 3 pas mesuré.
+    level: int,
+    text: string,
+}
+
+export struct QcRowUi {
+    title: string,
+    cells: [QcCellUi],
+}
+
+export struct DayUi {
+    day: int,
+    in-month: bool,
+    release: bool,
+    step: bool,
+    today: bool,
+    rel-id: int,
+}
+
+export struct PlanRelUi {
+    id: int,
+    title: string,
+    date: string,
+    state: string,
+    header: bool,
+    steps: [RelStepUi],
+}
+
+export global Rel {
+    // « gallery », « sheet » ou « planning ».
+    in property <string> mode: "gallery";
+    in property <[RelTileUi]> tiles;
+    in property <string> gallery-text;
+    // Nouvelle sortie : le titre demandé.
+    in property <bool> naming;
+    in-out property <string> new-title;
+    // Fiche.
+    in property <int> id;
+    in-out property <string> title;
+    in property <string> rtype;
+    in property <[string]> types;
+    in property <[string]> type-labels;
+    in property <bool> has-date;
+    in-out property <string> date-text;
+    in property <string> date-hint;
+    in property <bool> date-bad;
+    in-out property <string> sc-link;
+    in property <image> cover;
+    in property <bool> has-cover;
+    in property <string> cover-info;
+    in property <int> cover-level;
+    in property <[RelTrackUi]> tracks;
+    in property <[RelStepUi]> steps;
+    // Pilotage : le compte à rebours (0 calme, 1 proche, 2 en retard), la prochaine étape, ce qui reste.
+    in property <string> pilot-count;
+    in property <int> pilot-tone;
+    in property <string> pilot-date;
+    in property <string> pilot-next;
+    in property <int> pilot-done;
+    in property <int> pilot-total: 7;
+    in property <[RelPointUi]> points;
+    in-out property <string> credits;
+    in-out property <string> description;
+    in-out property <string> notes;
+    in property <string> msg;
+    // Ajouter un morceau.
+    in property <bool> picker-open;
+    in property <[RelTrackUi]> picker;
+    // Contrôle avant publication.
+    in property <bool> qc-open;
+    in property <[string]> qc-names;
+    in property <[QcRowUi]> qc;
+    in property <string> qc-detail;
+    in property <int> qc-unanalyzed;
+    // Planning.
+    in property <string> month-label;
+    in property <[DayUi]> days;
+    in property <[PlanRelUi]> plan;
+    callback open(int);
+    callback new();
+    callback new-confirm(string);
+    callback back();
+    callback planning();
+    callback sync();
+    callback discography();
+    // Publier (textes, historique, univers de marque) vit dans Sorties.
+    callback go-publish();
+    callback delete(int);
+    callback edited(string, string);
+    callback set-type(string);
+    callback set-has-date(bool);
+    callback toggle-step(string);
+    // Les liens de chaque morceau, lus sur SoundCloud : cette sortie (son identifiant) ou toutes (-1).
+    callback link(int);
+    in property <int> to-link;
+    callback fix(string);
+    callback pick-cover();
+    callback embed-cover();
+    callback move-track(int, int);
+    callback remove-track(int);
+    callback play-track(int);
+    callback picker-show();
+    callback picker-search(string);
+    callback picker-choose(int);
+    callback picker-close();
+    callback apply-to-tracks();
+    callback prefill-credits();
+    callback qc-run();
+    callback qc-row(int);
+    callback qc-analyze();
+    callback qc-close();
+    callback texts();
+    callback export();
+    // Les morceaux de la sortie envoyés au mastering.
+    callback master();
+    callback month(int);
+}
+
+component Check inherits Rectangle {
+    in property <bool> on;
+    in property <string> text;
+    in property <string> hint;
+    in property <bool> late;
+    callback toggled;
+    height: 28px;
+    Rectangle {
+        x: 0;
+        y: (parent.height - 18px) / 2;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: root.on ? Theme.ember : Theme.ink3;
+        border-width: 1px;
+        border-color: root.on ? Theme.ember : Theme.line2;
+        if root.on: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+    }
+    Text { x: 28px; text: root.text; color: root.on ? Theme.text2 : Theme.text; font-size: 12.5px; vertical-alignment: center; height: parent.height; }
+    if root.hint != "": Text {
+        x: parent.width - self.width;
+        text: root.hint;
+        color: root.late ? Theme.danger : Theme.text3;
+        font-size: 11px;
+        vertical-alignment: center;
+        height: parent.height;
+    }
+    Hit { clicked => { root.toggled(); } }
+}
+
+component Field inherits VerticalLayout {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> value;
+    in property <bool> mono;
+    callback changed(string);
+    spacing: 4px;
+    Text { text: root.label; color: Theme.text3; font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; }
+    Rectangle {
+        height: 32px;
+        border-radius: 8px;
+        background: Theme.ink3;
+        if ti.text == "": Text { x: 10px; text: root.placeholder; color: Theme.text3; font-size: 12.5px; vertical-alignment: center; height: parent.height; }
+        ti := TextInput {
+            x: 10px;
+            width: parent.width - 20px;
+            height: 100%;
+            text <=> root.value;
+            color: Theme.text;
+            font-size: 12.5px;
+            font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+            vertical-alignment: center;
+            single-line: true;
+            edited => { root.changed(self.text); }
+        }
+    }
+}
+
+// Le pilotage : compte à rebours, avancement, étapes et ce qui reste, au même endroit.
+component Pilot inherits Rectangle {
+    background: Theme.ink2;
+    border-radius: 14px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 14px;
+        HorizontalLayout {
+            spacing: 20px;
+            VerticalLayout {
+                alignment: center;
+                spacing: 2px;
+                Text {
+                    text: Rel.pilot-count;
+                    color: Rel.pilot-tone == 2 ? Theme.danger : (Rel.pilot-tone == 1 ? Theme.ember : Theme.text);
+                    font-size: 32px;
+                    font-weight: 800;
+                    font-family: Theme.display-font;
+                }
+                if Rel.pilot-date != "": Text { text: Rel.pilot-date; color: Theme.text3; font-size: 11.5px; }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 6px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: "PROCHAINE ÉTAPE"; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    Text { text: Rel.pilot-done + " / " + Rel.pilot-total; color: Theme.text2; font-size: 12px; font-weight: 700; font-family: Theme.mono-font; vertical-alignment: center; }
+                }
+                Text { text: Rel.pilot-next; color: Theme.text; font-size: 15px; font-weight: 700; overflow: elide; }
+                HorizontalLayout {
+                    spacing: 3px;
+                    height: 6px;
+                    for s in Rel.steps: Rectangle { border-radius: 3px; background: s.done ? Theme.ember : (s.late ? Theme.danger : Theme.ink4); }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 20px;
+            VerticalLayout {
+                width: 330px;
+                spacing: 2px;
+                alignment: start;
+                Text { text: "ÉTAPES"; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; }
+                for s in Rel.steps: Check {
+                    text: s.label;
+                    on: s.done;
+                    hint: s.done ? "" : s.due;
+                    late: s.late;
+                    toggled => { Rel.toggle-step(s.key); }
+                }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 6px;
+                alignment: start;
+                Text { text: "CE QUI RESTE"; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; }
+                if Rel.points.length == 0: Text { text: "Rien ne bloque cette sortie."; color: Theme.ok; font-size: 12.5px; font-weight: 700; }
+                for p in Rel.points: HorizontalLayout {
+                    spacing: 10px;
+                    min-height: 28px;
+                    VerticalLayout {
+                        alignment: center;
+                        Rectangle {
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: p.level == 2 ? Theme.danger : (p.level == 1 ? Theme.ember2 : Theme.ok);
+                        }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: p.text;
+                        color: p.level == 0 ? Theme.text2 : Theme.text;
+                        font-size: 12.5px;
+                        vertical-alignment: center;
+                        wrap: word-wrap;
+                    }
+                    if p.label != "": VerticalLayout {
+                        alignment: center;
+                        Btn { height: 26px; text: p.label; ghost: p.level == 0; clicked => { Rel.fix(p.action); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component Box inherits Rectangle {
+    in property <string> title;
+    background: Theme.ink2;
+    border-radius: 12px;
+    VerticalLayout {
+        padding: 14px;
+        spacing: 6px;
+        Text { text: root.title; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; }
+        @children
+    }
+}
+
+component MiniBtn inherits Rectangle {
+    in property <string> text;
+    in property <bool> play;
+    callback clicked;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: ta.has-hover ? Theme.ink4 : transparent;
+    if !root.play: Text { text: root.text; color: ta.has-hover ? Theme.text : Theme.text2; font-size: 15px; }
+    if root.play: Image { width: 14px; height: 14px; source: @image-url("icons/play.svg"); colorize: ta.has-hover ? Theme.text : Theme.text2; }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+component Tile inherits Rectangle {
+    in property <RelTileUi> tile;
+    in property <bool> add;
+    callback clicked;
+    callback menu(length, length);
+    width: 200px;
+    height: 266px;
+    border-radius: 14px;
+    background: ta.has-hover ? Theme.ink3 : transparent;
+    Rectangle {
+        x: 12px;
+        y: 10px;
+        width: 176px;
+        height: 176px;
+        border-radius: 14px;
+        clip: true;
+        background: root.add ? transparent : root.tile.color;
+        border-width: root.add ? 2px : 0;
+        border-color: Theme.line2;
+        if root.tile.has-cover && !root.add: Image { width: 176px; height: 176px; source: root.tile.cover; image-fit: cover; }
+        if !root.tile.has-cover && !root.add: Text {
+            x: 14px;
+            y: 10px;
+            text: root.tile.initials;
+            color: #ffffffeb;
+            font-size: 44px;
+            font-weight: 800;
+            font-family: Theme.display-font;
+        }
+        if root.add: Text { text: "+"; color: Theme.text3; font-size: 40px; font-weight: 300; }
+    }
+    Text { x: 12px; y: 196px; width: 176px; text: root.add ? "Nouvelle sortie" : root.tile.title; color: Theme.text; font-size: 13px; font-weight: 700; overflow: elide; }
+    Text { x: 12px; y: 216px; width: 176px; text: root.add ? "Single, EP ou album" : root.tile.sub; color: Theme.text3; font-size: 11.5px; overflow: elide; }
+    if !root.add && root.tile.total > 0: Rectangle {
+        x: 12px;
+        y: 240px;
+        width: 176px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: Theme.ink4;
+        Rectangle { x: 0; width: parent.width * root.tile.done / root.tile.total; border-radius: 2.5px; background: root.tile.done >= root.tile.total ? Theme.ok : Theme.ember; }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+        pointer-event(e) => {
+            if e.kind == PointerEventKind.down && e.button == PointerEventButton.right && !root.add {
+                root.menu(self.mouse-x, self.mouse-y);
+            }
+        }
+    }
+}
+
+export component ReleasesView inherits Rectangle {
+    property <int> menu-id: -1;
+    property <length> menu-x;
+    property <length> menu-y;
+    VerticalLayout {
+        spacing: 12px;
+        // ---------- barre
+        HorizontalLayout {
+            spacing: 8px;
+            height: 32px;
+            if Rel.mode != "gallery": Btn { text: "← Toutes les sorties"; ghost: true; height: 32px; clicked => { Rel.back(); } }
+            Text {
+                text: Rel.mode == "gallery" ? Rel.gallery-text : (Rel.mode == "planning" ? "Planning : les étapes comptées à rebours depuis la date de sortie" : "");
+                color: Theme.text3;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            if Rel.mode == "gallery": Btn { text: "Planning"; height: 32px; clicked => { Rel.planning(); } }
+            if Rel.mode == "gallery": Btn { text: "Rattacher les albums"; height: 32px; clicked => { Rel.sync(); } }
+            if Rel.mode == "gallery" && Rel.to-link > 0: Btn { text: "Relier les morceaux"; height: 32px; clicked => { Rel.link(-1); } }
+            if Rel.mode == "gallery": Btn { text: "Discographie…"; height: 32px; clicked => { Rel.discography(); } }
+            if Rel.mode == "gallery": Btn { text: "Publier…"; height: 32px; clicked => { Rel.go-publish(); } }
+            if Rel.mode == "sheet": Btn { text: "Supprimer la sortie"; ghost: true; height: 32px; clicked => { Rel.delete(Rel.id); } }
+            if Rel.mode != "sheet": Btn { text: "+ Nouvelle sortie"; primary: true; height: 32px; clicked => { Rel.new(); } }
+        }
+
+        // ---------- galerie
+        if Rel.mode == "gallery": gallery := ScrollView {
+            vertical-stretch: 1;
+            property <int> cols: max(1, floor((self.visible-width) / 206px));
+            content-height: ceil((Rel.tiles.length + 1) / self.cols) * 272px;
+            for t[i] in Rel.tiles: Tile {
+                x: mod(i, gallery.cols) * 206px;
+                y: floor(i / gallery.cols) * 272px;
+                tile: t;
+                clicked => { Rel.open(t.id); }
+                menu(mx, my) => {
+                    root.menu-id = t.id;
+                    root.menu-x = self.absolute-position.x - root.absolute-position.x + mx;
+                    root.menu-y = self.absolute-position.y - root.absolute-position.y + my;
+                    menu.show();
+                }
+            }
+            Tile {
+                x: mod(Rel.tiles.length, gallery.cols) * 206px;
+                y: floor(Rel.tiles.length / gallery.cols) * 272px;
+                add: true;
+                clicked => { Rel.new(); }
+            }
+        }
+
+        // ---------- fiche
+        if Rel.mode == "sheet": ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding-right: 10px;
+                spacing: 12px;
+                Pilot { }
+                HorizontalLayout {
+                    spacing: 18px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 10px;
+                        alignment: start;
+                        Field { label: "TITRE"; value <=> Rel.title; changed(t) => { Rel.edited("title", t); } }
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text { text: "TYPE"; color: Theme.text3; font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                for t[k] in Rel.types: Rectangle {
+                                    width: tl.preferred-width + 22px;
+                                    height: 28px;
+                                    border-radius: 14px;
+                                    background: Rel.rtype == t ? Theme.ember-soft : (tta.has-hover ? Theme.ink4 : Theme.ink3);
+                                    border-width: 1px;
+                                    border-color: Rel.rtype == t ? Theme.ember : Theme.line2;
+                                    tl := Text { text: Rel.type-labels[k]; color: Rel.rtype == t ? Theme.ember : Theme.text2; font-size: 11.5px; font-weight: 700; }
+                                    tta := TouchArea { mouse-cursor: pointer; clicked => { Rel.set-type(t); } }
+                                }
+                            }
+                        }
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Check {
+                                width: 120px;
+                                text: "Date fixée";
+                                on: Rel.has-date;
+                                toggled => { Rel.set-has-date(!Rel.has-date); }
+                            }
+                            if Rel.has-date: Rectangle {
+                                width: 130px;
+                                height: 30px;
+                                border-radius: 8px;
+                                background: Theme.ink3;
+                                border-width: Rel.date-bad ? 1px : 0;
+                                border-color: Theme.danger;
+                                if di.text == "": Text { x: 10px; text: "JJ/MM/AAAA"; color: Theme.text3; font-size: 12.5px; vertical-alignment: center; height: parent.height; }
+                                di := TextInput {
+                                    x: 10px;
+                                    width: parent.width - 20px;
+                                    height: 100%;
+                                    text <=> Rel.date-text;
+                                    color: Theme.text;
+                                    font-size: 12.5px;
+                                    font-family: Theme.mono-font;
+                                    vertical-alignment: center;
+                                    single-line: true;
+                                    edited => { Rel.edited("date", self.text); }
+                                }
+                            }
+                            Text { horizontal-stretch: 1; text: Rel.date-hint; color: Rel.date-bad ? Theme.danger : Theme.text3; font-size: 11.5px; vertical-alignment: center; }
+                        }
+                        Field { label: "LIEN SOUNDCLOUD"; placeholder: "https://soundcloud.com/…"; value <=> Rel.sc-link; changed(t) => { Rel.edited("sc_link", t); } }
+                    }
+                    VerticalLayout {
+                        width: 190px;
+                        spacing: 6px;
+                        alignment: start;
+                        Rectangle {
+                            width: 160px;
+                            height: 160px;
+                            border-radius: 12px;
+                            clip: true;
+                            background: Theme.ink3;
+                            if Rel.has-cover: Image { width: 160px; height: 160px; source: Rel.cover; image-fit: cover; }
+                            if !Rel.has-cover: Text { text: "Aucune\npochette"; color: Theme.text3; font-size: 12px; horizontal-alignment: center; }
+                        }
+                        Btn { text: "Choisir la pochette…"; height: 28px; clicked => { Rel.pick-cover(); } }
+                        Btn { text: "Intégrer aux fichiers"; height: 28px; ghost: true; clicked => { Rel.embed-cover(); } }
+                        Text {
+                            text: Rel.cover-info;
+                            color: Rel.cover-level == 0 ? Theme.ok : (Rel.cover-level == 1 ? Theme.ember2 : Theme.danger);
+                            font-size: 11px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+                Box {
+                    title: "MORCEAUX (DANS L'ORDRE)";
+                    if Rel.tracks.length == 0: Text { text: "Aucun morceau : ajoute-les ici, ou depuis la bibliothèque (clic droit › Ajouter à une sortie)."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                    for t[i] in Rel.tracks: Rectangle {
+                        height: 40px;
+                        border-radius: 8px;
+                        background: tra.has-hover ? Theme.ink3 : transparent;
+                        tra := TouchArea { mouse-cursor: pointer; double-clicked => { Rel.play-track(t.id); } }
+                        Text { x: 10px; text: (i + 1 < 10 ? "0" : "") + (i + 1); color: Theme.text3; font-size: 12px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                        Text { x: 40px; y: 4px; width: parent.width - 150px; text: t.title; color: Theme.text; font-size: 12.5px; font-weight: 700; overflow: elide; }
+                        Text { x: 40px; y: 21px; width: parent.width - 150px; text: t.sub; color: t.warn ? Theme.ember2 : Theme.text3; font-size: 11px; overflow: elide; }
+                        HorizontalLayout {
+                            width: 4 * 26px + 3 * 2px;
+                            x: parent.width - self.width - 6px;
+                            y: 7px;
+                            height: 26px;
+                            spacing: 2px;
+                            MiniBtn { play: true; clicked => { Rel.play-track(t.id); } }
+                            MiniBtn { text: "↑"; clicked => { Rel.move-track(i, -1); } }
+                            MiniBtn { text: "↓"; clicked => { Rel.move-track(i, 1); } }
+                            MiniBtn { text: "×"; clicked => { Rel.remove-track(i); } }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Btn { text: "+ Ajouter un morceau…"; height: 28px; clicked => { Rel.picker-show(); } }
+                        Rectangle { horizontal-stretch: 1; }
+                        Btn { text: "Appliquer album, type et numéros aux morceaux"; height: 28px; ghost: true; clicked => { Rel.apply-to-tracks(); } }
+                    }
+                }
+                Box {
+                    title: "CRÉDITS ET DESCRIPTION";
+                    TextEdit { height: 86px; text <=> Rel.credits; placeholder-text: "Composition, production, mixage, master, invités, pochette…"; edited(t) => { Rel.edited("credits", t); } }
+                    HorizontalLayout { alignment: start; Btn { text: "Pré-remplir les crédits"; height: 26px; ghost: true; clicked => { Rel.prefill-credits(); } } }
+                    TextEdit { height: 110px; text <=> Rel.description; placeholder-text: "Description de la sortie (l'onglet Publier peut l'écrire)."; edited(t) => { Rel.edited("description", t); } }
+                }
+                Box {
+                    title: "NOTES";
+                    TextEdit { height: 70px; text <=> Rel.notes; edited(t) => { Rel.edited("notes", t); } }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Btn { text: "Contrôle avant publication"; primary: true; height: 32px; clicked => { Rel.qc-run(); } }
+                    Btn { text: "Masteriser les morceaux"; height: 32px; clicked => { Rel.master(); } }
+                    Btn { text: "Écrire les textes"; height: 32px; clicked => { Rel.texts(); } }
+                    Btn { text: "Exporter la fiche…"; height: 32px; clicked => { Rel.export(); } }
+                    Text { horizontal-stretch: 1; text: Rel.msg; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; horizontal-alignment: right; overflow: elide; }
+                }
+            }
+        }
+
+        // ---------- planning
+        if Rel.mode == "planning": HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 16px;
+            VerticalLayout {
+                width: 330px;
+                spacing: 10px;
+                alignment: start;
+                HorizontalLayout {
+                    spacing: 6px;
+                    MiniBtn { text: "‹"; clicked => { Rel.month(-1); } }
+                    Text { horizontal-stretch: 1; text: Rel.month-label; color: Theme.text; font-size: 14px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                    MiniBtn { text: "›"; clicked => { Rel.month(1); } }
+                }
+                Rectangle {
+                    height: 7 * 40px;
+                    for d[k] in ["L", "M", "M", "J", "V", "S", "D"]: Text {
+                        x: k * 46px;
+                        y: 0;
+                        width: 44px;
+                        height: 30px;
+                        text: d;
+                        color: Theme.text3;
+                        font-size: 11px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                    for c[i] in Rel.days: Rectangle {
+                        x: mod(i, 7) * 46px;
+                        y: 34px + floor(i / 7) * 40px;
+                        width: 42px;
+                        height: 36px;
+                        border-radius: 9px;
+                        background: c.release ? Theme.ember : (c.today ? Theme.ink4 : (da.has-hover && c.rel-id >= 0 ? Theme.ink3 : transparent));
+                        Text {
+                            text: c.day;
+                            color: c.release ? #1C0802 : (c.in-month ? (c.step ? Theme.ember2 : Theme.text) : Theme.text3.with-alpha(0.5));
+                            font-size: 12.5px;
+                            font-weight: c.release || c.step ? 800 : 500;
+                        }
+                        if c.step && !c.release: Rectangle { y: parent.height - 7px; x: (parent.width - 16px) / 2; width: 16px; height: 2px; background: Theme.ember2; }
+                        da := TouchArea { mouse-cursor: c.rel-id >= 0 ? MouseCursor.pointer : MouseCursor.default; clicked => { if c.rel-id >= 0 { Rel.open(c.rel-id); } } }
+                    }
+                }
+                Text {
+                    text: "En couleur : les jours de sortie. Soulignés : les dates conseillées des étapes restantes, comptées à rebours (master 3 semaines avant, pochette 2 semaines, contrôle 1 semaine, mise en ligne programmée la veille).";
+                    color: Theme.text3;
+                    font-size: 11.5px;
+                    wrap: word-wrap;
+                }
+            }
+            Rectangle {
+                horizontal-stretch: 1;
+                border-radius: 12px;
+                background: Theme.ink2;
+                clip: true;
+                ListView {
+                    for r in Rel.plan: VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        if r.header: Text { height: 34px; text: r.title; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; vertical-alignment: bottom; }
+                        if !r.header: Rectangle {
+                            height: 36px;
+                            border-radius: 8px;
+                            background: pra.has-hover ? Theme.ink3 : transparent;
+                            Text { x: 8px; width: parent.width * 0.5; text: r.title; color: Theme.text; font-size: 13px; font-weight: 800; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            Text { x: parent.width * 0.5 + 12px; text: r.date; color: Theme.text2; font-size: 12px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                            Text { x: parent.width * 0.5 + 110px; width: parent.width * 0.5 - 120px; text: r.state; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            pra := TouchArea { mouse-cursor: pointer; clicked => { Rel.open(r.id); } }
+                        }
+                        for s in r.steps: Rectangle {
+                            height: 26px;
+                            Text { x: 28px; width: parent.width * 0.5 - 20px; text: s.label; color: Theme.text2; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            Text { x: parent.width * 0.5 + 12px; text: s.due; color: Theme.text3; font-size: 11.5px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                            Text {
+                                x: parent.width * 0.5 + 110px;
+                                text: s.done ? "fait" : (s.late ? "en retard" : "à faire");
+                                color: s.done ? Theme.ok : (s.late ? Theme.danger : Theme.text2);
+                                font-size: 12px;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                                height: parent.height;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------- clic droit sur une tuile
+    menu := PopupWindow {
+        x: root.menu-x;
+        y: root.menu-y;
+        width: 210px;
+        Rectangle {
+            background: Theme.ink2;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.line2;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #0009;
+            VerticalLayout {
+                padding: 6px;
+                for m[k] in ["Ouvrir la fiche", "Supprimer la sortie…"]: Rectangle {
+                    height: 28px;
+                    border-radius: 6px;
+                    background: mia.has-hover ? Theme.ink3 : transparent;
+                    Text { x: 10px; text: m; color: k == 1 ? Theme.danger : Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                    mia := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            if k == 0 { Rel.open(root.menu-id); } else { Rel.delete(root.menu-id); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------- nouvelle sortie : son titre
+    if Rel.naming: Rectangle {
+        background: #00000088;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 80px;
+            width: 420px;
+            height: 150px;
+            border-radius: 14px;
+            background: Theme.ink1;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 12px;
+                Field {
+                    label: "TITRE DE LA SORTIE";
+                    value <=> Rel.new-title;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Btn { text: "Annuler"; ghost: true; height: 30px; clicked => { Rel.new-confirm(""); } }
+                    Btn { text: "Créer"; primary: true; height: 30px; clicked => { Rel.new-confirm(Rel.new-title); } }
+                }
+            }
+        }
+    }
+
+    // ---------- ajouter un morceau
+    if Rel.picker-open: Rectangle {
+        background: #00000088;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 30px;
+            width: min(640px, parent.width - 40px);
+            height: parent.height - 60px;
+            border-radius: 14px;
+            background: Theme.ink1;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+                Text { text: "Ajouter un morceau"; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; }
+                Field { label: "CHERCHER (TITRE OU ALBUM)"; changed(t) => { Rel.picker-search(t); } }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    background: Theme.ink2;
+                    clip: true;
+                    ListView {
+                        for t in Rel.picker: Rectangle {
+                            height: 40px;
+                            background: pka.has-hover ? Theme.ink3 : transparent;
+                            Text { x: 12px; y: 4px; width: parent.width - 24px; text: t.title; color: Theme.text; font-size: 12.5px; font-weight: 600; overflow: elide; }
+                            Text { x: 12px; y: 21px; width: parent.width - 24px; text: t.sub; color: t.warn ? Theme.ember2 : Theme.text3; font-size: 11px; overflow: elide; }
+                            pka := TouchArea { mouse-cursor: pointer; clicked => { Rel.picker-choose(t.id); } }
+                        }
+                    }
+                }
+                HorizontalLayout { alignment: end; Btn { text: "Fermer"; ghost: true; height: 30px; clicked => { Rel.picker-close(); } } }
+            }
+        }
+    }
+
+    // ---------- contrôle avant publication
+    if Rel.qc-open: Rectangle {
+        background: #00000088;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 30px;
+            width: min(980px, parent.width - 40px);
+            height: parent.height - 60px;
+            border-radius: 14px;
+            background: Theme.ink1;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+                Text { text: "Contrôle avant publication — SoundCloud"; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; }
+                Text { text: "SoundCloud ne normalise pas le volume et convertit le fichier envoyé : format, niveau, crêtes, saturation, silences et infos de chaque morceau. Clique une ligne pour le détail."; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+                Rectangle {
+                    height: 30px;
+                    Text { x: 12px; text: "MORCEAU"; color: Theme.text3; font-size: 10.5px; font-weight: 800; vertical-alignment: center; height: parent.height; }
+                    for n[j] in Rel.qc-names: Text {
+                        x: parent.width - (Rel.qc-names.length - j) * 92px;
+                        width: 92px;
+                        text: n;
+                        color: Theme.text3;
+                        font-size: 10.5px;
+                        font-weight: 800;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        height: parent.height;
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    background: Theme.ink2;
+                    clip: true;
+                    ListView {
+                        for r[i] in Rel.qc: Rectangle {
+                            height: 34px;
+                            background: qra.has-hover ? Theme.ink3 : transparent;
+                            Text { x: 12px; width: parent.width - Rel.qc-names.length * 92px - 20px; text: r.title; color: Theme.text; font-size: 12.5px; font-weight: 600; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            for c[j] in r.cells: Text {
+                                x: parent.width - (r.cells.length - j) * 92px;
+                                width: 92px;
+                                text: c.text;
+                                color: c.level == 0 ? Theme.ok : (c.level == 1 ? Theme.ember2 : (c.level == 2 ? Theme.danger : Theme.text3));
+                                font-size: 12px;
+                                font-weight: 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                height: parent.height;
+                            }
+                            qra := TouchArea { mouse-cursor: pointer; clicked => { Rel.qc-row(i); } }
+                        }
+                    }
+                }
+                Rectangle {
+                    height: 150px;
+                    border-radius: 10px;
+                    background: Theme.ink2;
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 12px;
+                            Text { text: Rel.qc-detail; color: Theme.text; font-size: 12px; wrap: word-wrap; }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    if Rel.qc-unanalyzed > 0: Btn { text: "Analyser les " + Rel.qc-unanalyzed + " morceau(x) non analysé(s)"; primary: true; height: 30px; clicked => { Rel.qc-analyze(); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    Btn { text: "Fermer"; ghost: true; height: 30px; clicked => { Rel.qc-close(); } }
+                }
+            }
+        }
+    }
+}

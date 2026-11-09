@@ -1,0 +1,33 @@
+Otoko Studio Vault Pro — logiciel libre et gratuit.
+
+Ce logiciel est publié sous la licence GNU General Public License, version 3 ou (à votre choix)
+toute version ultérieure (GPL-3.0-or-later) : texte complet dans licences\GPL-3.0.txt. Vous pouvez l'utiliser, l'étudier, le modifier et le redistribuer selon
+ses termes ; il est fourni sans aucune garantie.
+
+Il s'appuie sur des travaux d'autres personnes, qu'on remercie ici. Les textes complets des
+licences sont dans le dossier « licences » à côté de ce fichier.
+
+Interface
+  Made with Slint (https://slint.dev) — utilisé sous la licence GPL-3.0 de Slint.
+
+Traitement du son
+  Symphonia (décodage des sons), licence MPL-2.0.
+  PhaseLimiter (mastering, licence MIT) n'est pas livré avec ce logiciel : le bouton « Installer le
+  moteur » le télécharge depuis https://github.com/ai-mastering/phaselimiter.
+
+Polices (SIL Open Font License 1.1)
+  Bricolage Grotesque, Instrument Sans, JetBrains Mono.
+
+Bibliothèques compilées dans le logiciel
+  La liste complète, avec le texte de chaque licence, est dans licences\Bibliotheques.txt.
+  Les sources de Symphonia (MPL-2.0) sont sur https://github.com/pdeljanov/Symphonia.
+
+Serveur mobile et liens de partage
+  ffmpeg (conversions FLAC, Opus, AAC pour le téléphone, licence GPL) n'est pas livré avec ce
+  logiciel : « Tout installer pour moi » le télécharge depuis https://github.com/GyanD/codexffmpeg.
+  Tailscale (accès depuis le téléphone, publication des liens) n'est pas livré avec ce logiciel :
+  « Tout installer pour moi » le télécharge depuis https://pkgs.tailscale.com.
+
+App Android (Otoko Vault.apk)
+  Kotlin, AndroidX, Jetpack Compose, Media3 (Google, licence Apache 2.0) ; Coil (licence
+  Apache 2.0) ; police Bricolage Grotesque (SIL Open Font License 1.1).

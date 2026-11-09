@@ -1,0 +1,282 @@
+// Mobile et partage › les liens d'écoute : ceux qui existent, leur activité, et le dialogue « Nouveau lien ».
+// Global `Part` (partage.rs).
+import { Theme } from "theme.slint";
+import { Btn, H2, Hit } from "components.slint";
+import { ListView } from "std-widgets.slint";
+
+export struct ShareUi {
+    id: int,
+    title: string,
+    what: string,
+    state: string,
+    tone: int,        // 0 actif, 1 expiré, 2 révoqué
+    activity: string,
+    when: string,
+    url: string,
+    locked: bool,
+    revoked: bool,
+}
+
+export struct ShareItemUi {
+    id: int,
+    title: string,
+    sub: string,
+    on: bool,
+}
+
+export global Part {
+    in property <[ShareUi]> shares;
+    in property <string> base-text;
+    in-out property <bool> creating;
+    // Le formulaire : 0 morceaux, 1 sorties, 2 discographie.
+    in-out property <int> kind;
+    in-out property <string> query;
+    in property <[ShareItemUi]> items;
+    in property <int> picked;
+    in-out property <string> label;
+    in-out property <string> note;
+    in-out property <int> expiry;    // 0 7 jours, 1 30 jours, 2 90 jours, 3 sans limite
+    in-out property <bool> download;
+    in-out property <int> quality;   // 0 original, 1 sans perte, 2 haute qualité
+    in-out property <string> password;
+    in-out property <string> error;
+    in property <bool> busy;
+    callback new-link();
+    callback set-kind(int);
+    callback search(string);
+    callback toggle(int);
+    callback create();
+    callback copy(int);
+    callback open(int);
+    callback revoke(int);
+    callback remove(int);
+}
+
+component Field inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> secret;
+    callback edited(string);
+    height: 32px;
+    border-radius: 8px;
+    background: Theme.ink3;
+    if fi.text == "": Text { x: 10px; text: root.placeholder; color: Theme.text3; font-size: 12.5px; vertical-alignment: center; height: parent.height; }
+    fi := TextInput {
+        x: 10px;
+        width: parent.width - 20px;
+        height: 100%;
+        text <=> root.text;
+        color: Theme.text;
+        font-size: 12.5px;
+        vertical-alignment: center;
+        single-line: true;
+        input-type: root.secret ? InputType.password : InputType.text;
+        edited => { root.edited(self.text); }
+    }
+}
+
+// Un choix parmi quelques valeurs.
+component Choice inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    height: 30px;
+    width: ct.preferred-width + 24px;
+    border-radius: 8px;
+    background: root.on ? Theme.ember-soft : (ca.has-hover ? Theme.ink3 : Theme.ink2);
+    border-width: 1px;
+    border-color: root.on ? Theme.ember : Theme.line2;
+    ct := Text { text: root.text; color: root.on ? Theme.ember : Theme.text2; font-size: 12px; font-weight: 700; }
+    ca := Hit { clicked => { root.clicked(); } }
+}
+
+component FormLabel inherits Text {
+    color: Theme.text3;
+    font-size: 11.5px;
+    font-weight: 600;
+}
+
+export component ShareSection inherits VerticalLayout {
+    // Le lien dont on demande la suppression : un second clic confirme.
+    property <int> confirm: -1;
+    spacing: 10px;
+    HorizontalLayout {
+        spacing: 10px;
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 3px;
+            H2 { text: "Liens de partage"; }
+            Text { text: Part.base-text; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+        }
+        VerticalLayout { alignment: center; Btn { text: "+ Nouveau lien"; primary: true; height: 32px; clicked => { Part.new-link(); } } }
+    }
+    if Part.shares.length == 0: Rectangle {
+        height: 76px;
+        border-radius: 12px;
+        background: Theme.ink2;
+        Text { x: 18px; width: parent.width - 36px; height: parent.height; text: "Aucun lien pour l'instant. Un lien privé permet de faire écouter un morceau, une sortie ou ta discographie à quelqu'un, sans rien lui faire installer."; color: Theme.text3; font-size: 12.5px; wrap: word-wrap; vertical-alignment: center; }
+    }
+    for s[i] in Part.shares: Rectangle {
+        height: 74px;
+        border-radius: 12px;
+        background: Theme.ink2;
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 12px;
+            spacing: 14px;
+            VerticalLayout {
+                horizontal-stretch: 1;
+                alignment: center;
+                spacing: 3px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: s.title; color: s.tone == 0 ? Theme.text : Theme.text3; font-size: 14px; font-weight: 700; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                }
+                Text { text: s.what + " · " + s.when + (s.locked ? " · mot de passe" : ""); color: Theme.text3; font-size: 11.5px; overflow: elide; }
+                Text { text: s.activity; color: Theme.text2; font-size: 11.5px; overflow: elide; }
+            }
+            VerticalLayout {
+                alignment: center;
+                Rectangle {
+                    width: pt.preferred-width + 18px;
+                    height: 22px;
+                    border-radius: 11px;
+                    background: s.tone == 0 ? Theme.lagoon-soft : Theme.ink3;
+                    pt := Text { text: s.state; color: s.tone == 0 ? Theme.lagoon : Theme.text3; font-size: 11px; font-weight: 700; }
+                }
+            }
+            VerticalLayout { alignment: center; Btn { text: "Copier le lien"; height: 30px; clicked => { Part.copy(s.id); } } }
+            VerticalLayout { alignment: center; Btn { text: "Ouvrir"; height: 30px; ghost: true; clicked => { Part.open(s.id); } } }
+            VerticalLayout { alignment: center; Btn { text: s.revoked ? "Réactiver" : "Révoquer"; height: 30px; ghost: true; clicked => { Part.revoke(s.id); } } }
+            VerticalLayout {
+                alignment: center;
+                Btn {
+                    text: root.confirm == s.id ? "Confirmer ?" : "Supprimer";
+                    height: 30px;
+                    ghost: root.confirm != s.id;
+                    clicked => {
+                        if (root.confirm == s.id) {
+                            root.confirm = -1;
+                            Part.remove(s.id);
+                        } else {
+                            root.confirm = s.id;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component ShareDialog inherits Rectangle {
+    background: #00000099;
+    TouchArea { }
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(parent.width - 60px, 640px);
+        height: min(parent.height - 40px, 640px);
+        border-radius: 16px;
+        background: Theme.ink1;
+        border-width: 1px;
+        border-color: Theme.line2;
+        TouchArea { }
+        VerticalLayout {
+            padding: 22px;
+            spacing: 10px;
+            Text { text: "Nouveau lien de partage"; color: Theme.text; font-size: 19px; font-weight: 800; font-family: Theme.display-font; }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 6px;
+                Choice { text: "Morceaux"; on: Part.kind == 0; clicked => { Part.set-kind(0); } }
+                Choice { text: "Sorties"; on: Part.kind == 1; clicked => { Part.set-kind(1); } }
+                Choice { text: "Discographie"; on: Part.kind == 2; clicked => { Part.set-kind(2); } }
+            }
+            if Part.kind == 2: Text { text: "Toutes tes sorties déjà parues. La liste suit ta bibliothèque : une nouvelle sortie apparaît toute seule."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+            if Part.kind != 2: Field { text <=> Part.query; placeholder: Part.kind == 0 ? "Chercher un morceau…" : "Chercher une sortie…"; edited(t) => { Part.search(t); } }
+            if Part.kind != 2: Rectangle {
+                vertical-stretch: 1;
+                min-height: 120px;
+                border-radius: 10px;
+                background: Theme.ink2;
+                ListView {
+                    for it[i] in Part.items: Rectangle {
+                        height: 36px;
+                        background: ita.has-hover ? Theme.ink3 : transparent;
+                        Rectangle {
+                            x: 12px;
+                            y: 9px;
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 5px;
+                            background: it.on ? Theme.ember : Theme.ink3;
+                            border-width: 1px;
+                            border-color: it.on ? Theme.ember : Theme.line2;
+                            if it.on: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+                        }
+                        Text { x: 40px; width: parent.width * 0.6 - 40px; height: parent.height; text: it.title; color: Theme.text; font-size: 12.5px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                        Text { x: parent.width * 0.6 + 8px; width: parent.width * 0.4 - 22px; height: parent.height; text: it.sub; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; horizontal-alignment: right; overflow: elide; }
+                        ita := TouchArea { mouse-cursor: pointer; clicked => { Part.toggle(it.id); } }
+                    }
+                }
+            }
+            if Part.kind != 2: Text { text: Part.picked == 0 ? "Rien de choisi pour l'instant." : Part.picked + (Part.picked > 1 ? " choisis." : " choisi."); color: Theme.text3; font-size: 11.5px; }
+            HorizontalLayout {
+                spacing: 10px;
+                vertical-stretch: 0;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    alignment: start;
+                    FormLabel { text: "Titre du lien (visible par la personne)"; }
+                    Field { text <=> Part.label; placeholder: "ex. Maquette pour le label"; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 4px;
+                    alignment: start;
+                    FormLabel { text: "Mot de passe (facultatif)"; }
+                    Field { text <=> Part.password; secret: true; placeholder: "4 caractères au moins"; }
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                vertical-stretch: 0;
+                alignment: start;
+                FormLabel { text: "Un mot pour la personne (facultatif)"; }
+                Field { text <=> Part.note; placeholder: "ex. Dis-moi ce que tu penses du break"; }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                vertical-stretch: 0;
+                alignment: start;
+                FormLabel { text: "Validité"; }
+                HorizontalLayout {
+                    spacing: 5px;
+                    alignment: start;
+                    for e[ei] in ["7 jours", "30 jours", "90 jours", "Sans limite"]: Choice { text: e; on: Part.expiry == ei; clicked => { Part.expiry = ei; } }
+                }
+            }
+            VerticalLayout {
+                spacing: 4px;
+                vertical-stretch: 0;
+                alignment: start;
+                FormLabel { text: "Téléchargement"; }
+                HorizontalLayout {
+                    spacing: 5px;
+                    alignment: start;
+                    Choice { text: "Non"; on: !Part.download; clicked => { Part.download = false; } }
+                    for q[qi] in ["Original", "Sans perte", "Haute qualité"]: Choice { text: q; on: Part.download && Part.quality == qi; clicked => { Part.download = true; Part.quality = qi; } }
+                }
+            }
+            if Part.error != "": Text { text: Part.error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                Btn { text: "Annuler"; ghost: true; clicked => { Part.creating = false; } }
+                Btn { text: Part.busy ? "Création…" : "Créer le lien"; primary: true; clicked => { if (!Part.busy) { Part.create(); } } }
+            }
+        }
+    }
+}

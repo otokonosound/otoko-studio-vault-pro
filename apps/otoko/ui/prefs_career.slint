@@ -1,0 +1,388 @@
+// Réglages (comme les Préférences de Studio Vault) : identité, lecture, apparence
+// (couleur d'accent, densité du tableau, pochettes), analyse, sauvegarde de la base, raccourcis
+// clavier modifiables. Mêmes réglages que Studio Vault (repris à l'import). Global `CPrefs`.
+import { Theme } from "theme.slint";
+import { Btn, H2, Hit } from "components.slint";
+
+export struct KeyUi {
+    label: string,
+    key: string,
+    tip: string,
+}
+
+export global CPrefs {
+    in property <bool> ready;
+    // Identité.
+    in property <string> alias;
+    in property <[string]> aliases;
+    // Lecture.
+    in property <bool> continuous;
+    // Apparence : -1 la couleur du thème, 0 à 7 les pastilles, 8 une couleur choisie.
+    in property <[color]> accents;
+    in property <[string]> accent-names;
+    in property <int> accent: -1;
+    in property <string> custom;
+    in property <bool> cover-accent;
+    in property <bool> compact;
+    in property <bool> covers: true;
+    // Analyse.
+    in property <bool> write-tags;
+    in property <bool> auto-analyze;
+    in property <bool> idle-analyze;
+    // Sauvegarde.
+    in property <string> backup-text;
+    in property <bool> extra-on;
+    in property <string> extra-dir;
+    in property <[string]> backups;
+    // Dossier d'arrivée des exports.
+    in property <string> arrival-dir;
+    // Statuts automatiques.
+    in property <bool> auto-status;
+    // Contrôle des copies.
+    in property <[string]> copies-roots;
+    in property <string> copies-text;
+    in property <int> copies-single;
+    in property <bool> copies-busy;
+    callback arrival-choose();
+    callback arrival-clear();
+    callback copies-add();
+    callback copies-remove(int);
+    callback copies-check();
+    callback copies-show();
+    // Mises à jour.
+    in property <string> update-dir;
+    in property <string> update-text;
+    in property <bool> update-ready;
+    callback update-choose();
+    callback update-check();
+    callback update-install();
+    // Ce PC relié au PC principal.
+    in-out property <string> remote-address;
+    in property <bool> remote-on;
+    in property <string> remote-info;
+    callback remote-test();
+    callback remote-connect();
+    callback remote-leave();
+    // Raccourcis.
+    in property <[KeyUi]> keys;
+    in property <int> capturing: -1;
+    in property <string> key-msg;
+    callback alias-edited(string);
+    callback alias-add(string);
+    callback alias-remove(int);
+    callback toggle(string);
+    callback set-density(bool);
+    callback pick-accent(int);
+    callback custom-accent(string);
+    callback choose-extra();
+    callback backup-now();
+    callback open-backups();
+    callback backup-restore(int);
+    callback backup-restore-file();
+    callback base-reset();
+    // Fermer la fenêtre garde le logiciel près de l'horloge.
+    in property <bool> tray-on;
+    callback capture(int);
+    callback key-pressed(string, bool, bool, bool);
+    callback key-clear();
+    callback keys-reset();
+}
+
+component PCheck inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    height: max(26px, ct.preferred-height + 6px);
+    Rectangle {
+        x: 0;
+        y: 4px;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: root.on ? Theme.ember : Theme.ink3;
+        border-width: 1px;
+        border-color: root.on ? Theme.ember : Theme.line2;
+        if root.on: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+    }
+    ct := Text { x: 28px; y: 3px; width: parent.width - 28px; text: root.text; color: Theme.text; font-size: 12.5px; wrap: word-wrap; }
+    Hit { clicked => { root.clicked(); } }
+}
+
+export component PInput inherits Rectangle {
+    in property <string> value;
+    in property <string> placeholder;
+    callback changed(string);
+    callback accepted(string);
+    height: 30px;
+    border-radius: 8px;
+    background: Theme.ink3;
+    if pi.text == "": Text { x: 9px; text: root.placeholder; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; }
+    pi := TextInput {
+        x: 9px;
+        width: parent.width - 18px;
+        height: 100%;
+        text: root.value;
+        color: Theme.text;
+        font-size: 12.5px;
+        vertical-alignment: center;
+        single-line: true;
+        edited => { root.changed(self.text); }
+        accepted => { root.accepted(self.text); self.text = ""; }
+    }
+}
+
+export component CareerPrefs inherits VerticalLayout {
+    // general, ecoute, apparence, analyse, keys.
+    in property <string> part;
+    spacing: 26px;
+    alignment: start;
+    if !CPrefs.ready: Text { text: "Les préférences apparaissent une fois ta base ouverte."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+    // ---------- identité
+    if CPrefs.ready && root.part == "general": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Identité"; }
+        Text { text: "Le nom principal s'affiche à l'accueil (« Bonjour … »). Les autres servent à reconnaître tes morceaux (et tes invités) dans le champ Artiste."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { width: 120px; text: "Nom principal"; color: Theme.text2; font-size: 12.5px; vertical-alignment: center; }
+            PInput { horizontal-stretch: 1; value: CPrefs.alias; placeholder: "Ton nom d'artiste"; changed(t) => { CPrefs.alias-edited(t); } }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            Text { width: 120px; text: "Autres noms"; color: Theme.text2; font-size: 12.5px; vertical-alignment: center; }
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                spacing: 6px;
+                alignment: start;
+                for a[ai] in CPrefs.aliases: Rectangle {
+                    height: 28px;
+                    width: at.preferred-width + 40px;
+                    border-radius: 14px;
+                    background: Theme.ink3;
+                    at := Text { x: 12px; text: a; color: Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                    Text { x: parent.width - 22px; text: "×"; color: Theme.text2; font-size: 14px; vertical-alignment: center; height: parent.height; }
+                    TouchArea { x: parent.width - 26px; width: 26px; mouse-cursor: pointer; clicked => { CPrefs.alias-remove(ai); } }
+                }
+                PInput { width: 200px; placeholder: "Ajouter un autre nom (Entrée)"; accepted(t) => { CPrefs.alias-add(t); } }
+            }
+        }
+    }
+    // ---------- dossier d'arrivée
+    if CPrefs.ready && root.part == "general": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Dossier d'arrivée des exports"; }
+        Text { text: "Indique le dossier où FL Studio exporte. Chaque nouveau WAV est reconnu d'après son nom, analysé et rangé comme version du morceau. Le fichier ne bouge pas."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { horizontal-stretch: 1; text: CPrefs.arrival-dir == "" ? "Aucun dossier choisi" : CPrefs.arrival-dir; color: CPrefs.arrival-dir == "" ? Theme.text3 : Theme.text2; font-size: 12px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Choisir…"; height: 28px; clicked => { CPrefs.arrival-choose(); } }
+            if CPrefs.arrival-dir != "": Btn { text: "Retirer"; height: 28px; ghost: true; clicked => { CPrefs.arrival-clear(); } }
+        }
+    }
+    // ---------- ce PC et le PC principal
+    if CPrefs.ready && root.part == "general": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Travailler depuis un autre PC"; }
+        Text { text: "À régler sur l'autre PC, pas sur le PC principal : indique l'adresse Tailscale du PC principal. La base reste sur le PC principal : ce PC en garde une copie, envoie ce que tu modifies et reçoit la musique à la demande. L'analyse, le mastering et les dossiers surveillés restent sur le PC principal."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                horizontal-stretch: 1;
+                height: 30px;
+                border-radius: 8px;
+                background: Theme.ink3;
+                if ra.text == "": Text { x: 9px; text: "mon-pc.xxxx.ts.net"; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                ra := TextInput { x: 9px; width: parent.width - 18px; height: 100%; text <=> CPrefs.remote-address; color: Theme.text; font-size: 12.5px; vertical-alignment: center; single-line: true; }
+            }
+            Btn { text: "Tester"; height: 30px; clicked => { CPrefs.remote-test(); } }
+            if !CPrefs.remote-on: Btn { text: "Se connecter"; primary: true; height: 30px; clicked => { CPrefs.remote-connect(); } }
+            if CPrefs.remote-on: Btn { text: "Se déconnecter"; height: 30px; ghost: true; clicked => { CPrefs.remote-leave(); } }
+        }
+        if CPrefs.remote-info != "": Text { text: CPrefs.remote-info; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+    }
+    // ---------- mises à jour
+    if CPrefs.ready && root.part == "about": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Mises à jour"; }
+        Text { text: CPrefs.update-text; color: CPrefs.update-ready ? Theme.ember2 : Theme.text2; font-size: 12.5px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 8px;
+            Text { horizontal-stretch: 1; text: CPrefs.update-dir == "" ? "Aucun dossier choisi" : CPrefs.update-dir; color: Theme.text3; font-size: 12px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Choisir le dossier…"; height: 28px; ghost: true; clicked => { CPrefs.update-choose(); } }
+            Btn { text: "Chercher"; height: 28px; clicked => { CPrefs.update-check(); } }
+            if CPrefs.update-ready: Btn { text: "Installer"; primary: true; height: 28px; clicked => { CPrefs.update-install(); } }
+        }
+    }
+    // ---------- lecture
+    if CPrefs.ready && root.part == "ecoute": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Lecture"; }
+        PCheck { text: "Enchaîner automatiquement sur le morceau suivant"; on: CPrefs.continuous; clicked => { CPrefs.toggle("continuous_play"); } }
+    }
+    // ---------- apparence
+    if CPrefs.ready && root.part == "apparence": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Couleur d'accent et tableau"; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Rectangle {
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                background: @linear-gradient(135deg, #FF6A3D 0%, #FFB547 100%);
+                border-width: CPrefs.accent == -1 && !CPrefs.cover-accent ? 2px : 0;
+                border-color: Theme.text;
+                TouchArea { mouse-cursor: pointer; clicked => { CPrefs.pick-accent(-1); } }
+            }
+            for c[ci] in CPrefs.accents: Rectangle {
+                width: 30px;
+                height: 30px;
+                border-radius: 15px;
+                background: c;
+                opacity: CPrefs.cover-accent ? 0.4 : 1;
+                border-width: CPrefs.accent == ci && !CPrefs.cover-accent ? 2px : 0;
+                border-color: Theme.text;
+                TouchArea { mouse-cursor: pointer; clicked => { CPrefs.pick-accent(ci); } }
+            }
+            Text { text: "Autre :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+            PInput { width: 110px; value: CPrefs.custom; placeholder: "#rrggbb"; accepted(t) => { CPrefs.custom-accent(t); } changed(t) => { if (t.character-count == 7) { CPrefs.custom-accent(t); } } }
+        }
+        Text { text: "La couleur des boutons et des sélections, dans tout le logiciel. La pastille orange : celle d'origine."; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+        PCheck { text: "Prendre la couleur de la pochette du morceau en cours"; on: CPrefs.cover-accent; clicked => { CPrefs.toggle("cover_accent"); } }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Text { width: 120px; text: "Tableau"; color: Theme.text2; font-size: 12.5px; vertical-alignment: center; }
+            for d[di] in ["Aéré", "Compact (plus de morceaux à l'écran)"]: Rectangle {
+                height: 30px;
+                width: dt.preferred-width + 26px;
+                border-radius: 9px;
+                property <bool> on: (di == 1) == CPrefs.compact;
+                background: self.on ? Theme.ember-soft : (da.has-hover ? Theme.ink3 : Theme.ink2);
+                border-width: 1px;
+                border-color: self.on ? Theme.ember : Theme.line2;
+                dt := Text { text: d; color: parent.on ? Theme.ember : Theme.text2; font-size: 12px; font-weight: 700; }
+                da := TouchArea { mouse-cursor: pointer; clicked => { CPrefs.set-density(di == 1); } }
+            }
+        }
+        PCheck { text: "Afficher les pochettes dans le tableau"; on: CPrefs.covers; clicked => { CPrefs.toggle("table_covers"); } }
+    }
+    // ---------- analyse
+    if CPrefs.ready && root.part == "analyse": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Analyse"; }
+        Text { text: "L'analyse n'écrit jamais dans tes fichiers audio. Pour y reporter BPM et tonalité : Bibliothèque › Outils › Écrire les tags dans les fichiers."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        PCheck { text: "Analyser automatiquement les nouveaux morceaux"; on: CPrefs.auto-analyze; clicked => { CPrefs.toggle("auto_analyze"); } }
+        PCheck { text: "Analyser en arrière-plan les morceaux jamais analysés (après le démarrage)"; on: CPrefs.idle-analyze; clicked => { CPrefs.toggle("idle_analyze"); } }
+        Text { text: "L'analyse prend moins d'une seconde par morceau et tourne en arrière-plan."; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+        PCheck { text: "Faire avancer les morceaux dans Production d'après ce que prouve la base (export, master, lien)"; on: CPrefs.auto-status; clicked => { CPrefs.toggle("auto_status"); } }
+    }
+    // ---------- copies
+    if CPrefs.ready && root.part == "analyse": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Copies de ta musique"; }
+        Text { text: "La base est sauvegardée chaque jour, pas ta musique. Indique où sont tes copies (Google Drive, disque externe) : l'application signale ce qui n'existe qu'à un seul endroit. Une copie est un fichier de même nom et de même taille sur un autre disque."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        for r[ri] in CPrefs.copies-roots: HorizontalLayout {
+            spacing: 8px;
+            Text { horizontal-stretch: 1; text: r; color: Theme.text2; font-size: 12px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Retirer"; height: 26px; ghost: true; clicked => { CPrefs.copies-remove(ri); } }
+        }
+        Text { text: CPrefs.copies-text; color: CPrefs.copies-single > 0 ? Theme.ember2 : Theme.text2; font-size: 12px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn { text: "Ajouter un emplacement…"; height: 30px; clicked => { CPrefs.copies-add(); } }
+            if CPrefs.copies-roots.length > 0: Btn { text: CPrefs.copies-busy ? "Contrôle en cours…" : "Contrôler maintenant"; primary: true; height: 30px; clicked => { if !CPrefs.copies-busy { CPrefs.copies-check(); } } }
+            if CPrefs.copies-single > 0: Btn { text: "Voir les " + CPrefs.copies-single + " morceaux"; height: 30px; ghost: true; clicked => { CPrefs.copies-show(); } }
+        }
+    }
+    // ---------- sauvegarde
+    if CPrefs.ready && root.part == "analyse": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Sauvegarde de la base"; }
+        Text { text: CPrefs.backup-text; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        PCheck { text: "Copier aussi chaque sauvegarde dans un dossier synchronisé (Google Drive, OneDrive, clé USB…)"; on: CPrefs.extra-on; clicked => { CPrefs.toggle("backup_extra"); } }
+        if CPrefs.extra-on: HorizontalLayout {
+            spacing: 8px;
+            Text { horizontal-stretch: 1; text: CPrefs.extra-dir == "" ? "(dossier à choisir)" : CPrefs.extra-dir; color: Theme.text2; font-size: 12px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Choisir…"; height: 28px; clicked => { CPrefs.choose-extra(); } }
+        }
+        if CPrefs.extra-on: Text { text: "Les 10 dernières copies y sont gardées."; color: Theme.text3; font-size: 11px; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Btn { text: "Sauvegarder maintenant"; primary: true; height: 30px; clicked => { CPrefs.backup-now(); } }
+            Btn { text: "Ouvrir le dossier des sauvegardes"; height: 30px; ghost: true; clicked => { CPrefs.open-backups(); } }
+            if !CPrefs.remote-on: Btn { text: "Restaurer depuis un fichier…"; height: 30px; ghost: true; clicked => { CPrefs.backup-restore-file(); } }
+        }
+        for b[i] in CPrefs.backups: HorizontalLayout {
+            spacing: 10px;
+            Text { horizontal-stretch: 1; text: b; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+            if !CPrefs.remote-on: Btn { text: "Restaurer…"; height: 26px; ghost: true; clicked => { CPrefs.backup-restore(i); } }
+        }
+    }
+    // ---------- repartir de zéro
+    if CPrefs.ready && root.part == "analyse" && !CPrefs.remote-on: VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Repartir de zéro"; }
+        Text { text: "Vide ta bibliothèque, tes sorties et tes réglages dans le logiciel, et désactive tes liens de partage. Tes fichiers audio ne sont jamais touchés, et une sauvegarde est faite juste avant : tu peux toujours revenir en arrière."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        HorizontalLayout {
+            alignment: start;
+            Btn { text: "Réinitialiser ma base…"; height: 30px; ghost: true; clicked => { CPrefs.base-reset(); } }
+        }
+    }
+    // ---------- fermeture de la fenêtre
+    if CPrefs.ready && root.part == "general": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Fermeture de la fenêtre"; }
+        PCheck { text: "Garder le logiciel ouvert près de l'horloge quand je ferme sa fenêtre (la musique continue)"; on: CPrefs.tray-on; clicked => { CPrefs.toggle("close_to_tray"); } }
+        Text { text: "Un clic sur l'icône rouvre la fenêtre. Clic droit : Ouvrir, Vérifier une mise à jour, Fermer le logiciel."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+    }
+    // ---------- raccourcis
+    if CPrefs.ready && root.part == "keys": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Raccourcis clavier"; }
+        Text { text: "Clique une action, puis appuie sur la combinaison voulue (Échap pour annuler, Retour arrière pour n'en mettre aucun). Les lettres seules (P, X, N, Q…) valent dans le tableau de la bibliothèque ; les combinaisons avec Ctrl partout."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        if CPrefs.key-msg != "": Text { text: CPrefs.key-msg; color: Theme.ember2; font-size: 12px; wrap: word-wrap; }
+        capture := FocusScope {
+            key-pressed(e) => {
+                if (CPrefs.capturing < 0) { return EventResult.reject; }
+                if (e.text == Key.Escape) { CPrefs.capture(-1); return EventResult.accept; }
+                if (e.text == Key.Backspace) { CPrefs.key-clear(); return EventResult.accept; }
+                if (e.text == Key.Control || e.text == Key.Shift || e.text == Key.Alt || e.text == Key.Meta || e.text == Key.AltGr) { return EventResult.accept; }
+                CPrefs.key-pressed(e.text, e.modifiers.control, e.modifiers.shift, e.modifiers.alt);
+                return EventResult.accept;
+            }
+            Rectangle {
+                border-radius: 10px;
+                background: Theme.ink2;
+                VerticalLayout {
+                    padding: 6px;
+                    for k[ki] in CPrefs.keys: Rectangle {
+                        height: 30px;
+                        border-radius: 7px;
+                        background: CPrefs.capturing == ki ? Theme.ember-soft : (ka.has-hover ? Theme.ink3 : transparent);
+                        Text { x: 10px; width: parent.width - 200px; text: k.label; color: Theme.text; font-size: 12.5px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                        Rectangle {
+                            x: parent.width - 180px;
+                            y: 4px;
+                            width: 170px;
+                            height: 22px;
+                            border-radius: 6px;
+                            background: CPrefs.capturing == ki ? Theme.ember : (k.key == "" ? transparent : Theme.ink3);
+                            Text {
+                                text: CPrefs.capturing == ki ? "Appuie sur une combinaison…" : (k.key == "" ? "—" : k.key);
+                                color: CPrefs.capturing == ki ? #1C0802 : Theme.text2;
+                                font-size: 11px;
+                                font-family: Theme.mono-font;
+                            }
+                        }
+                        ka := TouchArea { mouse-cursor: pointer; clicked => { CPrefs.capture(ki); capture.focus(); } }
+                    }
+                }
+            }
+        }
+        HorizontalLayout { alignment: start; Btn { text: "Revenir aux raccourcis d'origine"; height: 30px; ghost: true; clicked => { CPrefs.keys-reset(); } } }
+    }
+}

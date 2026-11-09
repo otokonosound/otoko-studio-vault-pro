@@ -1,0 +1,470 @@
+// Carrière › Publier (comme l'assistant de publication de Studio Vault) : les morceaux à gauche ;
+// Écrire (SoundCloud, Instagram, story ; six tons ; autre variante ; genre et tags SoundCloud ;
+// contrôle du fichier, envoi, « publié aujourd'hui »), Historique, Univers de marque.
+// Tout passe par le global `Pub` (publish.rs).
+import { Theme } from "theme.slint";
+import { Btn, Hit } from "components.slint";
+import { ListView, ScrollView, TextEdit } from "std-widgets.slint";
+
+export struct PubTrackUi {
+    id: int,
+    label: string,
+}
+
+export struct PubCheckUi {
+    // 0 bon, 1 à voir, 2 à corriger.
+    level: int,
+    text: string,
+}
+
+export struct HistUi {
+    id: int,
+    date: string,
+    title: string,
+    platform: string,
+    posted: bool,
+    preview: string,
+}
+
+export struct BrandFieldUi {
+    key: string,
+    label: string,
+    placeholder: string,
+    value: string,
+}
+
+// Un modèle ou une phrase de l'artiste.
+export struct MineUi {
+    id: int,
+    title: string,
+    sub: string,
+}
+
+export global Pub {
+    in property <[PubTrackUi]> tracks;
+    in property <int> current: -1;
+    in property <string> tab: "write";
+    // Écrire.
+    in property <string> platform: "soundcloud";
+    in property <[string]> platforms;
+    in property <[string]> platform-labels;
+    in property <string> tone: "mysterieux";
+    in property <[string]> tones;
+    in property <[string]> tone-labels;
+    in property <string> title;
+    in property <string> meta;
+    in property <string> info;
+    in-out property <string> text;
+    in-out property <string> sc-genre;
+    in-out property <string> sc-tags;
+    in property <[PubCheckUi]> checks;
+    in property <string> check-text;
+    in-out property <string> link;
+    // Historique.
+    in property <bool> hist-one;
+    in property <[HistUi]> history;
+    in property <int> hist-sel: -1;
+    in property <string> hist-text;
+    // Univers de marque.
+    in property <[BrandFieldUi]> brand;
+    in property <string> brand-tone;
+    in property <string> msg;
+    // Écrire : le modèle utilisé (0 : le moteur).
+    in property <[MineUi]> models;
+    in property <int> model;
+    // Mes textes : la liste et le texte ouvert.
+    in property <[MineUi]> mines;
+    in property <int> mine-sel: -1;
+    in-out property <string> mine-name;
+    in-out property <string> mine-body;
+    in property <string> mine-kind;
+    in property <string> mine-platform;
+    in property <string> mine-preview;
+    in property <[string]> mine-fields;
+    in property <[string]> mine-kinds;
+    in property <[string]> mine-kind-labels;
+    callback set-model(int);
+    callback keep-model();
+    callback mine-new(string);
+    callback mine-select(int);
+    callback mine-edited();
+    callback mine-set-kind(string);
+    callback mine-set-platform(string);
+    callback mine-insert(string);
+    callback mine-delete();
+    callback select(int);
+    callback filter(string);
+    callback set-tab(string);
+    callback set-platform(string);
+    // Retour aux Sorties (Publier en fait partie).
+    callback go-releases();
+    callback set-tone(string);
+    callback variant();
+    callback copy-text();
+    callback copy-genre();
+    callback copy-tags();
+    callback save(bool);
+    callback send();
+    callback check();
+    // Le morceau envoyé au mastering (onglet Mastering).
+    callback master();
+    callback published();
+    callback hist-scope(bool);
+    callback hist-select(int);
+    callback hist-copy();
+    callback hist-posted();
+    callback hist-delete();
+    callback brand-edited(string, string);
+    callback brand-tone-set(string);
+    callback brand-save();
+}
+
+component PChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    width: pt.preferred-width + 22px;
+    height: 28px;
+    border-radius: 14px;
+    background: root.on ? Theme.ember-soft : (ta.has-hover ? Theme.ink4 : Theme.ink3);
+    border-width: 1px;
+    border-color: root.on ? Theme.ember : Theme.line2;
+    pt := Text { text: root.text; color: root.on ? Theme.ember : Theme.text2; font-size: 11.5px; font-weight: 700; }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+component PInput inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> value;
+    callback changed(string);
+    height: 30px;
+    border-radius: 8px;
+    background: Theme.ink3;
+    if pi.text == "": Text { x: 9px; text: root.placeholder; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; width: parent.width - 18px; }
+    pi := TextInput {
+        x: 9px;
+        width: parent.width - 18px;
+        height: 100%;
+        text <=> root.value;
+        color: Theme.text;
+        font-size: 12px;
+        vertical-alignment: center;
+        single-line: true;
+        edited => { root.changed(self.text); }
+    }
+}
+
+component Head inherits Text {
+    color: Theme.text3;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+export component PublishView inherits Rectangle {
+    HorizontalLayout {
+        spacing: 16px;
+        // ---------- les morceaux
+        VerticalLayout {
+            width: 270px;
+            spacing: 8px;
+            HorizontalLayout { alignment: start; Btn { text: "← Sorties"; ghost: true; height: 26px; clicked => { Pub.go-releases(); } } }
+            PInput { placeholder: "Filtrer les morceaux…"; changed(t) => { Pub.filter(t); } }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 10px;
+                background: Theme.ink2;
+                clip: true;
+                ListView {
+                    for t in Pub.tracks: Rectangle {
+                        height: 32px;
+                        background: Pub.current == t.id ? Theme.ember-soft : (tla.has-hover ? Theme.ink3 : transparent);
+                        Text {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            text: t.label;
+                            color: Pub.current == t.id ? Theme.ember : Theme.text;
+                            font-size: 12px;
+                            font-weight: Pub.current == t.id ? 700 : 500;
+                            vertical-alignment: center;
+                            height: parent.height;
+                            overflow: elide;
+                        }
+                        tla := TouchArea { mouse-cursor: pointer; clicked => { Pub.select(t.id); } }
+                    }
+                }
+            }
+        }
+        // ---------- écrire, historique, univers de marque
+        VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                for t in [{ k: "write", l: "Écrire" }, { k: "mine", l: "Mes textes" }, { k: "history", l: "Historique" }, { k: "brand", l: "Univers de marque" }]: PChip {
+                    text: t.l;
+                    on: Pub.tab == t.k;
+                    clicked => { Pub.set-tab(t.k); }
+                }
+                Text { text: Pub.msg; color: Theme.lagoon; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+            }
+
+            if Pub.tab == "write": HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 16px;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    Text { text: Pub.title == "" ? "Choisis un morceau à gauche." : Pub.title; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; overflow: elide; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for p[k] in Pub.platforms: PChip { text: Pub.platform-labels[k]; on: Pub.platform == p; clicked => { Pub.set-platform(p); } }
+                    }
+                    if Pub.models.length > 0: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        PChip { text: "Moteur"; on: Pub.model == 0; clicked => { Pub.set-model(0); } }
+                        for m in Pub.models: PChip { text: m.title; on: Pub.model == m.id; clicked => { Pub.set-model(m.id); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        for t[k] in Pub.tones: PChip { text: Pub.tone-labels[k]; on: Pub.tone == t; opacity: Pub.model == 0 ? 1 : 0.45; clicked => { Pub.set-tone(t); } }
+                        Rectangle { horizontal-stretch: 1; }
+                        Btn { text: "Autre variante"; height: 28px; clicked => { Pub.variant(); } }
+                    }
+                    Text { text: Pub.info; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+                    TextEdit { vertical-stretch: 1; text <=> Pub.text; font-size: 13px; }
+                    if Pub.platform == "soundcloud": VerticalLayout {
+                        spacing: 6px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { width: 50px; text: "Genre :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+                            PInput { horizontal-stretch: 1; value <=> Pub.sc-genre; }
+                            Btn { text: "Copier"; height: 30px; clicked => { Pub.copy-genre(); } }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { width: 50px; text: "Tags :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+                            PInput { horizontal-stretch: 1; value <=> Pub.sc-tags; }
+                            Btn { text: "Copier"; height: 30px; clicked => { Pub.copy-tags(); } }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Btn { text: "Copier le texte"; primary: true; height: 32px; clicked => { Pub.copy-text(); } }
+                        Btn { text: "Enregistrer dans l'historique"; height: 32px; clicked => { Pub.save(false); } }
+                        Btn { text: "Enregistrer comme publié"; height: 32px; clicked => { Pub.save(true); } }
+                        Btn { text: "En faire un modèle"; height: 32px; ghost: true; clicked => { Pub.keep-model(); } }
+                        Btn { text: "Envoyer…"; height: 32px; ghost: true; clicked => { Pub.send(); } }
+                    }
+                }
+                // Le fichier, tel qu'une plateforme le recevra ; puis « publié ».
+                ScrollView {
+                    width: 290px;
+                    VerticalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Text { text: Pub.meta; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                        Head { text: "AVANT D'ENVOYER"; }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 6px;
+                            Btn { text: "Contrôler le fichier"; height: 30px; clicked => { Pub.check(); } }
+                            Btn { text: "Masteriser"; height: 30px; ghost: true; clicked => { Pub.master(); } }
+                        }
+                        Text { text: Pub.check-text; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+                        for c in Pub.checks: HorizontalLayout {
+                            spacing: 8px;
+                            Rectangle {
+                                width: 10px;
+                                Rectangle { y: 5px; width: 8px; height: 8px; border-radius: 4px; background: c.level == 0 ? Theme.ok : c.level == 1 ? Theme.ember2 : Theme.danger; }
+                            }
+                            Text { horizontal-stretch: 1; text: c.text; color: Theme.text; font-size: 12px; wrap: word-wrap; }
+                        }
+                        Head { text: "EN LIGNE"; }
+                        PInput { placeholder: "lien (SoundCloud, YouTube…), facultatif"; value <=> Pub.link; }
+                        HorizontalLayout { alignment: start; Btn { text: "Publié aujourd'hui"; height: 30px; clicked => { Pub.published(); } } }
+                    }
+                }
+            }
+
+            // Mes modèles et mes phrases : ce qui fait que les textes sonnent comme moi.
+            if Pub.tab == "mine": HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 16px;
+                VerticalLayout {
+                    width: 250px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Btn { text: "+ Modèle"; primary: true; height: 28px; clicked => { Pub.mine-new("modele"); } }
+                        Btn { text: "+ Phrase"; height: 28px; clicked => { Pub.mine-new("accroche"); } }
+                    }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        border-radius: 10px;
+                        background: Theme.ink2;
+                        clip: true;
+                        if Pub.mines.length == 0: Text {
+                            x: 14px;
+                            y: 14px;
+                            width: parent.width - 28px;
+                            text: "Un modèle est un texte complet à toi. Une phrase passe avant celles du moteur. Tout reste sur ton ordinateur.";
+                            color: Theme.text3;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                        ListView {
+                            for m in Pub.mines: Rectangle {
+                                height: 44px;
+                                background: Pub.mine-sel == m.id ? Theme.ember-soft : (mla.has-hover ? Theme.ink3 : transparent);
+                                Text { x: 12px; y: 6px; width: parent.width - 24px; text: m.title; color: Pub.mine-sel == m.id ? Theme.ember : Theme.text; font-size: 12.5px; font-weight: 700; overflow: elide; }
+                                Text { x: 12px; y: 24px; width: parent.width - 24px; text: m.sub; color: Theme.text3; font-size: 11px; overflow: elide; }
+                                mla := TouchArea { mouse-cursor: pointer; clicked => { Pub.mine-select(m.id); } }
+                            }
+                        }
+                    }
+                }
+                if Pub.mine-sel < 0: Text {
+                    horizontal-stretch: 1;
+                    text: "Choisis un texte à gauche, ou crée ton premier modèle. Dans Écrire, « En faire un modèle » part d'un texte déjà écrit.";
+                    color: Theme.text3;
+                    font-size: 12.5px;
+                    wrap: word-wrap;
+                }
+                if Pub.mine-sel >= 0: VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for k[i] in Pub.mine-kinds: PChip { text: Pub.mine-kind-labels[i]; on: Pub.mine-kind == k; clicked => { Pub.mine-set-kind(k); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for p in [{ k: "", l: "Partout" }, { k: "soundcloud", l: "SoundCloud" }, { k: "instagram", l: "Instagram" }, { k: "story", l: "Story" }]: PChip {
+                            text: p.l;
+                            on: Pub.mine-platform == p.k;
+                            clicked => { Pub.mine-set-platform(p.k); }
+                        }
+                    }
+                    if Pub.mine-kind == "modele": PInput { placeholder: "Nom du modèle"; value <=> Pub.mine-name; changed(t) => { Pub.mine-edited(); } }
+                    TextEdit { vertical-stretch: 2; text <=> Pub.mine-body; font-size: 13px; edited(t) => { Pub.mine-edited(); } }
+                    // Les champs, sur autant de lignes qu'il en faut pour que chacun garde sa place.
+                    fields := Rectangle {
+                        property <int> per-row: max(3, min(8, floor(self.width / 78px)));
+                        property <length> slot: (self.width - (self.per-row - 1) * 4px) / self.per-row;
+                        height: ceil(Pub.mine-fields.length / self.per-row) * 26px;
+                        for f[i] in Pub.mine-fields: Rectangle {
+                            x: mod(i, fields.per-row) * (fields.slot + 4px);
+                            y: floor(i / fields.per-row) * 26px;
+                            width: fields.slot;
+                            height: 22px;
+                            border-radius: 6px;
+                            background: fa.has-hover ? Theme.ink4 : Theme.ink3;
+                            Text { text: f; color: Theme.text2; font-size: 10.5px; font-family: Theme.mono-font; overflow: elide; }
+                            fa := Hit { ring-radius: 6px; clicked => { Pub.mine-insert(f); } }
+                        }
+                    }
+                    Text { text: "Clique un champ pour l'ajouter. Une ligne dont une information manque disparaît ; le reste est gardé tel que tu l'as écrit."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+                    Head { text: "APERÇU"; }
+                    Rectangle {
+                        vertical-stretch: 1;
+                        min-height: 90px;
+                        border-radius: 10px;
+                        background: Theme.ink2;
+                        ScrollView {
+                            VerticalLayout {
+                                padding: 12px;
+                                Text { text: Pub.mine-preview == "" ? "Choisis un morceau à gauche pour voir le résultat." : Pub.mine-preview; color: Pub.mine-preview == "" ? Theme.text3 : Theme.text; font-size: 12.5px; wrap: word-wrap; }
+                            }
+                        }
+                    }
+                    HorizontalLayout { alignment: start; Btn { text: "Supprimer"; ghost: true; height: 28px; clicked => { Pub.mine-delete(); } } }
+                }
+            }
+
+            if Pub.tab == "history": VerticalLayout {
+                vertical-stretch: 1;
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    PChip { text: "Tous les morceaux"; on: !Pub.hist-one; clicked => { Pub.hist-scope(false); } }
+                    PChip { text: "Morceau sélectionné"; on: Pub.hist-one; clicked => { Pub.hist-scope(true); } }
+                }
+                Rectangle {
+                    height: 26px;
+                    Head { x: 10px; text: "DATE"; height: parent.height; vertical-alignment: center; }
+                    Head { x: 140px; text: "MORCEAU"; height: parent.height; vertical-alignment: center; }
+                    Head { x: 340px; text: "FORMAT"; height: parent.height; vertical-alignment: center; }
+                    Head { x: 440px; text: "PUBLIÉ"; height: parent.height; vertical-alignment: center; }
+                    Head { x: 510px; text: "DÉBUT DU TEXTE"; height: parent.height; vertical-alignment: center; }
+                }
+                Rectangle {
+                    vertical-stretch: 2;
+                    border-radius: 10px;
+                    background: Theme.ink2;
+                    clip: true;
+                    ListView {
+                        for h[i] in Pub.history: Rectangle {
+                            height: 30px;
+                            background: Pub.hist-sel == i ? Theme.ember-soft : (hra.has-hover ? Theme.ink3 : transparent);
+                            Text { x: 10px; text: h.date; color: Theme.text3; font-size: 11.5px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                            Text { x: 140px; width: 190px; text: h.title; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            Text { x: 340px; width: 95px; text: h.platform; color: Theme.text2; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            Text { x: 440px; text: h.posted ? "Oui" : ""; color: Theme.ok; font-size: 12px; font-weight: 700; vertical-alignment: center; height: parent.height; }
+                            Text { x: 510px; width: parent.width - 520px; text: h.preview; color: Theme.text2; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            hra := TouchArea { mouse-cursor: pointer; clicked => { Pub.hist-select(i); } }
+                        }
+                    }
+                }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    background: Theme.ink2;
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 12px;
+                            Text { text: Pub.hist-text == "" ? "Choisis un texte dans la liste." : Pub.hist-text; color: Pub.hist-text == "" ? Theme.text3 : Theme.text; font-size: 12.5px; wrap: word-wrap; }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    Btn { text: "Copier"; height: 30px; clicked => { Pub.hist-copy(); } }
+                    Btn { text: "Marquer comme publié"; height: 30px; clicked => { Pub.hist-posted(); } }
+                    Btn { text: "Supprimer"; height: 30px; ghost: true; clicked => { Pub.hist-delete(); } }
+                }
+            }
+
+            if Pub.tab == "brand": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    padding-right: 8px;
+                    Text { text: "Ces informations nourrissent le moteur de textes : nom, ville, signature, hashtags perso et mots à ne jamais écrire. Tout reste sur ton ordinateur."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                    for f in Pub.brand: HorizontalLayout {
+                        spacing: 10px;
+                        Text { width: 150px; text: f.label; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+                        PInput { horizontal-stretch: 1; placeholder: f.placeholder; value: f.value; changed(t) => { Pub.brand-edited(f.key, t); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Text { width: 150px; text: "Ton par défaut"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+                        for t[k] in Pub.tones: PChip { text: Pub.tone-labels[k]; on: Pub.brand-tone == t; clicked => { Pub.brand-tone-set(t); } }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    Text { text: "Les mots « Suno », « IA » et « généré » ne sont jamais écrits, même sans les lister ici."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+                    HorizontalLayout { alignment: start; Btn { text: "Enregistrer l'univers de marque"; primary: true; height: 32px; clicked => { Pub.brand-save(); } } }
+                }
+            }
+        }
+    }
+}

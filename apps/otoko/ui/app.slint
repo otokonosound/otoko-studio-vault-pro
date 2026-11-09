@@ -1,0 +1,547 @@
+// Fenêtre principale d'Otoko Studio Vault Pro : la barre latérale, la page, le lecteur, la barre d'état.
+import "fonts/InstrumentSans-Regular.ttf";
+import "fonts/InstrumentSans-Medium.ttf";
+import "fonts/InstrumentSans-SemiBold.ttf";
+import "fonts/InstrumentSans-Bold.ttf";
+import "fonts/BricolageGrotesque-Medium.ttf";
+import "fonts/BricolageGrotesque-SemiBold.ttf";
+import "fonts/BricolageGrotesque-Bold.ttf";
+import "fonts/BricolageGrotesque-ExtraBold.ttf";
+import "fonts/JetBrainsMono-Regular.ttf";
+import "fonts/JetBrainsMono-Medium.ttf";
+import "fonts/JetBrainsMono-Bold.ttf";
+import { Theme } from "theme.slint";
+import { Isle, Icon, Btn, H2, Hit } from "components.slint";
+import { ScrollView } from "std-widgets.slint";
+import { LibraryView, ToolDialog, PlayerBar, Lib } from "library.slint";
+import { HomeView, BoardView, StatsView, Home } from "career_home.slint";
+import { ReleasesView } from "releases.slint";
+import { PublishView } from "publishing.slint";
+import { SunoView } from "suno.slint";
+import { MasteringView } from "mastering.slint";
+import { PaletteView, Pal } from "palette.slint";
+import { CareerPrefs } from "prefs_career.slint";
+import { ProjectSheet, ClientsBook, SetBuilder, Proj } from "projects.slint";
+import { ShareSection, ShareDialog, Part } from "partage.slint";
+
+export { Theme } from "theme.slint";
+export { Nav } from "components.slint";
+export { Lib, NavUi, ColUi, LibRowUi, LibFieldUi, VersionUi, DlgItemUi, DlgBtnUi, MarkUi, WheelUi } from "library.slint";
+export { Mast, MJobUi, MParamUi, MTileUi, MMeasureUi } from "mastering.slint";
+export { Pal, PalItemUi } from "palette.slint";
+export { CPrefs, KeyUi } from "prefs_career.slint";
+export { SunoUi, SPromptUi, SlotUi, ChipGroupUi, IssueUi, SPresetUi, ImportFileUi } from "suno.slint";
+export { Pub, PubTrackUi, PubCheckUi, HistUi, BrandFieldUi } from "publishing.slint";
+export { Proj, SrcUi, EntryUi, DelivUi, VersionRowUi, PickUi, ClientUi, SbRowUi } from "projects.slint";
+export { Rel, RelTileUi, RelTrackUi, RelStepUi, QcCellUi, QcRowUi, DayUi, PlanRelUi } from "releases.slint";
+export { Home, HLinkUi, HBarUi, TileUi, TodayUi, ChipUi, CardUi, BoardColUi, SliceUi, ChartUi } from "career_home.slint";
+export { Part, ShareUi, ShareItemUi } from "partage.slint";
+
+// Une entrée de la barre latérale. Repliée (fenêtre étroite), il ne reste que l'icône.
+component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> on;
+    in property <bool> sub;
+    in property <bool> folded;
+    callback clicked;
+    height: root.sub ? 30px : 38px;
+    border-radius: 9px;
+    background: root.on ? Theme.ink3 : (ta.has-hover ? Theme.ink2 : transparent);
+    if root.folded: Icon { source: root.icon; width: 19px; height: 19px; tint: root.on ? Theme.ember : Theme.text2; }
+    if !root.folded: HorizontalLayout {
+        padding-left: root.sub ? 42px : 13px;
+        padding-right: 10px;
+        spacing: 11px;
+        if !root.sub: VerticalLayout { alignment: center; Icon { source: root.icon; width: 18px; height: 18px; tint: root.on ? Theme.ember : Theme.text2; } }
+        Text { text: root.label; color: root.on ? Theme.text : Theme.text2; font-size: root.sub ? 12.5px : 13.5px; font-weight: root.on ? 700 : 600; vertical-alignment: center; overflow: elide; }
+    }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+// Un choix en haut d'une page (les parties des Réglages).
+component PageTab inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    height: 32px;
+    width: pt.preferred-width + 26px;
+    border-radius: 9px;
+    background: root.on ? Theme.ember-soft : (pa.has-hover ? Theme.ink3 : Theme.ink2);
+    border-width: 1px;
+    border-color: root.on ? Theme.ember : Theme.line2;
+    pt := Text { text: root.text; color: root.on ? Theme.ember : Theme.text2; font-size: 12.5px; font-weight: 700; }
+    pa := Hit { clicked => { root.clicked(); } }
+}
+
+// Une étape pour écouter sur le téléphone (page Mobile et partage).
+export struct MobileStep {
+    done: bool,
+    title: string,
+    text: string,
+    label: string,
+    action: string,
+}
+
+export component AppWindow inherits Window {
+    // ---------- état
+    in property <string> version;
+    in property <string> message;
+    // 4 les pages de ta carrière (career-tab), 6 les Réglages, 7 Mobile et partage.
+    in-out property <int> space: 4;
+    // 0 accueil, 1 bibliothèque, 2 sorties, 3 publier, 4 atelier Suno, 5 statistiques, 6 production, 7 mastering.
+    in-out property <int> career-tab;
+    in property <string> career-text;
+    in property <bool> career-vault;
+    in property <string> stats-facts;
+    callback goto(int, int);
+    callback career-import();
+    // La palette de commandes (Ctrl+K) ; une touche tapée (vrai si un raccourci l'a prise).
+    callback open-palette();
+    callback career-key(string, bool, bool, bool) -> bool;
+    // ---------- réglages
+    in property <string> audio-text;
+    // La partie des Réglages à l'écran, et son défilement.
+    in-out property <string> prefs-part: "general";
+    in-out property <length> prefs-scroll;
+    in-out property <length> mobile-scroll;
+    // Apparence : le thème suit Windows par défaut, la taille se choisit, le « ? » ouvre l'aide de l'écran.
+    callback set-theme(int);           // 0 comme Windows, 1 sombre, 2 clair
+    in-out property <int> theme-mode;
+    in-out property <int> ui-scale;    // 0 normale, 1 grande, 2 très grande (au prochain lancement)
+    callback set-scale(int);
+    callback open-guide();
+    callback open-help();
+    // Chaque message s'affiche en toast quelques secondes (le minuteur est côté Rust).
+    in-out property <bool> toast-on;
+    callback toasted();
+    changed message => { if (root.message != "") { root.toasted(); } }
+    // ---------- Mobile et partage : le serveur d'Otoko Vault et les scripts du PC principal.
+    in-out property <string> mobile-text;
+    // Ce PC relié au PC principal : l'état du lien, dans la barre du bas.
+    in property <string> remote-text;
+    in property <bool> mobile-on;
+    in property <bool> mobile-here;
+    in property <bool> mobile-switched;
+    // Le serveur accepte aussi les appareils du Wi-Fi : un choix explicite, refusé par défaut.
+    in property <bool> mobile-wifi;
+    callback mobile-wifi-set(bool);
+    // Les étapes pour écouter sur le téléphone, avec où on en est.
+    in property <[MobileStep]> mobile-steps;
+    callback mobile-step(string);
+    // Il manque quelque chose sur ce PC : le bouton qui installe tout.
+    in property <bool> mobile-missing;
+    // Les deux codes à scanner avec le téléphone.
+    in property <bool> mobile-codes;
+    in property <image> mobile-code-tailscale;
+    in property <image> mobile-code-page;
+    // Le menu de l'icône près de l'horloge.
+    callback tray-command(string);
+    // La tâche « OTOKO mobile » du PC (démarre avec le PC, même logiciel fermé), sans script.
+    in property <bool> mobile-task;
+    callback mobile-task-set(bool);
+    callback mobile-toggle();
+    callback mobile-script(string);
+    callback mobile-open();
+    callback mobile-refresh();
+
+    // Fenêtre étroite : la barre latérale se replie sur ses icônes.
+    property <bool> folded;
+    changed width => { root.folded = root.width < 1300px; }
+    init => { root.folded = root.width < 1300px; }
+
+    pure function here(tab: int) -> bool { return root.space == 4 && root.career-tab == tab; }
+    property <string> page-title: root.space == 6 ? "Réglages" : root.space == 7 ? "Mobile et partage"
+        : root.career-tab == 0 ? "Accueil" : root.career-tab == 1 ? "Bibliothèque" : root.career-tab == 2 ? "Sorties"
+        : root.career-tab == 3 ? "Publier" : root.career-tab == 4 ? "Atelier Suno" : root.career-tab == 5 ? "Statistiques"
+        : root.career-tab == 6 ? "Production" : "Mastering";
+
+    title: "Otoko Studio Vault Pro";
+    icon: @image-url("icons/logo.png");
+    preferred-width: 1600px;
+    preferred-height: 940px;
+    min-width: 1100px;
+    min-height: 700px;
+    background: Theme.ink0;
+    default-font-family: Theme.ui-font;
+    forward-focus: keys;
+
+    // Tout est dans ce FocusScope : une touche que personne n'a prise y remonte, où qu'on soit.
+    keys := FocusScope {
+        focus-on-tab-navigation: false;
+        key-pressed(e) => {
+            if (e.modifiers.control && (e.text == "k" || e.text == "K")) { root.open-palette(); return EventResult.accept; }
+            // Les raccourcis de Studio Vault (modifiables dans les Réglages) passent d'abord.
+            if (root.career-key(e.text, e.modifiers.control, e.modifiers.shift, e.modifiers.alt)) { return EventResult.accept; }
+            if (e.text == Key.F1) { root.open-help(); return EventResult.accept; }
+            if (e.text == " " && Lib.player-open) { Lib.player-toggle(); return EventResult.accept; }
+            return EventResult.reject;
+        }
+
+        VerticalLayout {
+            HorizontalLayout {
+                vertical-stretch: 1;
+
+                // ---------- barre latérale
+                VerticalLayout {
+                    width: root.folded ? 66px : 218px;
+                    padding-left: 10px;
+                    padding-right: 10px;
+                    padding-top: 14px;
+                    padding-bottom: 12px;
+                    spacing: 3px;
+                    HorizontalLayout {
+                        height: 44px;
+                        padding-left: root.folded ? 7px : 8px;
+                        spacing: 11px;
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 30px;
+                                height: 30px;
+                                border-radius: 9px;
+                                background: @linear-gradient(135deg, Theme.ember 0%, Theme.ember2 100%);
+                                Rectangle { width: 14px; height: 14px; border-radius: 7px; border-width: 3px; border-color: #170A06; }
+                            }
+                        }
+                        if !root.folded: VerticalLayout {
+                            alignment: center;
+                            spacing: -1px;
+                            Text { text: "Otoko"; color: Theme.text; font-size: 17px; font-weight: 800; font-family: Theme.display-font; }
+                            Text { text: "Studio Vault Pro"; color: Theme.text3; font-size: 11px; font-weight: 600; }
+                        }
+                    }
+                    Rectangle { height: 12px; }
+                    NavItem { icon: @image-url("icons/home.svg"); label: "Accueil"; folded: root.folded; on: root.here(0); clicked => { root.goto(4, 0); keys.focus(); } }
+                    NavItem { icon: @image-url("icons/sounds.svg"); label: "Bibliothèque"; folded: root.folded; on: root.here(1); clicked => { root.goto(4, 1); keys.focus(); } }
+                    NavItem { icon: @image-url("icons/board.svg"); label: "Production"; folded: root.folded; on: root.here(6) || (root.folded && root.here(4)); clicked => { root.goto(4, 6); keys.focus(); } }
+                    if !root.folded && (root.here(6) || root.here(4)): NavItem { sub: true; label: "Atelier Suno"; on: root.here(4); clicked => { root.goto(4, 4); keys.focus(); } }
+                    NavItem { icon: @image-url("icons/wand.svg"); label: "Mastering"; folded: root.folded; on: root.here(7); clicked => { root.goto(4, 7); keys.focus(); } }
+                    NavItem { icon: @image-url("icons/disc.svg"); label: "Sorties"; folded: root.folded; on: root.here(2) || (root.folded && root.here(3)); clicked => { root.goto(4, 2); keys.focus(); } }
+                    if !root.folded && (root.here(2) || root.here(3)): NavItem { sub: true; label: "Publier"; on: root.here(3); clicked => { root.goto(4, 3); keys.focus(); } }
+                    NavItem { icon: @image-url("icons/chart.svg"); label: "Statistiques"; folded: root.folded; on: root.here(5); clicked => { root.goto(4, 5); keys.focus(); } }
+                    Rectangle { vertical-stretch: 1; }
+                    NavItem { icon: @image-url("icons/link.svg"); label: "Mobile et partage"; folded: root.folded; on: root.space == 7; clicked => { root.goto(7, 0); keys.focus(); } }
+                    NavItem { icon: @image-url("icons/settings.svg"); label: "Réglages"; folded: root.folded; on: root.space == 6; clicked => { root.goto(6, 0); keys.focus(); } }
+                }
+
+                // ---------- la page
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    padding-right: 8px;
+                    HorizontalLayout {
+                        height: 56px;
+                        spacing: 10px;
+                        padding-left: 6px;
+                        padding-right: 4px;
+                        Text { text: root.page-title; color: Theme.text; font-size: 20px; font-weight: 800; font-family: Theme.display-font; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 230px;
+                                height: 34px;
+                                border-radius: 9px;
+                                background: sta.has-hover ? Theme.ink2 : Theme.ink1;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                HorizontalLayout {
+                                    padding-left: 11px;
+                                    padding-right: 8px;
+                                    spacing: 8px;
+                                    VerticalLayout { alignment: center; Icon { source: @image-url("icons/search.svg"); width: 14px; height: 14px; tint: Theme.text3; } }
+                                    Text { text: "Tout trouver"; color: Theme.text3; font-size: 12.5px; vertical-alignment: center; horizontal-stretch: 1; }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            background: Theme.ink3;
+                                            border-radius: 5px;
+                                            height: 18px;
+                                            HorizontalLayout { padding-left: 6px; padding-right: 6px; Text { text: "Ctrl K"; color: Theme.text2; font-size: 10px; font-family: Theme.mono-font; vertical-alignment: center; } }
+                                        }
+                                    }
+                                }
+                                sta := TouchArea { mouse-cursor: pointer; clicked => { root.open-palette(); } }
+                            }
+                        }
+                        VerticalLayout {
+                            alignment: center;
+                            // « ? » : le guide, à la page de l'écran en cours (F1 fait pareil).
+                            Rectangle {
+                                width: 34px;
+                                height: 34px;
+                                border-radius: 9px;
+                                background: hla.has-hover ? Theme.ink2 : Theme.ink1;
+                                border-width: 1px;
+                                border-color: Theme.line;
+                                Text { text: "?"; color: hla.has-hover ? Theme.text : Theme.text2; font-size: 14px; font-weight: 700; font-family: Theme.display-font; horizontal-alignment: center; vertical-alignment: center; width: parent.width; height: parent.height; }
+                                hla := TouchArea { mouse-cursor: pointer; clicked => { root.open-help(); } }
+                            }
+                        }
+                    }
+
+                    // ---------- les pages de ta carrière
+                    if root.space == 4: Isle {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            padding: 20px;
+                            spacing: 12px;
+                            if root.career-tab == 0 && root.career-text != "": Text { text: root.career-text; color: Theme.text2; font-size: 12.5px; wrap: word-wrap; }
+                            if root.career-tab == 0: HomeView {
+                                vertical-stretch: 1;
+                                vault: root.career-vault;
+                                add-folder => { root.goto(4, 1); Lib.add-folder(); }
+                                import-vault => { root.career-import(); }
+                                open-mobile => { root.goto(7, 0); }
+                            }
+                            if root.career-tab == 1: LibraryView { vertical-stretch: 1; }
+                            if root.career-tab == 6: BoardView { vertical-stretch: 1; }
+                            if root.career-tab == 7: MasteringView { vertical-stretch: 1; }
+                            if root.career-tab == 2: ReleasesView { vertical-stretch: 1; }
+                            if root.career-tab == 3: PublishView { vertical-stretch: 1; }
+                            if root.career-tab == 4: SunoView { vertical-stretch: 1; }
+                            if root.career-tab == 5: VerticalLayout {
+                                vertical-stretch: 1;
+                                spacing: 10px;
+                                StatsView { vertical-stretch: 1; }
+                                Text { text: root.stats-facts; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+                            }
+                        }
+                        // Les outils (renommer, doublons, rattacher les albums…), la fiche projet, le carnet
+                        // de clients et le constructeur de set, par-dessus toutes les pages.
+                        if Lib.dialog != "": ToolDialog { }
+                        if Proj.open: ProjectSheet { }
+                        if Proj.sb-open: SetBuilder { }
+                        if Proj.clients-open: ClientsBook { }
+                    }
+
+                    // ---------- Mobile et partage
+                    if root.space == 7: Isle {
+                        vertical-stretch: 1;
+                        ScrollView {
+                            content-y <=> root.mobile-scroll;
+                            HorizontalLayout {
+                                alignment: start;
+                                padding: 24px;
+                                VerticalLayout {
+                                    width: 900px;
+                                    spacing: 10px;
+                                    alignment: start;
+                                    HorizontalLayout {
+                                        spacing: 10px;
+                                        alignment: start;
+                                        H2 { text: "Otoko Vault sur ton téléphone"; vertical-alignment: center; }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                width: mst.preferred-width + 18px;
+                                                height: 22px;
+                                                border-radius: 11px;
+                                                background: root.mobile-on ? Theme.lagoon-soft : Theme.ink3;
+                                                mst := Text { text: root.mobile-on ? "Actif" : "Arrêté"; color: root.mobile-on ? Theme.lagoon : Theme.text3; font-size: 11px; font-weight: 700; }
+                                            }
+                                        }
+                                    }
+                                    Text { text: "Ta bibliothèque sur le téléphone, par Tailscale. Elle n'est jamais visible depuis Internet : seuls les liens de partage le sont, si tu les publies."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                                    if root.mobile-missing: HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 12px;
+                                        Btn { text: "Tout installer pour moi"; primary: true; height: 34px; clicked => { root.mobile-step("tout"); } }
+                                        Text { vertical-alignment: center; color: Theme.text2; font-size: 12.5px; text: "Un clic : tout ce qui manque s'installe. Il ne te restera qu'à te connecter à Tailscale."; }
+                                    }
+                                    for s in root.mobile-steps: Rectangle {
+                                        border-radius: 10px;
+                                        background: Theme.ink2;
+                                        HorizontalLayout {
+                                            padding: 10px;
+                                            padding-left: 12px;
+                                            spacing: 12px;
+                                            VerticalLayout {
+                                                alignment: center;
+                                                Rectangle {
+                                                    width: 14px;
+                                                    height: 14px;
+                                                    border-radius: 7px;
+                                                    background: s.done ? Theme.lagoon : transparent;
+                                                    border-width: s.done ? 0 : 1.5px;
+                                                    border-color: Theme.text3;
+                                                }
+                                            }
+                                            VerticalLayout {
+                                                horizontal-stretch: 1;
+                                                alignment: center;
+                                                spacing: 2px;
+                                                Text { text: s.title; color: Theme.text; font-size: 13px; font-weight: 700; wrap: word-wrap; }
+                                                if s.text != "": Text { text: s.text; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                                            }
+                                            if s.label != "": VerticalLayout {
+                                                alignment: center;
+                                                Btn { text: s.label; height: 28px; primary: !s.done && !root.mobile-missing; ghost: s.done || root.mobile-missing; clicked => { root.mobile-step(s.action); } }
+                                            }
+                                        }
+                                    }
+                                    if root.mobile-codes: HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 28px;
+                                        VerticalLayout {
+                                            spacing: 6px;
+                                            Image { width: 170px; height: 170px; source: root.mobile-code-tailscale; image-rendering: pixelated; }
+                                            Text { width: 170px; text: "1. Tailscale, sur le téléphone"; color: Theme.text2; font-size: 12px; font-weight: 600; wrap: word-wrap; }
+                                        }
+                                        VerticalLayout {
+                                            spacing: 6px;
+                                            Image { width: 170px; height: 170px; source: root.mobile-code-page; image-rendering: pixelated; }
+                                            Text { width: 170px; text: "2. Ta musique et l'app"; color: Theme.text2; font-size: 12px; font-weight: 600; wrap: word-wrap; }
+                                        }
+                                    }
+                                    Text { text: root.mobile-text; color: Theme.text2; font-size: 12.5px; wrap: word-wrap; }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 8px;
+                                        if !root.mobile-on || root.mobile-here: Btn { text: root.mobile-here ? "Arrêter le serveur ici" : "Servir depuis ce logiciel"; height: 30px; primary: !root.mobile-here; clicked => { root.mobile-toggle(); } }
+                                        Btn { text: root.mobile-task ? "Ne plus démarrer avec le PC" : "Démarrer avec le PC"; height: 30px; ghost: root.mobile-task; clicked => { root.mobile-task-set(!root.mobile-task); } }
+                                        if root.mobile-on: Btn { text: "Ouvrir la page mobile"; height: 30px; clicked => { root.mobile-open(); } }
+                                        Btn { text: "Actualiser"; height: 30px; ghost: true; clicked => { root.mobile-refresh(); } }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 8px;
+                                        Btn { text: "Installer le serveur (admin)…"; height: 30px; ghost: true; clicked => { root.mobile-script("installer"); } }
+                                        Btn { text: "Partage public…"; height: 30px; ghost: true; clicked => { root.mobile-script("partage"); } }
+                                        Btn { text: "Couper le partage public"; height: 30px; ghost: true; clicked => { root.mobile-script("couper"); } }
+                                        if !root.mobile-switched && root.career-vault: Btn { text: "Remplacer Studio Vault…"; height: 30px; ghost: true; clicked => { root.mobile-script("bascule"); } }
+                                        if root.mobile-switched: Btn { text: "Revenir à Studio Vault…"; height: 30px; ghost: true; clicked => { root.mobile-script("retour"); } }
+                                    }
+                                    HorizontalLayout {
+                                        alignment: start;
+                                        spacing: 10px;
+                                        Btn { text: root.mobile-wifi ? "Refuser le Wi-Fi de la maison" : "Autoriser le Wi-Fi de la maison (admin)…"; height: 30px; ghost: true; clicked => { root.mobile-wifi-set(!root.mobile-wifi); } }
+                                        Text { vertical-alignment: center; color: root.mobile-wifi ? Theme.ember : Theme.text3; font-size: 12px; text: root.mobile-wifi ? "Tout appareil de ce Wi-Fi peut écouter ta bibliothèque, sans mot de passe." : "Refusé : seuls cet ordinateur et tes appareils Tailscale ont accès."; }
+                                    }
+                                    Rectangle { height: 22px; }
+                                    ShareSection { }
+                                }
+                            }
+                        }
+                        if Part.creating: ShareDialog { }
+                    }
+
+                    // ---------- Réglages
+                    if root.space == 6: Isle {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            HorizontalLayout {
+                                padding-left: 24px;
+                                padding-right: 24px;
+                                padding-top: 18px;
+                                padding-bottom: 14px;
+                                spacing: 6px;
+                                alignment: start;
+                                for p in [
+                                    { id: "general", label: "Général" },
+                                    { id: "ecoute", label: "Écoute" },
+                                    { id: "apparence", label: "Apparence" },
+                                    { id: "analyse", label: "Analyse et sauvegarde" },
+                                    { id: "keys", label: "Raccourcis" },
+                                    { id: "about", label: "À propos" },
+                                ]: PageTab { text: p.label; on: root.prefs-part == p.id; clicked => { root.prefs-part = p.id; root.prefs-scroll = 0; keys.focus(); } }
+                            }
+                            ScrollView {
+                                vertical-stretch: 1;
+                                content-y <=> root.prefs-scroll;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    padding-left: 24px;
+                                    padding-right: 24px;
+                                    padding-top: 6px;
+                                    padding-bottom: 24px;
+                                    VerticalLayout {
+                                        width: 820px;
+                                        spacing: 26px;
+                                        alignment: start;
+                                        if root.prefs-part == "general" && root.career-vault: VerticalLayout {
+                                            spacing: 10px;
+                                            H2 { text: "Ta base"; }
+                                            Text { text: "Reprend tes morceaux, sorties, clients, textes et liens de partage. Ta base Studio Vault n'est jamais modifiée."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                                            HorizontalLayout { alignment: start; Btn { text: "Importer ma base Studio Vault"; height: 30px; clicked => { root.career-import(); } } }
+                                        }
+                                        if root.prefs-part == "ecoute": VerticalLayout {
+                                            spacing: 10px;
+                                            H2 { text: "Sortie d'écoute"; }
+                                            Text { text: root.audio-text; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                                        }
+                                        if root.prefs-part == "apparence": VerticalLayout {
+                                            spacing: 10px;
+                                            H2 { text: "Thème"; }
+                                            Text { text: "« Comme Windows » suit Paramètres › Personnalisation › Couleurs, même pendant que le logiciel tourne."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                                            HorizontalLayout {
+                                                alignment: start;
+                                                spacing: 6px;
+                                                for m[mi] in ["Comme Windows", "Sombre (Nocturne)", "Clair (Atelier)"]: PageTab { text: m; on: root.theme-mode == mi; clicked => { root.set-theme(mi); } }
+                                            }
+                                        }
+                                        if root.prefs-part == "apparence": VerticalLayout {
+                                            spacing: 10px;
+                                            H2 { text: "Taille de l'interface"; }
+                                            Text { text: "Textes, boutons et tableaux. La nouvelle taille s'applique au prochain lancement."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                                            HorizontalLayout {
+                                                alignment: start;
+                                                spacing: 6px;
+                                                for m[mi] in ["Normale", "Grande (110 %)", "Très grande (125 %)"]: PageTab { text: m; on: root.ui-scale == mi; clicked => { root.set-scale(mi); } }
+                                            }
+                                        }
+                                        CareerPrefs { part: root.prefs-part; }
+                                        if root.prefs-part == "about": VerticalLayout {
+                                            spacing: 8px;
+                                            H2 { text: "Otoko Studio Vault Pro " + root.version; }
+                                            Text { text: "Logiciel gratuit. Le détail des licences est dans LICENCES.txt, à côté du programme."; color: Theme.text2; font-size: 12.5px; wrap: word-wrap; }
+                                            Text {
+                                                text: "Made with Slint. Polices Bricolage Grotesque, Instrument Sans et JetBrains Mono (SIL Open Font License). Crates Rust : cpal, symphonia, hound, rusqlite (SQLite, domaine public), rfd, serde, image, lofty, RustCrypto (licences MIT ou Apache 2.0). App Android Otoko Vault : Kotlin, AndroidX, Media3, Coil (Apache 2.0).";
+                                                color: Theme.text3;
+                                                font-size: 11.5px;
+                                                wrap: word-wrap;
+                                            }
+                                            HorizontalLayout { alignment: start; Btn { text: "Ouvrir le guide"; height: 30px; ghost: true; clicked => { root.open-guide(); } } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---------- le lecteur, sur toutes les pages
+            if Lib.player-open: PlayerBar { }
+
+            // ---------- barre d'état
+            HorizontalLayout {
+                height: 26px;
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 18px;
+                Text { text: root.message; color: root.toast-on ? Theme.lagoon : Theme.text3; font-size: 11.5px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                if root.remote-text != "": Text { text: root.remote-text; color: root.remote-text == "Connecté au PC principal" ? Theme.lagoon : Theme.ember; font-size: 11.5px; vertical-alignment: center; }
+                Text { text: "Ctrl+K : tout trouver · F1 : le guide"; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; }
+            }
+        }
+
+        // ---------- toast : le dernier message, quelques secondes, en bas au centre
+        if root.toast-on && root.message != "": Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: parent.height - (Lib.player-open ? (Lib.player-big ? 334px : 130px) : 68px);
+            width: min(parent.width - 80px, tst.preferred-width + 36px);
+            height: 36px;
+            border-radius: 10px;
+            background: Theme.ink2;
+            border-width: 1px;
+            border-color: Theme.lagoon.with-alpha(0.5);
+            drop-shadow-blur: 18px;
+            drop-shadow-color: #00000080;
+            tst := Text { x: 18px; width: parent.width - 36px; text: root.message; color: Theme.text; font-size: 12.5px; font-weight: 600; vertical-alignment: center; height: parent.height; overflow: elide; }
+            TouchArea { clicked => { root.toast-on = false; } }
+        }
+
+        // ---------- la palette de commandes (Ctrl+K), par-dessus tout
+        if Pal.open: PaletteView { done => { keys.focus(); } }
+    }
+}

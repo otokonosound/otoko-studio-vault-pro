@@ -1,0 +1,40 @@
+// Direction artistique « Nocturne » : jetons partagés par tous les écrans.
+// Encre bleu nuit, îlots séparés par des interstices sombres,
+// une seule chaleur (braise) pour l'action, une lagune pour ce qui joue.
+// En clair (« Atelier ») : papier chaud, mêmes rôles, braise et lagune assombries pour rester lisibles.
+
+export global Theme {
+    in-out property <bool> dark: true;
+    out property <color> ink0: dark ? #090A10 : #E7E5DF;   // fond, interstices
+    out property <color> ink1: dark ? #10121A : #F5F4F0;   // îlots
+    out property <color> ink2: dark ? #161924 : #FFFFFF;   // surfaces surélevées
+    out property <color> ink3: dark ? #1E2230 : #ECEAE4;   // contrôles
+    out property <color> ink4: dark ? #2A2F40 : #D9D6CD;   // bords marqués
+    out property <color> line: dark ? #BEC8FF12 : #1418281A;
+    out property <color> line2: dark ? #BEC8FF1F : #14182829;
+    out property <color> text: dark ? #ECEEF6 : #151824;
+    out property <color> text2: dark ? #A2A8BD : #474D63;
+    out property <color> text3: dark ? #686E85 : #7A8098;
+    // Couleur d'accent choisie (Réglages › Carrière, ou celle de la pochette en cours) : elle remplace la braise.
+    in-out property <bool> custom-accent: false;
+    in-out property <color> accent: #FF6A3D;
+    out property <color> ember: custom-accent ? (dark ? accent : accent.darker(0.25)) : (dark ? #FF6A3D : #E0501C);
+    out property <color> ember2: custom-accent ? (dark ? accent.brighter(0.25) : accent.darker(0.4)) : (dark ? #FFB547 : #B97A06);
+    out property <color> ember-soft: custom-accent ? accent.with-alpha(dark ? 0.15 : 0.13) : (dark ? #FF6A3D24 : #E0501C1F);
+    out property <color> lagoon: dark ? #35D9C3 : #0C9381;
+    out property <color> lagoon-soft: dark ? #35D9C324 : #0C93811F;
+    out property <color> danger: dark ? #FF4D6D : #D0284B;
+    out property <color> ok: dark ? #6EE7A0 : #1E9E5A;
+    // Familles d'appareils natifs : instruments (braise), dynamique (acier), espace (eau), rythmique (violet).
+    out property <[color]> families: dark ? [#FF7A45, #6FB1FF, #4FD1B0, #C08CFF] : [#D9531E, #2A6FD6, #178F74, #7A3FD1];
+    // Couleurs de pistes : même clarté perçue, aucune ne crie plus fort que les autres.
+    out property <[color]> tracks: [#FF7A5C, #F5B547, #A6D96A, #4FD1A5, #3CC8D8, #5AA9FF, #8C8CFF, #C77DFF, #FF6FA8, #D9B38C];
+    // Polices embarquées (licence OFL, voir ui/fonts) : rien à installer chez l'utilisateur.
+    out property <string> display-font: "Bricolage Grotesque";
+    out property <string> ui-font: "Instrument Sans";
+    out property <string> mono-font: "JetBrains Mono";
+    out property <length> radius-s: 6px;
+    out property <length> radius: 10px;
+    out property <length> radius-l: 14px;
+    out property <length> gap: 6px;
+}

@@ -1,0 +1,548 @@
+{
+  "_meta": {
+    "version": "2026-10-22",
+    "source": "Suno v6, v6-wild et v6-mini (9 septembre 2026), Studio 2.0. Sources : suno.com/blog/introducing-v6, suno.com/release-notes.",
+    "editable": "Ce fichier peut être modifié à la main quand Suno ajoute des modèles, des tags ou des réglages. Les limites exactes de V6 ne sont pas publiées : celles-ci restent prudentes."
+  },
+  "models": [
+    {
+      "id": "v6",
+      "label": "Suno v6",
+      "notes": "Modèle principal (abonnés Pro et Premier). Fiable et précis. Comprend mieux le vocabulaire des musiciens : instruments, structure, ambiance, références."
+    },
+    {
+      "id": "v6-wild",
+      "label": "Suno v6-wild (expérimental)",
+      "notes": "Pro et Premier. Résultats moins prévisibles et plus variés : idéal pour chercher des idées."
+    },
+    {
+      "id": "v6-mini",
+      "label": "Suno v6-mini (rapide)",
+      "notes": "Accessible à tous, y compris en gratuit. Plus rapide, un peu moins fin."
+    },
+    {
+      "id": "v5.5",
+      "label": "Suno v5.5 (retiré)",
+      "retired": true,
+      "notes": "Retiré depuis la sortie de v6. Gardé pour relire les anciens prompts."
+    },
+    {
+      "id": "v5",
+      "label": "Suno v5 (retiré)",
+      "retired": true,
+      "notes": "Retiré."
+    },
+    {
+      "id": "v4.5",
+      "label": "Suno v4.5 (retiré)",
+      "retired": true,
+      "notes": "Retiré."
+    }
+  ],
+  "style_field": {
+    "max_chars": 200,
+    "descriptor_target_min": 4,
+    "descriptor_target_max": 7,
+    "formula": "[Genre + Sub-genre], [Tempo/Energy], [Key instruments], [Vocal style], [Production quality], [Mood]",
+    "slots": [
+      {
+        "key": "genre",
+        "label": "Genre et sous-genre",
+        "placeholder": "dark techno, industrial",
+        "hint": "Le plus important : mets-le en premier, c'est ce qui pèse le plus."
+      },
+      {
+        "key": "tempo",
+        "label": "Tempo et énergie",
+        "placeholder": "128 BPM, driving",
+        "hint": "Les BPM exacts restent approximatifs. Préfère « fast », « mid-tempo », « slow »."
+      },
+      {
+        "key": "instruments",
+        "label": "Instruments clés",
+        "placeholder": "analog bass, distorted 909, metallic percs",
+        "hint": "Deux à quatre instruments. V6 comprend bien le vocabulaire précis (« Rhodes », « 303 », « upright bass »)."
+      },
+      {
+        "key": "vocals",
+        "label": "Voix",
+        "placeholder": "female haunting whisper",
+        "hint": "Ex. « breathy female », « deep male baritone », « ethereal choir ». Les noms d'artistes ne marchent pas."
+      },
+      {
+        "key": "production",
+        "label": "Production",
+        "placeholder": "underground, gritty",
+        "hint": "Ex. « lo-fi tape hiss », « polished radio-ready », « vintage tube warmth »."
+      },
+      {
+        "key": "mood",
+        "label": "Ambiance",
+        "placeholder": "dystopian, hypnotic",
+        "hint": "Une scène concrète vaut mieux qu'un mot vague : « rainy Sunday, thinking about someone who left » plutôt que « sad »."
+      }
+    ]
+  },
+  "structural_tags": [
+    "[Intro]",
+    "[Verse]",
+    "[Verse 1]",
+    "[Verse 2]",
+    "[Verse 3]",
+    "[Pre-Chorus]",
+    "[Chorus]",
+    "[Post-Chorus]",
+    "[Bridge]",
+    "[Instrumental]",
+    "[Break]",
+    "[Interlude]",
+    "[Drop]",
+    "[Build up]",
+    "[Breakdown]",
+    "[Outro]",
+    "[Fade out]",
+    "[Fade in]",
+    "[End]"
+  ],
+  "vocal_delivery_tags": [
+    "[Whispered]",
+    "[Spoken Word]",
+    "[Belted]",
+    "[Falsetto]",
+    "[Harmonized]",
+    "[Ad-lib]",
+    "[Vocal chop]",
+    "[Choir]",
+    "[Distorted vocals]",
+    "[Robotic]",
+    "[Auto-tuned]",
+    "[Screamed]",
+    "[Rap verse]",
+    "[Sung rap]",
+    "[Breathy]",
+    "[Growl]"
+  ],
+  "instrumental_tags": [
+    "[Guitar Solo]",
+    "[Piano Solo]",
+    "[Bass Solo]",
+    "[Drum Solo]",
+    "[Saxophone Solo]",
+    "[Synth Solo]",
+    "[Instrumental Break]",
+    "[Acoustic Break]"
+  ],
+  "dynamic_tags": [
+    "[Build up]",
+    "[Drop]",
+    "[Crescendo]",
+    "[Diminuendo]",
+    "[Silence]",
+    "[Fade in]",
+    "[Fade out]",
+    "[Reverb tail]",
+    "[Half-time]",
+    "[Double-time]",
+    "[Key change up]",
+    "[Key change down]"
+  ],
+  "parameterized_tag_examples": [
+    "[Intro - soft piano, rain sounds in background]",
+    "[Verse 1 - whispered, intimate]",
+    "[Pre-Chorus - building, add strings]",
+    "[Chorus - belt, full band, emotional peak]",
+    "[Bridge - stripped back, just vocals and piano]",
+    "[Final Chorus - key change up, double vocals, ad-libs]"
+  ],
+  "vocals_types": [
+    {
+      "id": "none",
+      "label": "Aucun (instrumental)"
+    },
+    {
+      "id": "female",
+      "label": "Féminin"
+    },
+    {
+      "id": "male",
+      "label": "Masculin"
+    },
+    {
+      "id": "female_breathy",
+      "label": "Féminin soufflé"
+    },
+    {
+      "id": "male_deep",
+      "label": "Masculin grave"
+    },
+    {
+      "id": "choir",
+      "label": "Chœur"
+    },
+    {
+      "id": "whisper",
+      "label": "Chuchoté"
+    },
+    {
+      "id": "spoken",
+      "label": "Parlé"
+    },
+    {
+      "id": "duet",
+      "label": "Duo homme et femme"
+    }
+  ],
+  "production_styles": [
+    "lo-fi",
+    "hi-fi",
+    "polished radio-ready",
+    "underground raw",
+    "vintage tube warmth",
+    "modern digital",
+    "1980s DX7",
+    "1990s tape",
+    "sidechained dance mix",
+    "atmospheric reverb-heavy",
+    "dry intimate",
+    "wall-of-sound"
+  ],
+  "genre_seeds": {
+    "electronic": [
+      "techno",
+      "dark techno",
+      "minimal techno",
+      "industrial",
+      "EBM",
+      "house",
+      "deep house",
+      "acid house",
+      "trance",
+      "psytrance",
+      "drum and bass",
+      "jungle",
+      "dubstep",
+      "ambient",
+      "dark ambient",
+      "IDM",
+      "breakbeat",
+      "downtempo",
+      "synthwave",
+      "vaporwave",
+      "hyperpop"
+    ],
+    "hip-hop": [
+      "hip-hop",
+      "trap",
+      "boom bap",
+      "lo-fi hip-hop",
+      "drill",
+      "cloud rap",
+      "phonk"
+    ],
+    "rock": [
+      "indie rock",
+      "garage rock",
+      "post-rock",
+      "shoegaze",
+      "grunge",
+      "punk rock",
+      "post-punk",
+      "metal",
+      "black metal",
+      "doom metal"
+    ],
+    "pop": [
+      "indie pop",
+      "dream pop",
+      "art pop",
+      "K-pop",
+      "city pop",
+      "electropop"
+    ],
+    "acoustic": [
+      "indie folk",
+      "folk",
+      "singer-songwriter",
+      "acoustic ballad",
+      "jazz",
+      "jazz fusion",
+      "bossa nova",
+      "classical"
+    ],
+    "urban": [
+      "R&B",
+      "neo-soul",
+      "funk",
+      "gospel"
+    ],
+    "world": [
+      "afrobeat",
+      "reggaeton",
+      "flamenco",
+      "gnawa"
+    ]
+  },
+  "mood_seeds": [
+    "dark",
+    "hypnotic",
+    "dystopian",
+    "melancholic",
+    "warm",
+    "nostalgic",
+    "epic",
+    "cinematic",
+    "intimate",
+    "aggressive",
+    "dreamy",
+    "ethereal",
+    "euphoric",
+    "haunting",
+    "gritty",
+    "sensual",
+    "meditative",
+    "anxious",
+    "hopeful",
+    "sacred",
+    "brutal",
+    "playful"
+  ],
+  "sliders": {
+    "weirdness": {
+      "min": 0,
+      "max": 100,
+      "default": 40,
+      "label": "Étrangeté",
+      "suno": "Weirdness",
+      "range_label": "Sage → chaos",
+      "note": "50 = comportement normal."
+    },
+    "style_influence": {
+      "min": 0,
+      "max": 100,
+      "default": 70,
+      "label": "Influence du style",
+      "suno": "Style Influence",
+      "range_label": "Libre → strict",
+      "note": "Strict : les descripteurs deviennent des consignes."
+    },
+    "audio_influence": {
+      "min": 0,
+      "max": 100,
+      "default": 60,
+      "label": "Influence de l'audio",
+      "suno": "Audio Influence",
+      "range_label": "Libre → strict",
+      "note": "Seulement si tu envoies un audio de référence."
+    }
+  },
+  "slider_presets": [
+    {
+      "id": "clean_predictable",
+      "label": "Morceau propre et prévisible",
+      "weirdness": 30,
+      "style_influence": 70,
+      "audio_influence": null,
+      "note": "Structure et hook stables."
+    },
+    {
+      "id": "strong_genre",
+      "label": "Fidélité forte au genre",
+      "weirdness": 30,
+      "style_influence": 82,
+      "audio_influence": null,
+      "note": "Genre, instrumentation, mood tenus."
+    },
+    {
+      "id": "stable_hook",
+      "label": "Refrain stable, couplets variés",
+      "weirdness": 42,
+      "style_influence": 72,
+      "audio_influence": null,
+      "note": "Chorus tient, verses explorent."
+    },
+    {
+      "id": "adventurous_bridge",
+      "label": "Pont plus aventureux",
+      "weirdness": 62,
+      "style_influence": 58,
+      "audio_influence": null,
+      "note": "Contraste sans perdre le song."
+    },
+    {
+      "id": "upload_lead",
+      "label": "La mélodie envoyée domine",
+      "weirdness": 30,
+      "style_influence": 62,
+      "audio_influence": 75,
+      "note": "Ta source reste la référence."
+    },
+    {
+      "id": "upload_seed",
+      "label": "L'audio envoyé comme simple inspiration",
+      "weirdness": 47,
+      "style_influence": 68,
+      "audio_influence": 35,
+      "note": "Freshness sans artefacts source."
+    }
+  ],
+  "silent_fail_patterns": [
+    {
+      "pattern": "\\bsounds? like\\b|\\bin the style of\\b|\\bstyle of\\b",
+      "message": "Les noms d'artistes (« sounds like X ») sont peu fiables, voire filtrés. Décris le son à la place.",
+      "fix": {
+        "type": "remove_phrase",
+        "regex": "\\b(?:sounds? like|in the style of|style of)\\s+[^,]+,?\\s*"
+      }
+    },
+    {
+      "pattern": "\\bsidechain compression\\b|\\bhigh-pass filter\\b|\\bEQ\\b|\\bcompressor ratio\\b",
+      "message": "Le jargon de mixage (« sidechain compression », « EQ ») n'est pas interprété. Décris la texture : « pumping, compressed dance mix ».",
+      "fix": {
+        "type": "replace",
+        "map": {
+          "sidechain compression": "pumping",
+          "high-pass filter": "airy",
+          "compressor ratio": "punchy",
+          "EQ": "balanced"
+        }
+      }
+    },
+    {
+      "pattern": "\\b\\d{2,3}\\s*BPM\\b",
+      "message": "Les BPM exacts restent approximatifs. Préfère « fast », « mid-tempo », « slow » (sauf si une valeur approchée te va).",
+      "fix": {
+        "type": "bpm_words"
+      }
+    },
+    {
+      "pattern": "\\bno\\s+\\w+|\\bwithout\\s+\\w+",
+      "message": "Les consignes négatives (« no drums ») sont peu fiables dans le Style. Mets-les dans le champ Exclude.",
+      "fix": {
+        "type": "move_to_exclude"
+      }
+    },
+    {
+      "pattern": "(^|,)\\s*(sad|happy)\\s*(,|$)",
+      "message": "« sad » ou « happy » seuls donnent peu d'information. Une scène concrète est bien plus efficace.",
+      "fix": {
+        "type": "replace",
+        "map": {
+          "sad": "rainy evening, quiet heartbreak",
+          "happy": "sunny morning, carefree energy"
+        }
+      }
+    }
+  ],
+  "lyrics_limits": {
+    "max_chars": 3000,
+    "verse_lines_target_min": 4,
+    "verse_lines_target_max": 8,
+    "chorus_lines_target_min": 2,
+    "chorus_lines_target_max": 4
+  },
+  "workflow_templates": [
+    {
+      "id": "otoko_dark_techno",
+      "name": "Techno sombre hypnotique",
+      "style_slots": {
+        "genre": "dark techno, industrial",
+        "tempo": "128 BPM, driving",
+        "instruments": "analog bass, distorted 909, metallic percs",
+        "vocals": "female haunting whisper",
+        "production": "underground, gritty",
+        "mood": "dystopian, hypnotic"
+      },
+      "sliders": {
+        "weirdness": 35,
+        "style_influence": 75
+      }
+    },
+    {
+      "id": "cinematic_ambient",
+      "name": "Ambient cinématique",
+      "style_slots": {
+        "genre": "dark ambient, cinematic",
+        "tempo": "slow, floating",
+        "instruments": "granular pads, distant piano, field recordings",
+        "vocals": "female wordless choir, ethereal",
+        "production": "reverb-heavy, atmospheric",
+        "mood": "sacred, dystopian"
+      },
+      "sliders": {
+        "weirdness": 55,
+        "style_influence": 60
+      }
+    }
+  ],
+  "default_model": "v6",
+  "contradictions": [
+    {
+      "a": [
+        "minimal",
+        "sparse",
+        "stripped"
+      ],
+      "b": [
+        "full band",
+        "orchestral",
+        "wall-of-sound",
+        "huge"
+      ],
+      "message": "Contradiction : le Style parle de « minimal » mais aussi de « full band / orchestral ». Suno va faire un compromis."
+    },
+    {
+      "a": [
+        "slow",
+        "downtempo",
+        "ballad"
+      ],
+      "b": [
+        "fast",
+        "uptempo",
+        "frenetic",
+        "high-energy"
+      ],
+      "message": "Contradiction de tempo : « slow » et « fast » en même temps."
+    },
+    {
+      "a": [
+        "instrumental"
+      ],
+      "b": [
+        "female vocal",
+        "male vocal",
+        "choir",
+        "rap",
+        "vocals"
+      ],
+      "message": "Contradiction : « instrumental » mais des voix sont demandées."
+    },
+    {
+      "a": [
+        "lo-fi",
+        "raw",
+        "gritty"
+      ],
+      "b": [
+        "polished",
+        "radio-ready",
+        "pristine"
+      ],
+      "message": "Contradiction de production : « lo-fi / raw » et « polished » en même temps."
+    }
+  ],
+  "section_edit_examples": [
+    "Rends le refrain plus ample, ajoute des cordes et des chœurs.",
+    "Remplace la batterie du deuxième couplet par des percussions plus sèches.",
+    "Allonge l'intro de 8 mesures avec seulement la basse et les nappes.",
+    "Fais un pont plus calme, piano et voix seulement.",
+    "Change le mot « fire » par « light » dans le dernier refrain."
+  ],
+  "v6_features": [
+    "Modifier une section en langage naturel sans régénérer tout le morceau.",
+    "Changer un mot ou une ligne des paroles sans tout refaire.",
+    "Mashups : combiner des éléments de plusieurs morceaux en une demande.",
+    "Échantillonner un passage, isoler un instrument et construire autour.",
+    "Départ depuis du texte, un audio, une image ou une vidéo."
+  ]
+}

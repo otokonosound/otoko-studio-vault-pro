@@ -1,0 +1,13 @@
+[package]
+name = "otoko-serveur"
+description = "Otoko Vault · serveur mobile sans fenêtre (tâche planifiée du Mini)"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+otoko-mobile = { path = "../../crates/otoko-mobile" }
+
+[dev-dependencies]
+otoko-library = { path = "../../crates/otoko-library" }
+serde_json = "1"

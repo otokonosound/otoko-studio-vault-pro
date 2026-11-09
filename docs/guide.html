@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide d'Otoko Studio Vault Pro</title>
+<style>
+  :root { --bg:#0B0C12; --panel:#12141D; --line:rgba(190,200,255,.12); --fg:#ECEEF6; --fg2:#A9AFC3; --fg3:#6E748B; --ember:#FF6A3D; --lagoon:#35D9C3; color-scheme: dark; }
+  @media (prefers-color-scheme: light) { :root { --bg:#F6F5F2; --panel:#FFFFFF; --line:rgba(20,24,40,.10); --fg:#151824; --fg2:#4A5066; --fg3:#7A8098; --ember:#E0501C; --lagoon:#0C9381; color-scheme: light; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 40px 18px 80px; }
+  h1 { font-size: 40px; line-height:1.1; margin: 0 0 6px; letter-spacing:-.02em; text-wrap: balance; }
+  h2 { font-size: 24px; margin: 40px 0 10px; letter-spacing:-.01em; }
+  h3 { font-size: 17px; margin: 22px 0 6px; }
+  p, li { color: var(--fg2); }
+  strong { color: var(--fg); }
+  code { font: 13px Consolas, monospace; background: var(--panel); border-radius: 6px; padding: 1px 5px; }
+  kbd { font: 13px Consolas, monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--fg); }
+  nav { display:flex; flex-wrap:wrap; gap:6px; margin: 18px 0 8px; }
+  nav a { color: var(--fg2); text-decoration:none; border:1px solid var(--line); border-radius: 20px; padding: 3px 12px; font-size: 14px; }
+  nav a:hover { color: var(--ember); border-color: var(--ember); }
+  .tip { border: 1px solid var(--line); background: var(--panel); padding: 12px 16px; border-radius: 10px; margin: 14px 0; color: var(--fg2); }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td { border-bottom: 1px solid var(--line); padding: 7px 8px; vertical-align: top; color: var(--fg2); }
+  td:first-child { white-space: nowrap; color: var(--fg); }
+  .wide { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Otoko Studio Vault Pro</h1>
+<p>Ta bibliothèque, ta production, ton mastering, tes sorties et tes liens d'écoute, sur le PC et sur le téléphone avec Otoko Vault.</p>
+<nav>
+  <a href="#demarrer">Démarrer</a><a href="#accueil">Accueil</a><a href="#bibliotheque">Bibliothèque</a><a href="#production">Production</a><a href="#suno">Atelier Suno</a><a href="#mastering">Mastering</a>
+  <a href="#sorties">Sorties</a><a href="#publier">Publier</a><a href="#statistiques">Statistiques</a><a href="#mobile">Mobile et partage</a>
+  <a href="#reglages">Réglages</a><a href="#raccourcis">Raccourcis</a><a href="#souci">En cas de souci</a>
+</nav>
+
+<h2 id="demarrer">Démarrer en deux minutes</h2>
+<ol>
+  <li><strong>Ton nom d'artiste</strong> : tape-le sur l'accueil. Il s'affiche sur tes liens de partage et dans les tags de tes fichiers.</li>
+  <li><strong>Ton dossier de musique</strong> : « + Ajouter mon dossier de musique ». Tes morceaux apparaissent tout de suite, l'analyse continue en fond. Ils ne sont jamais déplacés ni modifiés.</li>
+  <li><strong>Sur ton téléphone</strong> (facultatif) : la page <a href="#mobile">Mobile et partage</a> te guide étape par étape, avec un bouton pour chacune.</li>
+</ol>
+
+<h2 id="accueil">Accueil</h2>
+<p>Si tu utilisais Studio Vault, <strong>Réglages › Général › Importer ma base Studio Vault</strong> reprend tout : morceaux, sorties, clients, textes, prompts, tags, marqueurs, vues, dossiers surveillés, liens de partage et réglages. Ta base Studio Vault est lue sur une copie, elle n'est jamais modifiée, et un nouvel import n'ajoute que ce qui manque.</p>
+<p><strong>Aujourd'hui</strong> : trois actions calculées d'après ta base, la plus urgente d'abord. Une sortie qui approche passe avant tout. Dessous : le bandeau des sorties, ce qui est à reprendre, les nouveautés et ce qui vient ensuite. Les chiffres sont dans Statistiques.</p>
+<p>La barre de gauche mène aux pages. Dans une fenêtre étroite, elle se replie sur ses icônes. Le lecteur reste en bas de la fenêtre, quelle que soit la page : une barre fine, qui s'ouvre en grand au clic (pochette, onde, repères, notes, file). Le bouton <strong>?</strong> en haut à droite (ou <kbd>F1</kbd>) ouvre ce guide à la page où tu es. Les messages s'affichent quelques secondes en bas, puis restent en gris dans la barre d'état.</p>
+<div class="tip"><kbd>Ctrl+K</kbd> (ou « Tout trouver » en haut) : la <strong>palette</strong>. Une page, une action avec son raccourci, un morceau à écouter.</div>
+
+<h2 id="bibliotheque">Bibliothèque</h2>
+<ul>
+  <li><strong>Dossiers surveillés</strong> : relus à l'ouverture de la page et toutes les 10 minutes. Outils › Dossiers surveillés et archives : activer, retirer, noms des dossiers d'archives. Un disque débranché est signalé une fois. Tes fichiers ont été déplacés ? Outils › <strong>Changer l'emplacement de la bibliothèque</strong> : tout ton travail suit les morceaux.</li>
+  <li><strong>Chercher</strong> : du texte, ou <code>bpm:120-128 key:Am camelot:8A status:terminé genre:"tribal house"</code> (le « ? » donne toute la syntaxe). Pastilles, vues, « Garder la vue… » pour garder une recherche (le téléphone la voit aussi).</li>
+  <li><strong>Tableau ou cartes</strong> : le tableau, dense, avec les colonnes de ton choix ; ou des cartes avec les pochettes. Même sélection, même menu, même clic pour écouter. La colonne <strong>Onde</strong> montre la silhouette de chaque morceau : intro, breaks et drops se repèrent sans écouter. Elle se calcule en fond, une fois.</li>
+  <li><strong>Sélection</strong> : clic, <kbd>Ctrl</kbd>+clic, <kbd>Maj</kbd>+clic ; <kbd>P</kbd> garder, <kbd>X</kbd> rejeter, <kbd>N</kbd> neutre, <kbd>I</kbd> détails, <kbd>Q</kbd> file de lecture.</li>
+  <li><strong>Détails</strong> : quatre onglets, Infos, Analyse, Sortie, Versions. Tout se modifie sur place. Dans une fenêtre étroite, le panneau passe par-dessus le tableau. Plusieurs morceaux sélectionnés, <kbd>Ctrl+E</kbd> : édition <strong>en lot</strong> (un champ n'est changé que si tu le modifies). <kbd>Ctrl+G</kbd> : genre et ambiance en lot.</li>
+  <li><strong>Analyse fausse ?</strong> Onglet Analyse : <strong>Tempo ÷ 2</strong> ou <strong>× 2</strong> (aussi au clic droit, sur toute une sélection), <strong>Taper</strong> en rythme puis Garder, ou choisis la tonalité dans la liste. Une valeur corrigée à la main n'est plus jamais remplacée par l'analyse ; « Rendre à l'analyse » annule.</li>
+  <li><strong>Écouter</strong> : forme d'onde, repères (clic droit), boucle A-B, file, comparer deux morceaux à volume égal (<kbd>Ctrl+D</kbd>, <kbd>Tab</kbd> pour passer de l'un à l'autre), morceaux compatibles et roue de Camelot. <kbd>Espace</kbd> met en pause, sur toutes les pages.</li>
+  <li><strong>Ouvrir le projet</strong> (clic droit, ou panneau de détails) : le projet du morceau (FL Studio, Ableton…) s'ouvre dans son logiciel. Le chemin du projet se note dans les détails.</li>
+  <li><strong>Partager</strong> (clic droit) : un lien d'écoute avec la sélection, voir <a href="#mobile">Mobile et partage</a>.</li>
+  <li><strong>Outils</strong> : analyser (tempo, tonalité, sonie, énergie, ambiance ; l'analyse <em>n'écrit jamais</em> dans tes fichiers), renommer, réorganiser (<kbd>Ctrl+Z</kbd> annule), écrire les tags dans les fichiers (à la demande seulement), compléter genres et artistes, <strong>genres proposés par lots</strong> (par sortie, artiste ou dossier : tu valides d'un clic, ou tu écris le genre d'un lot), doublons, dossiers en double, classer remix et mashups, construire un set, carnet de clients, exporter la vue en CSV.</li>
+</ul>
+
+<h2 id="production">Production</h2>
+<p>Glisse une carte d'une colonne à l'autre (Idées, En cours, Mix et master, Terminés, Publiés) ou suis tes commandes de clients. Clic droit : écouter, voir dans la bibliothèque, ouvrir le projet, fiche projet, ajouter au mastering, à publier.</p>
+<p><strong>Statuts automatiques</strong> : un nouvel export ou un projet modifié cette semaine fait passer le morceau En cours, un master le fait passer Terminé, un lien ou une sortie en ligne le fait passer Publié. Un morceau n'avance que sur une preuve et ne recule jamais. La première fois, la liste t'est montrée avant d'être appliquée. Une carte que tu déplaces à la main n'est plus touchée. Réglages › Analyse et sauvegarde pour l'arrêter.</p>
+
+<h2 id="suno">Atelier Suno</h2>
+<p>Dans Production. Tu composes sur le site de Suno : l'Atelier garde tes prompts, leur style, leurs paroles et tes notes, les copie, et importe les fichiers rapportés de Suno (renommés, rangés, liés au prompt). <strong>Composer en détail</strong> ouvre le champ Style en six cases, les tags de paroles et le vérificateur.</p>
+
+<h2 id="mastering">Mastering</h2>
+<p>Le moteur <strong>PhaseLimiter</strong>, avec les réglages de Studio Vault. S'il manque, <strong>Installer le moteur</strong> s'en charge d'un clic. Ajoute des fichiers ou des morceaux de la bibliothèque (clic droit › Ajouter au mastering, ou depuis une sortie, Publier, Production), vérifie les réglages, lance : rien ne démarre seul et l'original n'est jamais modifié. Le master s'enregistre à côté (« titre (master).wav ») et <strong>se range avec son morceau</strong> comme version ; un morceau « À masteriser » passe à « Terminé ». Mesures avant / après (volume, crête réelle, dynamique, ressemblance pro…), écoute du master, comparaison à volume égal. Profils de vitesse, « Moins chauffer », réglages avancés expliqués, et tes réglages par défaut.</p>
+<p><strong>Mastering d'album</strong> : « Masteriser les morceaux » depuis une sortie met tous ses titres en file, dans l'ordre, avec les mêmes réglages. Le tableau compare leur sonie avant et après, signale le titre qui s'écarte de plus de 1 LU de la sortie, et <strong>Rapport</strong> écrit une page à garder avec les masters.</p>
+
+<h2 id="sorties">Sorties</h2>
+<p>La galerie, et pour chaque sortie son <strong>pilotage</strong> : le compte à rebours, la prochaine étape, et ce qui reste, avec un bouton pour le traiter (pochette, crédits, genres, analyse, textes). Ce que tes données prouvent déjà est proposé à cocher. Dessous, la fiche (titre, date, pochette intégrée aux fichiers, morceaux, crédits), le contrôle avant publication (<kbd>Ctrl+T</kbd> sur une sélection aussi), « Masteriser les morceaux », le planning, la discographie en PDF ou en page web, et <strong>Publier…</strong>.</p>
+<p><strong>Liens par morceau</strong> : colle le lien SoundCloud d'une sortie et ses titres sont reliés d'eux-mêmes. « Relier les morceaux » dans la galerie fait de même pour toutes tes sorties. Le logiciel lit le flux public de ton compte, qui ne montre que tes 150 derniers morceaux : un titre plus ancien, privé ou renommé est signalé, et son lien se colle à la main.</p>
+
+<h2 id="publier">Publier</h2>
+<p>Dans Sorties. Un texte par plateforme (SoundCloud, Instagram, story) écrit par le moteur de Studio Vault (six tons, autre variante), l'historique, ton univers de marque ; « Contrôler le fichier », « Masteriser », « Envoyer… » (le logiciel prépare, tu publies), « Publié aujourd'hui » avec le lien.</p>
+<p><strong>Mes textes</strong> : tes modèles et tes phrases, pour que les textes te ressemblent. Un <strong>modèle</strong> est un texte complet avec des champs (<code>{titre}</code>, <code>{bpm}</code>, <code>{lien}</code>…) : il garde ta ponctuation, et une ligne dont l'information manque disparaît. Une <strong>phrase</strong> (accroche, corps, appel) passe avant celles du moteur. Dans Écrire, « En faire un modèle » part d'un texte déjà écrit. Tout reste hors ligne.</p>
+
+<h2 id="statistiques">Statistiques</h2>
+<p>Création (ajoutés par mois, types de sortie, formats), musique (tempo, tonalités, genres, ambiances), avancement (terminés par mois, sorties datées par mois, par statut, sélection, les plus écoutés), parcours (par année, par nature).</p>
+
+<h2 id="mobile">Mobile et partage</h2>
+<h3>Otoko Vault sur ton téléphone</h3>
+<p>Ta bibliothèque sur le téléphone, par Tailscale : écoute, téléchargement, Android Auto. <strong>Tout installer pour moi</strong> installe Tailscale et ffmpeg, puis démarre le serveur. Ensuite, deux codes à scanner : le premier installe Tailscale sur le téléphone (même compte), le second ouvre ta musique. Touche « App Android », installe l'app, puis « Ouvrir l'app » : l'adresse de ton PC est déjà remplie.</p>
+<ul>
+  <li><strong>Démarrer avec le PC</strong> crée la tâche « OTOKO mobile » d'un clic : le serveur tourne dès l'ouverture de session, même logiciel fermé. <strong>Servir depuis ce logiciel</strong> fait la même chose tant que la fenêtre est ouverte.</li>
+  <li><strong>Installer le serveur (admin)…</strong> fait la même chose avec les droits d'administrateur, et ouvre le pare-feu à Tailscale.</li>
+  <li><strong>Autoriser le Wi-Fi de la maison (admin)…</strong> : le téléphone et les enceintes réseau passent alors directement par le Wi-Fi. C'est refusé par défaut, car tout appareil de ce réseau peut alors écouter ta bibliothèque, sans mot de passe. À réserver à un réseau où tu connais tout le monde.</li>
+  <li><strong>Remplacer Studio Vault…</strong> (s'il est sur ce PC) fait passer le téléphone et les liens déjà envoyés sur ce logiciel ; <strong>Revenir à Studio Vault…</strong> annule.</li>
+</ul>
+<h3>Ce qui sort de ton PC</h3>
+<ul>
+  <li><strong>Rien par défaut.</strong> Ta musique et ta base restent sur ton PC. Le logiciel ne contacte GitHub que pour vérifier s'il existe une nouvelle version, sans rien envoyer te concernant.</li>
+  <li><strong>Tailscale</strong> : tes appareils se parlent directement, de façon chiffrée. Tout appareil de ton réseau Tailscale a accès à ta bibliothèque : n'y invite que des appareils à toi.</li>
+  <li><strong>Liens de partage</strong> : seuls ceux que tu crées sont visibles sur Internet, après « Partage public… ». « Couper le partage public » les retire d'un coup.</li>
+  <li><strong>ffmpeg</strong> (pour convertir la musique vers le téléphone et les liens) n'est pas livré : « Tout installer pour moi », dans la page Mobile et partage, le télécharge depuis sa source officielle et vérifie son empreinte.</li>
+</ul>
+<h3>Android Auto</h3>
+<p>Dans la voiture, Otoko Vault propose quatre onglets : <strong>Sorties</strong>, <strong>Derniers publiés</strong>, <strong>Bibliothèque</strong> (rangée en Publiés, Terminés, En cours et Idées) et <strong>Hors ligne</strong>. Toucher un morceau met tout son dossier en file d'attente. Il faut Tailscale actif sur le téléphone, sauf pour « Hors ligne ».</p>
+<p>L'app ne vient pas du Play Store : Android Auto la cache tant que tu ne l'as pas autorisée. À faire une fois sur le téléphone (les libellés varient un peu selon les versions) :</p>
+<ol>
+  <li>Ouvre les réglages d'Android Auto : Paramètres › Applis › Android Auto › Paramètres supplémentaires dans l'appli, ou cherche « Android Auto » dans les Paramètres.</li>
+  <li>Tout en bas, touche <strong>Version</strong>, puis touche dix fois de suite <strong>Version et informations sur les autorisations</strong>, et accepte les paramètres de développement.</li>
+  <li>Dans le menu ⋮ en haut à droite, ouvre <strong>Paramètres pour les développeurs</strong> et coche <strong>Sources inconnues</strong>. Laisse-la cochée : décochée, l'app disparaît du lanceur.</li>
+  <li>Débranche et rebranche le téléphone. Si l'icône n'est toujours pas là, regarde dans Android Auto › Personnaliser le lanceur.</li>
+</ol>
+<p>Si l'app disparaît après une mise à jour d'Android Auto, vérifie que la case est toujours cochée.</p>
+<h3>Liens de partage</h3>
+<p>Un lien privé fait écouter un morceau, une sortie ou ta discographie à quelqu'un, sans rien lui faire installer. <strong>Nouveau lien</strong> : choisis ce que tu partages, un titre, un mot pour la personne, une validité, le téléchargement (ou non) et un mot de passe si tu veux. La liste montre l'activité de chaque lien (visites, écoutes, téléchargements) ; <strong>Copier le lien</strong>, <strong>Ouvrir</strong>, <strong>Révoquer</strong> (réversible) et <strong>Supprimer</strong> (un second clic confirme).</p>
+<p>La bibliothèque n'est jamais visible depuis Internet : seuls les liens le sont, et seulement après <strong>Partage public…</strong> (Tailscale Funnel). <strong>Couper le partage public</strong> les retire d'Internet d'un coup.</p>
+
+<h2 id="reglages">Réglages</h2>
+<ul>
+  <li><strong>Général</strong> : l'import de Studio Vault, ton nom d'artiste et tes autres noms, le <strong>dossier d'arrivée</strong>, et le travail depuis un autre PC.</li>
+  <li><strong>Écoute</strong> : le son sort par la sortie de Windows. La carte son ne s'ouvre que pendant l'écoute : le reste du temps, elle est libre pour FL Studio et tes autres logiciels. Enchaînement automatique des morceaux.</li>
+  <li><strong>Apparence</strong> : le thème <strong>comme Windows</strong> (il suit Paramètres › Personnalisation › Couleurs, même pendant que le logiciel tourne), sombre (Nocturne) ou clair (Atelier) ; la taille de l'interface (appliquée au prochain lancement) ; la couleur d'accent, ou celle de la pochette en cours ; le tableau aéré ou compact.</li>
+  <li><strong>Analyse et sauvegarde</strong> : l'analyse automatique, les statuts automatiques, le <strong>contrôle des copies</strong> ; la sauvegarde quotidienne de la base, et sa copie dans un dossier synchronisé (Google Drive, OneDrive, clé USB).</li>
+  <li><strong>Raccourcis</strong> : tous se changent. <strong>À propos</strong> : la version, les mises à jour et les licences.</li>
+</ul>
+<h3>La croix et l'icône près de l'horloge</h3>
+<p>La croix ferme la fenêtre mais laisse le logiciel ouvert près de l'horloge : la musique continue. Un clic sur l'icône rouvre la fenêtre. Clic droit : <strong>Ouvrir</strong>, <strong>Vérifier une mise à jour</strong>, <strong>Fermer le logiciel</strong>. Si elle n'est pas visible, regarde sous la petite flèche à côté de l'horloge. Tu préfères que la croix ferme tout : décoche l'option dans Réglages › Général.</p>
+<h3>Restaurer une sauvegarde ou repartir de zéro</h3>
+<p>Ta base est sauvegardée chaque jour. Elle contient tes fiches, notes et sorties, pas tes fichiers audio. Dans Réglages › Analyse et sauvegarde :</p>
+<ul>
+  <li><strong>Restaurer…</strong> remet ta base comme elle était à cette date ; <strong>Restaurer depuis un fichier…</strong> reprend une copie gardée ailleurs. Une sauvegarde est faite juste avant, tu peux donc changer d'avis.</li>
+  <li><strong>Réinitialiser ma base…</strong> repart de zéro et désactive tes liens de partage. Tes fichiers audio ne sont pas touchés, et une sauvegarde est faite juste avant.</li>
+</ul>
+<p>Le logiciel redémarre ensuite tout seul.</p>
+<h3>Le dossier d'arrivée</h3>
+<p>Indique le dossier où FL Studio exporte. Chaque nouveau WAV est reconnu d'après son nom (« I'm Alive v3 » rejoint « I'm Alive »), analysé et rangé comme version. Le fichier ne bouge pas. Si plusieurs morceaux portent ce nom, l'accueil te demande de le ranger.</p>
+<h3>Le contrôle des copies</h3>
+<p>La base est sauvegardée chaque jour, pas ta musique. Indique où sont tes copies (Google Drive, disque externe) : le logiciel compare les noms et les tailles, sans lire les fichiers, et signale ce qui n'existe qu'à un seul endroit. Le contrôle se refait chaque semaine.</p>
+<h3>Les mises à jour</h3>
+<p>Une version plus récente est proposée à l'accueil : un clic, le logiciel se ferme, s'installe et se relance. Pour vérifier à la main : clic droit sur l'icône près de l'horloge, ou Réglages › À propos › Chercher. Les versions viennent de GitHub ; tu peux aussi choisir un dossier où ranger les installateurs. Le téléphone reçoit la sienne de ton PC : un bandeau propose de l'installer.</p>
+<h3>Travailler depuis un autre PC</h3>
+<p>Le PC principal reste le centre. Sur l'autre PC, pas sur le PC principal, installe le logiciel et indique l'adresse Tailscale du PC principal dans Réglages › Général, par exemple <code>mon-pc.xxxx.ts.net</code> : le port s'ajoute tout seul. Le serveur du PC principal doit être à jour (<em>Installer le serveur mobile</em>, dans le dossier mobile du logiciel). Ce PC garde une copie de la base : tout est aussi rapide qu'en local. Ce que tu modifies part vers le PC principal en quelques secondes ; sans réseau, les écritures attendent. La musique arrive à la demande et reste dans un cache de 3 Go. L'analyse, le mastering et les dossiers surveillés restent sur le PC principal. Si les deux modifient la même fiche en même temps, la dernière écriture gagne.</p>
+
+<h2 id="raccourcis">Raccourcis</h2>
+<div class="wide"><table>
+  <tr><td><kbd>Ctrl+K</kbd></td><td>Palette : aller à, faire, écouter</td></tr>
+  <tr><td><kbd>Ctrl+1</kbd> à <kbd>Ctrl+8</kbd></td><td>Accueil, Bibliothèque, Production, Mastering, Sorties, Publier, Statistiques, Mobile et partage</td></tr>
+  <tr><td><kbd>Tab</kbd> ou les flèches</td><td>Passer d'une commande à l'autre ; <kbd>Entrée</kbd> ou <kbd>Espace</kbd> pour agir</td></tr>
+  <tr><td><kbd>Échap</kbd></td><td>Fermer ce qui est ouvert par-dessus la page</td></tr>
+  <tr><td><kbd>F1</kbd> ou <strong>?</strong></td><td>Ce guide, à la page de l'écran en cours</td></tr>
+  <tr><td><kbd>Espace</kbd></td><td>Lecture / pause</td></tr>
+  <tr><td><kbd>Ctrl+F</kbd></td><td>Chercher dans la bibliothèque</td></tr>
+  <tr><td><kbd>Ctrl+E</kbd> / <kbd>Ctrl+G</kbd></td><td>Éditer les tags / genre et ambiance</td></tr>
+  <tr><td><kbd>Ctrl+Maj+A</kbd></td><td>Analyser</td></tr>
+  <tr><td><kbd>Ctrl+Maj+M</kbd></td><td>Ajouter au mastering</td></tr>
+  <tr><td><kbd>Ctrl+T</kbd></td><td>Contrôle avant publication</td></tr>
+  <tr><td><kbd>Ctrl+D</kbd></td><td>Comparer deux morceaux à volume égal</td></tr>
+  <tr><td><kbd>F2</kbd></td><td>Renommer</td></tr>
+  <tr><td><kbd>Haut</kbd> / <kbd>Bas</kbd> / <kbd>Début</kbd> / <kbd>Fin</kbd> / <kbd>Page</kbd></td><td>Se déplacer dans le tableau</td></tr>
+  <tr><td><kbd>P</kbd> / <kbd>X</kbd> / <kbd>N</kbd></td><td>Garder, rejeter, neutre (dans le tableau)</td></tr>
+  <tr><td><kbd>I</kbd> / <kbd>Q</kbd></td><td>Détails / ajouter à la file (dans le tableau)</td></tr>
+</table></div>
+<p>La liste complète, modifiable, est dans Réglages › Raccourcis.</p>
+
+<h2 id="souci">En cas de souci</h2>
+<ul>
+  <li><strong>Pas de son</strong> : vérifie la sortie choisie dans les paramètres de son de Windows, et que FL Studio n'a pas pris la carte pour lui seul (mode exclusif).</li>
+  <li><strong>Un disque de musique est débranché</strong> : ses morceaux restent dans la base, marqués manquants, et reviennent quand le disque revient.</li>
+  <li><strong>Le téléphone ne se connecte pas</strong> : page Mobile et partage, regarde si le serveur est actif et compare les adresses. Le journal du serveur est dans %APPDATA%\OTOKO\mobile\serveur.log.</li>
+  <li><strong>Tes données</strong> : la base, ses sauvegardes et les réglages sont dans %APPDATA%\OTOKO. Tes fichiers audio ne bougent que si tu le demandes.</li>
+</ul>
+</main>
+</body>
+</html>

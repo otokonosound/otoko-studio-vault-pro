@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Écoute privée</title>
+<link rel="icon" href="/p/icon.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,400..800&display=swap">
+<link rel="stylesheet" href="/p/share.css">
+</head>
+<body>
+<main id="view" aria-live="polite"><div class="hero loading"></div></main>
+<div id="player" role="region" aria-label="Lecteur" hidden>
+  <div class="row">
+    <span class="cv" id="pcv"></span>
+    <span class="mid"><span class="ti" id="pti"></span><span class="su" id="psu"></span></span>
+    <button class="ghost" id="prev" aria-label="Morceau précédent"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 5.5v13L8.5 12zM5 5.5h2.4v13H5z"/></svg></button>
+    <button class="round" id="play" aria-label="Pause"></button>
+    <button class="ghost" id="next" aria-label="Morceau suivant"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5.5v13l9.5-6.5zM16.6 5.5H19v13h-2.4z"/></svg></button>
+  </div>
+  <div class="bar" id="bar" role="slider" tabindex="0" aria-label="Position dans le morceau" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
+  <div class="meta"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+</div>
+<audio id="audio" preload="auto"></audio>
+<script src="/p/share.js"></script>
+</body>
+</html>

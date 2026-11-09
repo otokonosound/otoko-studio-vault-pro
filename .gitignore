@@ -1,0 +1,30 @@
+﻿# Compilation
+target/
+mobile/android/.gradle/
+mobile/android/build/
+mobile/android/app/build/
+mobile/android/local.properties
+installer/stage/
+
+# Ce qui se reconstruit
+dist/
+mobile/*.apk
+mobile/*.version
+
+# La clé de signature de l'app Android ne doit jamais partir sur un dépôt
+mobile/android/cle/
+*.keystore
+*.jks
+
+# Données locales
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# Les notes de travail restent sur le PC de l'auteur
+docs/CHANTIER.md
+docs/QCM-*.md
+docs/FL-STUDIO-vs-OTOKO.md
+docs/SONS-NATIFS.md
+00 Plan/

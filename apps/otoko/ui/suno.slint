@@ -1,0 +1,560 @@
+// Carrière › Atelier Suno (comme l'atelier de prompts Suno v6 de Studio Vault) : la bibliothèque
+// de prompts ; le champ Style en six cases, avec étiquettes à cliquer ; « à exclure » ; les réglages
+// créatifs et leurs préréglages ; les paroles et leurs tags de section ; l'aperçu, les compteurs et
+// les vérifications avec correction en un clic ; l'import des fichiers rapportés de Suno.
+// Tout passe par le global `SunoUi` (suno.rs).
+import { Theme } from "theme.slint";
+import { Btn, Hit } from "components.slint";
+import { ListView, ScrollView, TextEdit, ComboBox, Slider } from "std-widgets.slint";
+
+export struct SPromptUi {
+    id: int,
+    name: string,
+    sub: string,
+    current: bool,
+}
+
+export struct SlotUi {
+    key: string,
+    label: string,
+    placeholder: string,
+    hint: string,
+    value: string,
+}
+
+export struct ChipGroupUi {
+    title: string,
+    slot: string,
+    chips: [string],
+}
+
+export struct IssueUi {
+    id: string,
+    message: string,
+    fixable: bool,
+}
+
+export struct SPresetUi {
+    label: string,
+    note: string,
+}
+
+export struct ImportFileUi {
+    name: string,
+    current: bool,
+}
+
+export global SunoUi {
+    // Bibliothèque.
+    in property <[SPromptUi]> prompts;
+    in property <string> lib-text;
+    // Le prompt ouvert.
+    in-out property <string> name;
+    in property <[string]> model-labels;
+    in property <int> model-index;
+    in-out property <string> custom-model;
+    in-out property <string> voice;
+    in-out property <string> duration: "240";
+    in property <[SlotUi]> slots;
+    in property <string> chip-tab: "genres";
+    in property <[ChipGroupUi]> chip-groups;
+    in-out property <string> hook;
+    in-out property <string> exclude;
+    in-out property <float> weirdness: 40;
+    in-out property <float> style-influence: 70;
+    in-out property <float> audio-influence: 60;
+    in property <bool> audio-on;
+    in property <[SPresetUi]> presets;
+    in property <string> tag-tab: "structure";
+    in property <[string]> tags;
+    in-out property <string> lyrics;
+    in property <string> lyrics-status;
+    in-out property <string> section-edit;
+    in property <[string]> section-examples;
+    in property <string> style;
+    in property <string> counters;
+    in property <bool> counters-ok;
+    in property <[IssueUi]> issues;
+    in property <bool> any-fixable;
+    in-out property <string> notes;
+    in property <string> msg;
+    // Le composeur en détail : replié, la composition se faisant sur le site de Suno.
+    in-out property <bool> full;
+    // Import de fichiers Suno.
+    in property <bool> import-open;
+    in property <string> import-dest;
+    in property <bool> import-copy;
+    in property <[string]> import-prompts;
+    in-out property <int> import-prompt;
+    in property <bool> import-group: true;
+    in property <[ImportFileUi]> import-files;
+    in-out property <string> imp-title;
+    in-out property <string> imp-version;
+    in-out property <string> imp-tags;
+    in-out property <string> imp-prompt;
+    in property <string> imp-preview;
+    callback search(string);
+    callback load(int);
+    callback new();
+    // Retour à Production (l'Atelier Suno en fait partie).
+    callback go-production();
+    callback fork();
+    callback delete();
+    callback edited(string, string);
+    callback set-model(int);
+    callback set-chip-tab(string);
+    callback chip(string, string);
+    callback set-slider(string, int);
+    callback toggle-audio();
+    callback preset(int);
+    callback set-tag-tab(string);
+    callback tag(string);
+    callback anchor();
+    callback section-example(int);
+    callback fix(string);
+    callback fix-all();
+    callback copy(string);
+    callback open-suno();
+    callback save();
+    callback import-show();
+    callback import-dest-pick();
+    callback import-toggle(string);
+    callback import-select(int);
+    callback import-edited();
+    callback import-apply-all();
+    callback import-run();
+    callback import-close();
+}
+
+component SChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    width: min(sct.preferred-width + 18px, 260px);
+    height: 24px;
+    border-radius: 12px;
+    background: root.on ? Theme.ember-soft : (ta.has-hover ? Theme.ink4 : Theme.ink3);
+    border-width: 1px;
+    border-color: root.on ? Theme.ember : Theme.line2;
+    sct := Text { x: 9px; width: parent.width - 18px; text: root.text; color: root.on ? Theme.ember : Theme.text2; font-size: 11px; font-weight: 600; overflow: elide; vertical-alignment: center; height: parent.height; }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+// Une rangée d'étiquettes qui passe à la ligne : `per-row` par ligne (la hauteur ne dépend pas de
+// la largeur, sans quoi la mise en page bouclerait).
+component ChipFlow inherits Rectangle {
+    in property <[string]> items;
+    in property <int> per-row: 3;
+    callback picked(string);
+    callback picked-at(int);
+    property <length> slot: (self.width - (root.per-row - 1) * 4px) / root.per-row;
+    height: ceil(root.items.length / root.per-row) * 28px;
+    for t[i] in root.items: SChip {
+        x: mod(i, root.per-row) * (root.slot + 4px);
+        y: floor(i / root.per-row) * 28px;
+        width: root.slot;
+        text: t;
+        clicked => {
+            root.picked(t);
+            root.picked-at(i);
+        }
+    }
+}
+
+component SInput inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> value;
+    in property <bool> mono;
+    callback changed(string);
+    height: 30px;
+    border-radius: 8px;
+    background: Theme.ink3;
+    if si.text == "": Text { x: 9px; width: parent.width - 18px; text: root.placeholder; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+    si := TextInput {
+        x: 9px;
+        width: parent.width - 18px;
+        height: 100%;
+        text <=> root.value;
+        color: Theme.text;
+        font-size: 12px;
+        font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+        vertical-alignment: center;
+        single-line: true;
+        edited => { root.changed(self.text); }
+    }
+}
+
+component SHead inherits Text {
+    color: Theme.text3;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+component SBox inherits Rectangle {
+    background: Theme.ink2;
+    border-radius: 10px;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+        @children
+    }
+}
+
+component SliderRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> range;
+    in-out property <float> value;
+    in property <bool> enabled: true;
+    callback moved(int);
+    spacing: 8px;
+    Text { width: 120px; text: root.label; color: root.enabled ? Theme.text : Theme.text3; font-size: 12px; font-weight: 600; vertical-alignment: center; }
+    Slider { horizontal-stretch: 1; minimum: 0; maximum: 100; value <=> root.value; enabled: root.enabled; changed(v) => { root.moved(round(v)); } }
+    Text { width: 30px; text: root.enabled ? "\{round(root.value)}" : "—"; color: Theme.ember; font-size: 12px; font-family: Theme.mono-font; vertical-alignment: center; horizontal-alignment: right; }
+    Text { width: 90px; text: root.range; color: Theme.text3; font-size: 10.5px; vertical-alignment: center; }
+}
+
+export component SunoView inherits Rectangle {
+    HorizontalLayout {
+        spacing: 12px;
+        // ---------- bibliothèque de prompts
+        VerticalLayout {
+            width: 230px;
+            spacing: 6px;
+            HorizontalLayout { alignment: start; Btn { text: "← Production"; ghost: true; height: 26px; clicked => { SunoUi.go-production(); } } }
+            SInput { placeholder: "Chercher un prompt…"; changed(t) => { SunoUi.search(t); } }
+            HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "+ Nouveau"; height: 28px; primary: true; clicked => { SunoUi.new(); } }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 10px;
+                background: Theme.ink2;
+                clip: true;
+                ListView {
+                    for p in SunoUi.prompts: Rectangle {
+                        height: 46px;
+                        background: p.current ? Theme.ember-soft : (pa.has-hover ? Theme.ink3 : transparent);
+                        Text { x: 10px; y: 6px; width: parent.width - 20px; text: p.name; color: p.current ? Theme.ember : Theme.text; font-size: 12.5px; font-weight: 700; overflow: elide; }
+                        Text { x: 10px; y: 25px; width: parent.width - 20px; text: p.sub; color: Theme.text3; font-size: 10.5px; overflow: elide; }
+                        pa := TouchArea { mouse-cursor: pointer; clicked => { SunoUi.load(p.id); } }
+                    }
+                }
+            }
+            Text { text: SunoUi.lib-text; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+            HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Copie"; height: 28px; ghost: true; clicked => { SunoUi.fork(); } }
+                Btn { text: "Supprimer"; height: 28px; ghost: true; clicked => { SunoUi.delete(); } }
+            }
+            Btn { text: "Importer des fichiers Suno…"; height: 30px; clicked => { SunoUi.import-show(); } }
+        }
+        // ---------- l'essentiel : la composition se fait sur le site de Suno
+        if !SunoUi.full: VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 10px;
+            HorizontalLayout {
+                spacing: 8px;
+                SInput { horizontal-stretch: 1; placeholder: "Nom du prompt"; value <=> SunoUi.name; changed(t) => { SunoUi.edited("name", t); } }
+                Btn { text: "Composer en détail"; ghost: true; height: 30px; clicked => { SunoUi.full = true; } }
+            }
+            Text { text: "Tu composes sur le site de Suno : garde ici tes prompts, copie-les, et rapporte tes fichiers avec « Importer »."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+            SHead { text: "CHAMP STYLE"; }
+            Rectangle {
+                border-radius: 8px;
+                background: Theme.ink0;
+                border-width: 1px;
+                border-color: Theme.line2;
+                VerticalLayout {
+                    padding: 10px;
+                    Text { text: SunoUi.style == "" ? "Vide : « Composer en détail » pour le remplir." : SunoUi.style; color: SunoUi.style == "" ? Theme.text3 : Theme.text; font-size: 12px; font-family: Theme.mono-font; wrap: word-wrap; }
+                }
+            }
+            SHead { text: "À EXCLURE"; }
+            SInput { placeholder: "ex. : cheesy synths, pop drops"; value <=> SunoUi.exclude; changed(t) => { SunoUi.edited("exclude_field", t); } }
+            SHead { text: "PAROLES"; }
+            TextEdit { vertical-stretch: 2; text <=> SunoUi.lyrics; font-size: 12.5px; edited(t) => { SunoUi.edited("lyrics", t); } }
+            SHead { text: "NOTES"; }
+            TextEdit { vertical-stretch: 1; text <=> SunoUi.notes; font-size: 12.5px; edited(t) => { SunoUi.edited("notes", t); } }
+            HorizontalLayout {
+                spacing: 8px;
+                alignment: start;
+                Btn { text: "Copier le style"; primary: true; height: 32px; clicked => { SunoUi.copy("style"); } }
+                Btn { text: "Copier les paroles"; height: 32px; clicked => { SunoUi.copy("lyrics"); } }
+                Btn { text: "Ouvrir Suno"; height: 32px; ghost: true; clicked => { SunoUi.open-suno(); } }
+                Btn { text: "Enregistrer"; height: 32px; ghost: true; clicked => { SunoUi.save(); } }
+                Text { text: SunoUi.msg; color: Theme.lagoon; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+            }
+        }
+        // ---------- le composeur
+        if SunoUi.full: VerticalLayout {
+            horizontal-stretch: 1;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                Btn { text: "← L'essentiel"; ghost: true; height: 30px; clicked => { SunoUi.full = false; } }
+                SInput { horizontal-stretch: 3; placeholder: "Nom du prompt (ex. : techno sombre hypnotique)"; value <=> SunoUi.name; changed(t) => { SunoUi.edited("name", t); } }
+                ComboBox { width: 200px; height: 30px; model: SunoUi.model-labels; current-index: SunoUi.model-index; selected => { SunoUi.set-model(self.current-index); } }
+                SInput { width: 130px; placeholder: "modèle perso"; value <=> SunoUi.custom-model; changed(t) => { SunoUi.edited("custom_model", t); } }
+                SInput { width: 120px; placeholder: "ta voix Suno"; value <=> SunoUi.voice; changed(t) => { SunoUi.edited("voice", t); } }
+                SInput { width: 64px; mono: true; placeholder: "240"; value <=> SunoUi.duration; changed(t) => { SunoUi.edited("duration", t); } }
+                Text { text: "s"; color: Theme.text3; font-size: 12px; vertical-alignment: center; }
+            }
+            HorizontalLayout {
+                vertical-stretch: 1;
+                spacing: 12px;
+                // Volet 1 : le champ Style et les réglages.
+                ScrollView {
+                    horizontal-stretch: 1;
+                    min-width: 330px;
+                    preferred-width: 380px;
+                    VerticalLayout {
+                        padding-right: 8px;
+                        spacing: 8px;
+                        alignment: start;
+                        SHead { text: "CHAMP STYLE — SIX CASES, DANS L'ORDRE D'IMPORTANCE"; }
+                        for s in SunoUi.slots: VerticalLayout {
+                            spacing: 2px;
+                            Text { text: s.label; color: Theme.text; font-size: 12px; font-weight: 700; }
+                            SInput { placeholder: s.placeholder; value: s.value; changed(t) => { SunoUi.edited(s.key, t); } }
+                            Text { text: s.hint; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            for t in [{ k: "genres", l: "Genres" }, { k: "moods", l: "Ambiances" }, { k: "production", l: "Production" }]: SChip {
+                                width: 100px;
+                                text: t.l;
+                                on: SunoUi.chip-tab == t.k;
+                                clicked => { SunoUi.set-chip-tab(t.k); }
+                            }
+                        }
+                        for g in SunoUi.chip-groups: VerticalLayout {
+                            spacing: 3px;
+                            if g.title != "": Text { text: g.title; color: Theme.ember2; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+                            ChipFlow { items: g.chips; picked(t) => { SunoUi.chip(g.slot, t); } }
+                        }
+                        Text { text: "Instrument vedette (facultatif)"; color: Theme.text; font-size: 12px; font-weight: 700; }
+                        SInput { placeholder: "ex. : clean-tone electric guitar riff"; value <=> SunoUi.hook; changed(t) => { SunoUi.edited("hook_instrument", t); } }
+                        Text { text: "« the central hook is X » fait de X le personnage principal du morceau."; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                        Text { text: "À exclure (champ Exclude)"; color: Theme.text; font-size: 12px; font-weight: 700; }
+                        SInput { placeholder: "ex. : cheesy synths, pop drops"; value <=> SunoUi.exclude; changed(t) => { SunoUi.edited("exclude_field", t); } }
+                        Text { text: "Les « no drums » vont ici, pas dans le Style."; color: Theme.text3; font-size: 10.5px; }
+                        SBox {
+                            SHead { text: "RÉGLAGES CRÉATIFS — N'EN CHANGE QU'UN À LA FOIS"; }
+                            SliderRow { label: "Étrangeté"; range: "sage → chaos"; value <=> SunoUi.weirdness; moved(v) => { SunoUi.set-slider("weirdness", v); } }
+                            SliderRow { label: "Influence du style"; range: "libre → strict"; value <=> SunoUi.style-influence; moved(v) => { SunoUi.set-slider("style_influence", v); } }
+                            SliderRow { label: "Influence de l'audio"; range: "libre → strict"; value <=> SunoUi.audio-influence; enabled: SunoUi.audio-on; moved(v) => { SunoUi.set-slider("audio_influence", v); } }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Rectangle {
+                                    width: 18px;
+                                    height: 18px;
+                                    border-radius: 5px;
+                                    background: SunoUi.audio-on ? Theme.ember : Theme.ink3;
+                                    border-width: 1px;
+                                    border-color: SunoUi.audio-on ? Theme.ember : Theme.line2;
+                                    if SunoUi.audio-on: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+                                    TouchArea { mouse-cursor: pointer; clicked => { SunoUi.toggle-audio(); } }
+                                }
+                                Text { text: "Utiliser l'influence de l'audio (audio de référence envoyé)"; color: Theme.text2; font-size: 11.5px; vertical-alignment: center; }
+                            }
+                            Text { text: "Préréglages (un clic règle les trois curseurs)"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
+                            for p[k] in SunoUi.presets: Rectangle {
+                                height: 30px;
+                                border-radius: 7px;
+                                background: pra.has-hover ? Theme.ink4 : Theme.ink3;
+                                Text { x: 10px; width: parent.width * 0.45; text: p.label; color: Theme.text; font-size: 11.5px; font-weight: 600; vertical-alignment: center; height: parent.height; overflow: elide; }
+                                Text { x: parent.width * 0.45 + 16px; width: parent.width * 0.55 - 24px; text: p.note; color: Theme.text3; font-size: 10.5px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                                pra := TouchArea { mouse-cursor: pointer; clicked => { SunoUi.preset(k); } }
+                            }
+                        }
+                    }
+                }
+                // Volet 2 : les paroles.
+                lyrcol := VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 300px;
+                    preferred-width: 380px;
+                    spacing: 6px;
+                    SHead { text: "PAROLES ET TAGS DE SECTION"; }
+                    Text { text: "Clique un tag pour l'ajouter aux paroles. Une précision s'écrit dans le tag : [Chorus: whispered, acoustic guitar only]."; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+                    // Cinq onglets de même largeur (étirés : leur largeur ne dépend pas de la colonne).
+                    HorizontalLayout {
+                        spacing: 4px;
+                        for t in [{ k: "structure", l: "Structure" }, { k: "vocal", l: "Voix" }, { k: "instrumental", l: "Instrumental" }, { k: "dynamic", l: "Dynamique" }, { k: "examples", l: "Exemples" }]: Rectangle {
+                            horizontal-stretch: 1;
+                            min-width: 40px;
+                            height: 24px;
+                            border-radius: 12px;
+                            background: SunoUi.tag-tab == t.k ? Theme.ember-soft : (tta.has-hover ? Theme.ink4 : Theme.ink3);
+                            border-width: 1px;
+                            border-color: SunoUi.tag-tab == t.k ? Theme.ember : Theme.line2;
+                            Text { x: 6px; width: parent.width - 12px; text: t.l; color: SunoUi.tag-tab == t.k ? Theme.ember : Theme.text2; font-size: 11px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            tta := TouchArea { mouse-cursor: pointer; clicked => { SunoUi.set-tag-tab(t.k); } }
+                        }
+                    }
+                    ScrollView {
+                        height: 92px;
+                        ChipFlow { width: lyrcol.width - 14px; items: SunoUi.tags; picked(t) => { SunoUi.tag(t); } }
+                    }
+                    TextEdit { vertical-stretch: 1; text <=> SunoUi.lyrics; font-size: 12.5px; edited(t) => { SunoUi.edited("lyrics", t); } }
+                    Text { text: SunoUi.lyrics-status; color: Theme.text3; font-size: 10.5px; overflow: elide; }
+                    Btn { text: "+ Version ancrée (même mélodie, autre arrangement)"; height: 28px; ghost: true; clicked => { SunoUi.anchor(); } }
+                    Text { text: "Modifier une section (v6) — consigne à coller dans l'outil d'édition de Suno"; color: Theme.text2; font-size: 11.5px; font-weight: 700; wrap: word-wrap; }
+                    TextEdit { height: 60px; text <=> SunoUi.section-edit; edited(t) => { SunoUi.edited("section_edit", t); } }
+                    ChipFlow { per-row: 2; items: SunoUi.section-examples; picked-at(k) => { SunoUi.section-example(k); } }
+                }
+                // Volet 3 : l'aperçu et les vérifications.
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    min-width: 280px;
+                    preferred-width: 340px;
+                    spacing: 6px;
+                    SHead { text: "APERÇU ET VÉRIFICATIONS"; }
+                    Rectangle {
+                        border-radius: 8px;
+                        background: Theme.ink0;
+                        border-width: 1px;
+                        border-color: SunoUi.counters-ok ? Theme.lagoon : Theme.ember2;
+                        VerticalLayout {
+                            padding: 10px;
+                            Text { text: SunoUi.style == "" ? "…" : SunoUi.style; color: Theme.text; font-size: 12px; font-family: Theme.mono-font; wrap: word-wrap; }
+                        }
+                    }
+                    Text { text: SunoUi.counters; color: SunoUi.counters-ok ? Theme.ok : Theme.ember2; font-size: 11px; wrap: word-wrap; }
+                    HorizontalLayout {
+                        Text { horizontal-stretch: 1; text: "Vérifications"; color: Theme.text; font-size: 12.5px; font-weight: 800; vertical-alignment: center; }
+                        if SunoUi.any-fixable: Btn { text: "Tout corriger"; height: 26px; clicked => { SunoUi.fix-all(); } }
+                    }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 4px;
+                            alignment: start;
+                            if SunoUi.issues.length == 0: Rectangle {
+                                border-radius: 6px;
+                                background: Theme.ok.with-alpha(0.12);
+                                VerticalLayout {
+                                    padding: 8px;
+                                    Text { text: "✓ Tout est bon : aucun piège détecté."; color: Theme.ok; font-size: 12px; font-weight: 700; wrap: word-wrap; }
+                                }
+                            }
+                            for i in SunoUi.issues: Rectangle {
+                                border-radius: 6px;
+                                background: Theme.ember2.with-alpha(0.12);
+                                HorizontalLayout {
+                                    padding: 8px;
+                                    spacing: 6px;
+                                    Text { horizontal-stretch: 1; text: i.message; color: Theme.ember2; font-size: 11.5px; wrap: word-wrap; }
+                                    if i.fixable: Btn { text: "Corriger"; height: 24px; clicked => { SunoUi.fix(i.id); } }
+                                }
+                            }
+                        }
+                    }
+                    Text { text: "Notes"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
+                    TextEdit { height: 70px; text <=> SunoUi.notes; edited(t) => { SunoUi.edited("notes", t); } }
+                    Btn { text: "Copier le champ Style"; height: 28px; clicked => { SunoUi.copy("style"); } }
+                    Btn { text: "Copier les paroles"; height: 28px; clicked => { SunoUi.copy("lyrics"); } }
+                    Btn { text: "Copier tout le prompt (Style, paroles, réglages)"; primary: true; height: 30px; clicked => { SunoUi.copy("all"); } }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Btn { text: "Ouvrir Suno"; height: 28px; ghost: true; clicked => { SunoUi.open-suno(); } }
+                        Btn { horizontal-stretch: 1; text: "Enregistrer dans la bibliothèque"; height: 28px; clicked => { SunoUi.save(); } }
+                    }
+                    Text { text: SunoUi.msg; color: Theme.lagoon; font-size: 11px; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+
+    // ---------- importer des fichiers rapportés de Suno
+    if SunoUi.import-open: Rectangle {
+        background: #00000088;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 24px;
+            width: min(920px, parent.width - 40px);
+            height: parent.height - 48px;
+            border-radius: 14px;
+            background: Theme.ink1;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 8px;
+                Text { text: "Importer des fichiers Suno"; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Dossier de destination :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+                    Text { horizontal-stretch: 1; text: SunoUi.import-dest == "" ? "(à choisir)" : SunoUi.import-dest; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                    Btn { text: "Choisir…"; height: 28px; clicked => { SunoUi.import-dest-pick(); } }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    alignment: start;
+                    for o in [{ k: "copy", l: "Copier au lieu de déplacer (garde les originaux)" }, { k: "group", l: "Même génération (variations A/B d'un même prompt)" }]: HorizontalLayout {
+                        spacing: 6px;
+                        cb := Rectangle {
+                            width: 18px;
+                            height: 18px;
+                            border-radius: 5px;
+                            property <bool> on: o.k == "copy" ? SunoUi.import-copy : SunoUi.import-group;
+                            background: self.on ? Theme.ember : Theme.ink3;
+                            border-width: 1px;
+                            border-color: self.on ? Theme.ember : Theme.line2;
+                            if cb.on: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+                            TouchArea { mouse-cursor: pointer; clicked => { SunoUi.import-toggle(o.k); } }
+                        }
+                        Text { text: o.l; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { text: "Lier au prompt :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+                    ComboBox { horizontal-stretch: 1; height: 30px; model: SunoUi.import-prompts; current-index <=> SunoUi.import-prompt; }
+                }
+                HorizontalLayout {
+                    vertical-stretch: 1;
+                    spacing: 12px;
+                    Rectangle {
+                        width: 300px;
+                        border-radius: 10px;
+                        background: Theme.ink2;
+                        clip: true;
+                        ListView {
+                            for f[i] in SunoUi.import-files: Rectangle {
+                                height: 32px;
+                                background: f.current ? Theme.ember-soft : (ifa.has-hover ? Theme.ink3 : transparent);
+                                Text { x: 10px; width: parent.width - 20px; text: f.name; color: f.current ? Theme.ember : Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                                ifa := TouchArea { mouse-cursor: pointer; clicked => { SunoUi.import-select(i); } }
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 6px;
+                        Text { text: "Titre"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
+                        SInput { value <=> SunoUi.imp-title; changed => { SunoUi.import-edited(); } }
+                        Text { text: "Version"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
+                        SInput { placeholder: "v1, v2, remix, extended…"; value <=> SunoUi.imp-version; changed => { SunoUi.import-edited(); } }
+                        Text { text: "Tags"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
+                        SInput { placeholder: "techno, dark, sample… (« suno » est ajouté)"; value <=> SunoUi.imp-tags; changed => { SunoUi.import-edited(); } }
+                        Text { text: "Prompt Suno utilisé"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
+                        TextEdit { vertical-stretch: 1; text <=> SunoUi.imp-prompt; edited => { SunoUi.import-edited(); } }
+                        Text { text: SunoUi.imp-preview; color: Theme.ember; font-size: 11.5px; wrap: word-wrap; }
+                        HorizontalLayout { alignment: start; Btn { text: "Appliquer prompt et tags à tous les fichiers"; height: 28px; ghost: true; clicked => { SunoUi.import-apply-all(); } } }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Btn { text: "Annuler"; ghost: true; height: 32px; clicked => { SunoUi.import-close(); } }
+                    Btn { text: "Importer tout"; primary: true; height: 32px; clicked => { SunoUi.import-run(); } }
+                }
+            }
+        }
+    }
+}

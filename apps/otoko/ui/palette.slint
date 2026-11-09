@@ -1,0 +1,101 @@
+// La palette de commandes (Ctrl+K, ou « Tout trouver » en haut) : une page, une action ou un
+// morceau, au clavier. Comme celle de Studio Vault. Global `Pal` (palette.rs).
+import { Theme } from "theme.slint";
+
+export struct PalItemUi {
+    label: string,
+    hint: string,
+    // page, action, geste, track
+    kind: string,
+}
+
+export global Pal {
+    in-out property <bool> open;
+    in-out property <string> query;
+    in property <[PalItemUi]> items;
+    in-out property <int> sel;
+    callback search(string);
+    callback run(int);
+    callback close();
+}
+
+export component PaletteView inherits Rectangle {
+    callback done();
+    // La ligne choisie reste visible quand on descend au clavier.
+    property <int> current: Pal.sel;
+    changed current => {
+        if (current * 34px + lv.content-y > lv.height - 34px) { lv.content-y = -(current * 34px - lv.height + 34px); }
+        if (current * 34px + lv.content-y < 0) { lv.content-y = -current * 34px; }
+    }
+    background: #00000066;
+    TouchArea { clicked => { Pal.close(); root.done(); } }
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 90px;
+        width: min(640px, parent.width - 40px);
+        height: min(470px, parent.height - 140px);
+        border-radius: 14px;
+        background: Theme.ink1;
+        border-width: 1px;
+        border-color: Theme.line2;
+        drop-shadow-blur: 30px;
+        drop-shadow-color: #00000088;
+        TouchArea { }
+        VerticalLayout {
+            padding: 8px;
+            spacing: 6px;
+            Rectangle {
+                height: 44px;
+                border-radius: 10px;
+                background: Theme.ink3;
+                scope := FocusScope {
+                    key-pressed(e) => {
+                        if (e.text == Key.DownArrow) { Pal.sel = Math.min(Pal.items.length - 1, Pal.sel + 1); return EventResult.accept; }
+                        if (e.text == Key.UpArrow) { Pal.sel = Math.max(0, Pal.sel - 1); return EventResult.accept; }
+                        if (e.text == Key.Escape) { Pal.close(); root.done(); return EventResult.accept; }
+                        return EventResult.reject;
+                    }
+                    if input.text == "": Text { x: 14px; text: "Aller à, faire ou écouter…"; color: Theme.text3; font-size: 14px; vertical-alignment: center; height: 44px; }
+                    input := TextInput {
+                        x: 14px;
+                        width: parent.width - 28px;
+                        height: 44px;
+                        text <=> Pal.query;
+                        color: Theme.text;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                        single-line: true;
+                        edited => { Pal.search(self.text); }
+                        accepted => { Pal.run(Pal.sel); root.done(); }
+                    }
+                }
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                clip: true;
+                lv := Flickable {
+                    content-height: Pal.items.length * 34px;
+                    for it[i] in Pal.items: Rectangle {
+                        y: i * 34px;
+                        height: 34px;
+                        border-radius: 8px;
+                        background: i == Pal.sel ? Theme.ember-soft : (ia.has-hover ? Theme.ink3 : transparent);
+                        Image {
+                            x: 10px;
+                            width: 16px;
+                            height: 16px;
+                            source: it.kind == "track" ? @image-url("icons/play.svg") : it.kind == "page" ? @image-url("icons/home.svg") : @image-url("icons/spark.svg");
+                            colorize: i == Pal.sel ? Theme.ember : Theme.text3;
+                        }
+                        Text { x: 36px; width: parent.width - 36px - 120px; text: it.label; color: i == Pal.sel ? Theme.text : Theme.text2; font-size: 13px; font-weight: i == Pal.sel ? 700 : 500; vertical-alignment: center; height: 34px; overflow: elide; }
+                        Text { x: parent.width - 114px; width: 104px; text: it.hint; color: Theme.text3; font-size: 11px; font-family: Theme.mono-font; horizontal-alignment: right; vertical-alignment: center; height: 34px; }
+                        ia := TouchArea { mouse-cursor: pointer; clicked => { Pal.sel = i; Pal.run(i); root.done(); } }
+                    }
+                }
+                if Pal.items.length == 0: Text { text: "Rien de trouvé."; color: Theme.text3; font-size: 12.5px; }
+            }
+            Text { text: "  ↑ ↓ pour choisir · Entrée pour valider · Échap pour fermer"; color: Theme.text3; font-size: 11px; }
+        }
+    }
+    init => { input.focus(); }
+}

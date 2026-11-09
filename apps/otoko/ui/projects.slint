@@ -1,0 +1,726 @@
+// Carrière › fiche projet (remix, edit, mashup, set, prod), carnet de clients et constructeur de
+// set (comme `project_dialog.py`, `clients_dialog.py` et `set_builder_dialog.py` de Studio Vault).
+// Posés par-dessus toute la Carrière ; tout passe par le global `Proj` (projets.rs).
+import { Theme } from "theme.slint";
+import { Btn, Hit } from "components.slint";
+import { ListView, ScrollView, TextEdit, ComboBox } from "std-widgets.slint";
+
+export struct SrcUi {
+    artist: string,
+    title: string,
+    bpm: string,
+    key: string,
+    camelot: string,
+    part: string,
+    linked: bool,
+}
+
+export struct EntryUi {
+    time: string,
+    artist: string,
+    title: string,
+    bpm: string,
+    camelot: string,
+    linked: bool,
+}
+
+export struct DelivUi {
+    key: string,
+    label: string,
+    done: bool,
+}
+
+export struct VersionRowUi {
+    date: string,
+    label: string,
+    note: string,
+}
+
+export struct PickUi {
+    id: int,
+    title: string,
+    sub: string,
+}
+
+export struct ClientUi {
+    id: int,
+    name: string,
+}
+
+export struct SbRowUi {
+    id: int,
+    start: string,
+    title: string,
+    artist: string,
+    bpm: string,
+    camelot: string,
+    energy: string,
+    duration: string,
+    transition: string,
+    ok: bool,
+    last: bool,
+}
+
+export global Proj {
+    // ---------- fiche projet
+    in property <bool> open;
+    in property <int> id;
+    in property <string> title;
+    in property <string> nature;
+    in property <[string]> natures;
+    in property <[string]> nature-labels;
+    in property <string> rights;
+    in property <string> msg;
+    in-out property <string> orig-artist;
+    in-out property <string> orig-title;
+    in-out property <string> commissioned-by;
+    in-out property <string> stems-dir;
+    in property <bool> official;
+    in property <[string]> auth-labels;
+    in property <int> auth-index;
+    in property <bool> deadline-on;
+    in-out property <string> deadline-text;
+    in property <string> deadline-hint;
+    in property <[SrcUi]> sources;
+    in property <string> mashup-check;
+    in property <[EntryUi]> entries;
+    in property <string> set-report;
+    in property <[string]> client-names;
+    in property <int> client-index;
+    in property <string> order-status;
+    in property <[string]> order-keys;
+    in property <[string]> order-labels;
+    in-out property <string> fee-text;
+    in property <bool> paid;
+    in property <[string]> agreement-labels;
+    in property <int> agreement-index;
+    in-out property <string> split-text;
+    in property <bool> private;
+    in property <[DelivUi]> deliverables;
+    in property <[VersionRowUi]> versions;
+    // Choisir un morceau de la bibliothèque (source d'un mashup, titre d'un set).
+    in property <bool> picker-open;
+    in property <[PickUi]> picker;
+    callback set-nature(string);
+    callback field(string, string);
+    callback toggle(string);
+    callback choose(string, int);
+    callback source-edited(int, int, string);
+    callback source-add();
+    callback source-remove(int);
+    callback entry-edited(int, int, string);
+    callback entry-add();
+    callback entry-remove(int);
+    callback import-markers();
+    callback copy-tracklist();
+    callback export-cue();
+    callback check-transitions();
+    callback deliverable(string);
+    callback version-add();
+    callback version-edited(int, int, string);
+    callback version-remove(int);
+    callback pick-dir();
+    callback open-dir();
+    callback remix-title();
+    callback copy-credits();
+    callback save();
+    callback cancel();
+    callback picker-show(string);
+    callback picker-search(string);
+    callback picker-choose(int);
+    callback picker-close();
+    // ---------- carnet de clients
+    in property <bool> clients-open;
+    in property <[ClientUi]> clients;
+    in property <int> client-sel: -1;
+    in-out property <string> c-name;
+    in-out property <string> c-contact;
+    in-out property <string> c-notes;
+    in property <string> c-stats;
+    callback clients-show();
+    callback client-select(int);
+    callback client-new();
+    callback client-save();
+    callback client-delete();
+    callback clients-close();
+    // ---------- constructeur de set
+    in property <bool> sb-open;
+    in property <string> sb-intro;
+    in property <string> sb-warn;
+    in property <string> sb-mode: "montee";
+    in property <[string]> sb-starts;
+    in-out property <int> sb-start;
+    in-out property <string> sb-target: "0";
+    in-out property <string> sb-overlap: "30";
+    in property <[SbRowUi]> sb-rows;
+    in-out property <int> sb-sel: -1;
+    in property <string> sb-summary;
+    in property <bool> sb-saving;
+    in property <[string]> sb-sets;
+    callback sb-set-mode(string);
+    callback sb-build();
+    callback sb-refresh();
+    callback sb-move(int);
+    callback sb-remove();
+    callback sb-copy();
+    callback sb-export();
+    callback sb-save();
+    callback sb-save-to(int);
+    callback sb-close();
+}
+
+component Label inherits Text {
+    color: Theme.text3;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+}
+
+component Input inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> value;
+    in property <bool> mono;
+    callback changed(string);
+    height: 30px;
+    border-radius: 8px;
+    background: Theme.ink3;
+    if ti.text == "": Text { x: 9px; text: root.placeholder; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; }
+    ti := TextInput {
+        x: 9px;
+        width: parent.width - 18px;
+        height: 100%;
+        text <=> root.value;
+        color: Theme.text;
+        font-size: 12px;
+        font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+        vertical-alignment: center;
+        single-line: true;
+        edited => { root.changed(self.text); }
+    }
+}
+
+component Tick inherits Rectangle {
+    in property <bool> on;
+    in property <string> text;
+    callback toggled;
+    height: 26px;
+    min-width: tt.preferred-width + 30px;
+    Rectangle {
+        x: 0;
+        y: (parent.height - 18px) / 2;
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        background: root.on ? Theme.ember : Theme.ink3;
+        border-width: 1px;
+        border-color: root.on ? Theme.ember : Theme.line2;
+        if root.on: Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+    }
+    tt := Text { x: 26px; text: root.text; color: Theme.text; font-size: 12px; vertical-alignment: center; height: parent.height; }
+    TouchArea { mouse-cursor: pointer; clicked => { root.toggled(); } }
+}
+
+component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    width: ct.preferred-width + 22px;
+    height: 28px;
+    border-radius: 14px;
+    background: root.on ? Theme.ember-soft : (ta.has-hover ? Theme.ink4 : Theme.ink3);
+    border-width: 1px;
+    border-color: root.on ? Theme.ember : Theme.line2;
+    ct := Text { text: root.text; color: root.on ? Theme.ember : Theme.text2; font-size: 11.5px; font-weight: 700; }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+// Une cellule modifiable d'un tableau.
+component Cell inherits Rectangle {
+    in property <string> value;
+    in property <bool> mono;
+    in property <bool> readonly;
+    callback changed(string);
+    height: 28px;
+    border-radius: 6px;
+    background: root.readonly ? transparent : (ci.has-focus ? Theme.ink4 : Theme.ink3);
+    ci := TextInput {
+        x: 7px;
+        width: parent.width - 14px;
+        height: 100%;
+        text: root.value;
+        read-only: root.readonly;
+        color: root.readonly ? Theme.text2 : Theme.text;
+        font-size: 12px;
+        font-family: root.mono ? Theme.mono-font : Theme.ui-font;
+        vertical-alignment: center;
+        single-line: true;
+        edited => { root.changed(self.text); }
+    }
+}
+
+component Small inherits Rectangle {
+    in property <string> text;
+    callback clicked;
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+    background: ta.has-hover ? Theme.ink4 : transparent;
+    Text { text: root.text; color: ta.has-hover ? Theme.text : Theme.text3; font-size: 15px; }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+component Panel inherits Rectangle {
+    in property <length> max-w: 900px;
+    background: #00000088;
+    TouchArea { }
+    inner := Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: 24px;
+        width: min(root.max-w, parent.width - 40px);
+        height: parent.height - 48px;
+        border-radius: 14px;
+        background: Theme.ink1;
+        border-width: 1px;
+        border-color: Theme.line2;
+        clip: true;
+        @children
+    }
+}
+
+// ---------------------------------------------------------------------- fiche projet
+
+export component ProjectSheet inherits Panel {
+    max-w: 940px;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 10px;
+            Text { horizontal-stretch: 1; text: Proj.title; color: Theme.text; font-size: 19px; font-weight: 800; font-family: Theme.display-font; overflow: elide; vertical-alignment: center; }
+            for n[k] in Proj.natures: Chip { text: Proj.nature-labels[k]; on: Proj.nature == n; clicked => { Proj.set-nature(n); } }
+        }
+        if Proj.rights != "": Rectangle {
+            border-radius: 10px;
+            background: Theme.ink2;
+            VerticalLayout {
+                padding: 10px;
+                Text { text: Proj.rights; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+            }
+        }
+        ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding-right: 8px;
+                spacing: 10px;
+                alignment: start;
+                // ---------- original
+                if Proj.nature == "original": Text {
+                    text: "Composition originale : rien de plus à renseigner ici.\n\nChoisis une autre nature en haut si ce morceau est un remix, un edit, un mashup, un set ou une prod pour un autre artiste.";
+                    color: Theme.text3;
+                    font-size: 12.5px;
+                    wrap: word-wrap;
+                }
+                // ---------- remix, edit
+                if Proj.nature == "remix" || Proj.nature == "edit": VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        VerticalLayout { horizontal-stretch: 1; spacing: 4px; Label { text: "ARTISTE D'ORIGINE"; } Input { value <=> Proj.orig-artist; changed(t) => { Proj.field("orig_artist", t); } } }
+                        VerticalLayout { horizontal-stretch: 1; spacing: 4px; Label { text: "TITRE D'ORIGINE"; } Input { value <=> Proj.orig-title; changed(t) => { Proj.field("orig_title", t); } } }
+                    }
+                    Tick { text: "Remix officiel (demandé par l'artiste ou le label)"; on: Proj.official; toggled => { Proj.toggle("official"); } }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        VerticalLayout { horizontal-stretch: 1; spacing: 4px; Label { text: "DEMANDÉ PAR"; } Input { placeholder: "artiste, label, concours…"; value <=> Proj.commissioned-by; changed(t) => { Proj.field("commissioned_by", t); } } }
+                        VerticalLayout {
+                            width: 220px;
+                            spacing: 4px;
+                            Label { text: "AUTORISATION"; }
+                            ComboBox { height: 30px; model: Proj.auth-labels; current-index: Proj.auth-index; selected => { Proj.choose("authorization", self.current-index); } }
+                        }
+                    }
+                    Label { text: "STEMS REÇUS"; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Input { horizontal-stretch: 1; placeholder: "dossier des stems reçus"; value <=> Proj.stems-dir; changed(t) => { Proj.field("stems_dir", t); } }
+                        Btn { text: "Choisir…"; height: 30px; clicked => { Proj.pick-dir(); } }
+                        Btn { text: "Ouvrir"; height: 30px; ghost: true; clicked => { Proj.open-dir(); } }
+                    }
+                    Label { text: "DATE LIMITE"; }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Tick { width: 110px; text: "Date fixée"; on: Proj.deadline-on; toggled => { Proj.toggle("deadline"); } }
+                        if Proj.deadline-on: Input { width: 130px; mono: true; placeholder: "JJ/MM/AAAA"; value <=> Proj.deadline-text; changed(t) => { Proj.field("deadline", t); } }
+                        Text { horizontal-stretch: 1; text: Proj.deadline-hint; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; }
+                    }
+                    HorizontalLayout { alignment: start; Btn { text: "Renommer le titre en « Titre (Artiste " + (Proj.nature == "remix" ? "Remix" : "Edit") + ") »"; height: 30px; clicked => { Proj.remix-title(); } } }
+                }
+                // ---------- mashup
+                if Proj.nature == "mashup": VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "Les titres utilisés dans le mashup. Les tempos et tonalités aident à vérifier qu'ils s'accordent (colonne Clé : notation Camelot)."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Label { width: 150px; text: "ARTISTE"; }
+                        Label { width: 170px; text: "TITRE"; }
+                        Label { width: 56px; text: "BPM"; }
+                        Label { width: 70px; text: "TONALITÉ"; }
+                        Label { width: 44px; text: "CLÉ"; }
+                        Label { horizontal-stretch: 1; text: "PASSAGE UTILISÉ"; }
+                        Rectangle { width: 26px; }
+                    }
+                    for s[r] in Proj.sources: HorizontalLayout {
+                        spacing: 6px;
+                        Cell { width: 150px; value: s.artist; changed(t) => { Proj.source-edited(r, 0, t); } }
+                        Cell { width: 170px; value: s.title; changed(t) => { Proj.source-edited(r, 1, t); } }
+                        Cell { width: 56px; value: s.bpm; mono: true; changed(t) => { Proj.source-edited(r, 2, t); } }
+                        Cell { width: 70px; value: s.key; changed(t) => { Proj.source-edited(r, 3, t); } }
+                        Cell { width: 44px; value: s.camelot; readonly: true; mono: true; }
+                        Cell { horizontal-stretch: 1; value: s.part; changed(t) => { Proj.source-edited(r, 5, t); } }
+                        Small { text: "×"; clicked => { Proj.source-remove(r); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Btn { text: "+ Titre externe"; height: 28px; clicked => { Proj.source-add(); } }
+                        Btn { text: "+ Depuis la bibliothèque…"; height: 28px; clicked => { Proj.picker-show("source"); } }
+                    }
+                    if Proj.mashup-check != "": Text { text: Proj.mashup-check; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+                }
+                // ---------- set
+                if Proj.nature == "set": VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "Liste minutée du set. Le plus simple : pose un repère sur la forme d'onde à chaque nouveau titre (clic droit dans le lecteur), puis « Importer les repères »."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Label { width: 80px; text: "MINUTAGE"; }
+                        Label { width: 180px; text: "ARTISTE"; }
+                        Label { horizontal-stretch: 1; text: "TITRE"; }
+                        Label { width: 50px; text: "BPM"; }
+                        Label { width: 44px; text: "CLÉ"; }
+                        Rectangle { width: 26px; }
+                    }
+                    for e[r] in Proj.entries: HorizontalLayout {
+                        spacing: 6px;
+                        Cell { width: 80px; value: e.time; mono: true; changed(t) => { Proj.entry-edited(r, 0, t); } }
+                        Cell { width: 180px; value: e.artist; changed(t) => { Proj.entry-edited(r, 1, t); } }
+                        Cell { horizontal-stretch: 1; value: e.title; changed(t) => { Proj.entry-edited(r, 2, t); } }
+                        Cell { width: 50px; value: e.bpm; readonly: true; mono: true; }
+                        Cell { width: 44px; value: e.camelot; readonly: true; mono: true; }
+                        Small { text: "×"; clicked => { Proj.entry-remove(r); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Btn { text: "Importer les repères"; height: 28px; clicked => { Proj.import-markers(); } }
+                        Btn { text: "+ Titre externe"; height: 28px; clicked => { Proj.entry-add(); } }
+                        Btn { text: "+ Depuis la bibliothèque…"; height: 28px; clicked => { Proj.picker-show("entry"); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Btn { text: "Copier la liste pour SoundCloud"; height: 28px; ghost: true; clicked => { Proj.copy-tracklist(); } }
+                        Btn { text: "Exporter en .cue…"; height: 28px; ghost: true; clicked => { Proj.export-cue(); } }
+                        Btn { text: "Vérifier les enchaînements"; height: 28px; ghost: true; clicked => { Proj.check-transitions(); } }
+                    }
+                    if Proj.set-report != "": Rectangle {
+                        border-radius: 8px;
+                        background: Theme.ink2;
+                        VerticalLayout {
+                            padding: 10px;
+                            Text { text: Proj.set-report; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+                        }
+                    }
+                }
+                // ---------- prod
+                if Proj.nature == "prod": VerticalLayout {
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Label { text: "CLIENT"; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                ComboBox { horizontal-stretch: 1; height: 30px; model: Proj.client-names; current-index: Proj.client-index; selected => { Proj.choose("client", self.current-index); } }
+                                Btn { text: "Carnet de clients…"; height: 30px; clicked => { Proj.clients-show(); } }
+                            }
+                        }
+                    }
+                    Label { text: "AVANCEMENT"; }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for o[k] in Proj.order-keys: Chip { text: Proj.order-labels[k]; on: Proj.order-status == o; clicked => { Proj.choose("order_status", k); } }
+                    }
+                    HorizontalLayout {
+                        spacing: 14px;
+                        VerticalLayout {
+                            spacing: 4px;
+                            Label { text: "DATE LIMITE"; }
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Tick { width: 110px; text: "Date fixée"; on: Proj.deadline-on; toggled => { Proj.toggle("deadline"); } }
+                                if Proj.deadline-on: Input { width: 130px; mono: true; placeholder: "JJ/MM/AAAA"; value <=> Proj.deadline-text; changed(t) => { Proj.field("deadline", t); } }
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 4px;
+                            Label { text: "RÉMUNÉRATION (€)"; }
+                            HorizontalLayout {
+                                spacing: 10px;
+                                Input { width: 110px; mono: true; placeholder: "0"; value <=> Proj.fee-text; changed(t) => { Proj.field("fee", t); } }
+                                Tick { text: "Payé"; on: Proj.paid; toggled => { Proj.toggle("paid"); } }
+                            }
+                        }
+                        Text { horizontal-stretch: 1; text: Proj.deadline-hint; color: Theme.text3; font-size: 11.5px; vertical-alignment: bottom; }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Label { text: "ACCORD"; }
+                            ComboBox { height: 30px; model: Proj.agreement-labels; current-index: Proj.agreement-index; selected => { Proj.choose("agreement", self.current-index); } }
+                        }
+                        VerticalLayout {
+                            width: 140px;
+                            spacing: 4px;
+                            Label { text: "TA PART (%)"; }
+                            Input { mono: true; placeholder: "0"; value <=> Proj.split-text; changed(t) => { Proj.field("split", t); } }
+                        }
+                    }
+                    Tick { text: "Ne pas publier sur mes réseaux (exclu de la publication)"; on: Proj.private; toggled => { Proj.toggle("private"); } }
+                    Label { text: "LIVRABLES"; }
+                    HorizontalLayout {
+                        spacing: 14px;
+                        alignment: start;
+                        for d in Proj.deliverables: Tick { text: d.label; on: d.done; toggled => { Proj.deliverable(d.key); } }
+                    }
+                    Label { text: "VERSIONS ENVOYÉES ET RETOURS"; }
+                    for v[r] in Proj.versions: HorizontalLayout {
+                        spacing: 6px;
+                        Cell { width: 100px; value: v.date; mono: true; changed(t) => { Proj.version-edited(r, 0, t); } }
+                        Cell { width: 170px; value: v.label; changed(t) => { Proj.version-edited(r, 1, t); } }
+                        Cell { horizontal-stretch: 1; value: v.note; changed(t) => { Proj.version-edited(r, 2, t); } }
+                        Small { text: "×"; clicked => { Proj.version-remove(r); } }
+                    }
+                    HorizontalLayout { alignment: start; Btn { text: "+ Version envoyée aujourd'hui"; height: 28px; clicked => { Proj.version-add(); } } }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Btn { text: "Copier la ligne de crédits"; height: 32px; ghost: true; clicked => { Proj.copy-credits(); } }
+            Text { horizontal-stretch: 1; text: Proj.msg; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Annuler"; ghost: true; height: 32px; clicked => { Proj.cancel(); } }
+            Btn { text: "Enregistrer"; primary: true; height: 32px; clicked => { Proj.save(); } }
+        }
+    }
+    // Choisir un morceau de la bibliothèque.
+    if Proj.picker-open: Rectangle {
+        background: #000000aa;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 20px;
+            width: min(600px, parent.width - 40px);
+            height: parent.height - 40px;
+            border-radius: 12px;
+            background: Theme.ink2;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 8px;
+                Text { text: "Choisir un morceau"; color: Theme.text; font-size: 16px; font-weight: 800; }
+                Input { placeholder: "chercher (titre ou artiste)"; changed(t) => { Proj.picker-search(t); } }
+                ListView {
+                    vertical-stretch: 1;
+                    for p in Proj.picker: Rectangle {
+                        height: 38px;
+                        background: pa.has-hover ? Theme.ink3 : transparent;
+                        Text { x: 10px; y: 3px; width: parent.width - 20px; text: p.title; color: Theme.text; font-size: 12.5px; font-weight: 600; overflow: elide; }
+                        Text { x: 10px; y: 20px; width: parent.width - 20px; text: p.sub; color: Theme.text3; font-size: 11px; overflow: elide; }
+                        pa := TouchArea { mouse-cursor: pointer; clicked => { Proj.picker-choose(p.id); } }
+                    }
+                }
+                HorizontalLayout { alignment: end; Btn { text: "Fermer"; ghost: true; height: 30px; clicked => { Proj.picker-close(); } } }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------- carnet de clients
+
+export component ClientsBook inherits Panel {
+    max-w: 760px;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 10px;
+        Text { text: "Carnet de clients"; color: Theme.text; font-size: 19px; font-weight: 800; font-family: Theme.display-font; }
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 14px;
+            VerticalLayout {
+                width: 240px;
+                spacing: 8px;
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    background: Theme.ink2;
+                    clip: true;
+                    ListView {
+                        for c[i] in Proj.clients: Rectangle {
+                            height: 34px;
+                            background: Proj.client-sel == i ? Theme.ember-soft : (cla.has-hover ? Theme.ink3 : transparent);
+                            Text { x: 12px; width: parent.width - 24px; text: c.name; color: Proj.client-sel == i ? Theme.ember : Theme.text; font-size: 12.5px; font-weight: 600; vertical-alignment: center; height: parent.height; overflow: elide; }
+                            cla := TouchArea { mouse-cursor: pointer; clicked => { Proj.client-select(i); } }
+                        }
+                    }
+                }
+                Btn { text: "+ Nouveau client"; primary: true; height: 30px; clicked => { Proj.client-new(); } }
+            }
+            VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: 6px;
+                alignment: start;
+                if Proj.client-sel < 0: Text { text: "Aucun client : ajoute les artistes pour qui tu produis."; color: Theme.text3; font-size: 12.5px; wrap: word-wrap; }
+                if Proj.client-sel >= 0: VerticalLayout {
+                    spacing: 6px;
+                    Label { text: "NOM"; }
+                    Input { value <=> Proj.c-name; }
+                    Label { text: "CONTACT"; }
+                    Input { placeholder: "e-mail, téléphone, Instagram…"; value <=> Proj.c-contact; }
+                    Label { text: "NOTES"; }
+                    TextEdit { height: 120px; text <=> Proj.c-notes; placeholder-text: "Style recherché, habitudes, tarifs convenus…"; }
+                    Text { text: Proj.c-stats; color: Theme.text3; font-size: 11.5px; }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+                        Btn { text: "Enregistrer"; primary: true; height: 30px; clicked => { Proj.client-save(); } }
+                        Btn { text: "Supprimer"; ghost: true; height: 30px; clicked => { Proj.client-delete(); } }
+                    }
+                }
+            }
+        }
+        HorizontalLayout { alignment: end; Btn { text: "Fermer"; ghost: true; height: 32px; clicked => { Proj.clients-close(); } } }
+    }
+}
+
+// ---------------------------------------------------------------------- constructeur de set
+
+export component SetBuilder inherits Panel {
+    max-w: 1080px;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 8px;
+        Text { text: "Construire un set"; color: Theme.text; font-size: 19px; font-weight: 800; font-family: Theme.display-font; }
+        Text { text: Proj.sb-intro; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+        if Proj.sb-warn != "": Text { text: Proj.sb-warn; color: Theme.ember2; font-size: 12px; wrap: word-wrap; }
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Text { text: "Énergie :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+            for m in [{ k: "montee", l: "Montée en énergie" }, { k: "plateau", l: "Garder le niveau" }, { k: "libre", l: "Tempo et tonalité seulement" }]: Chip {
+                text: m.l;
+                on: Proj.sb-mode == m.k;
+                clicked => { Proj.sb-set-mode(m.k); }
+            }
+        }
+        HorizontalLayout {
+            spacing: 10px;
+            Text { text: "Commencer par :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+            ComboBox { width: 260px; height: 30px; model: Proj.sb-starts; current-index <=> Proj.sb-start; }
+            Text { text: "Durée visée (min, 0 = tout) :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+            Input { width: 60px; mono: true; value <=> Proj.sb-target; }
+            Text { text: "Fondu (s) :"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+            Input { width: 50px; mono: true; value <=> Proj.sb-overlap; changed => { Proj.sb-refresh(); } }
+            Rectangle { horizontal-stretch: 1; }
+            Btn { text: "Construire"; primary: true; height: 30px; clicked => { Proj.sb-build(); } }
+        }
+        Rectangle {
+            height: 26px;
+            for h[k] in ["DÉBUT", "TITRE", "ARTISTE", "BPM", "CLÉ", "ÉNERGIE", "DURÉE", "ENCHAÎNEMENT VERS LE SUIVANT"]: Label {
+                x: k == 0 ? 10px : k == 1 ? 80px : k == 2 ? parent.width * 0.38 : k == 3 ? parent.width * 0.38 + 150px : k == 4 ? parent.width * 0.38 + 200px : k == 5 ? parent.width * 0.38 + 248px : k == 6 ? parent.width * 0.38 + 312px : parent.width * 0.38 + 372px;
+                text: h;
+                vertical-alignment: center;
+                height: parent.height;
+            }
+        }
+        Rectangle {
+            vertical-stretch: 1;
+            border-radius: 10px;
+            background: Theme.ink2;
+            clip: true;
+            ListView {
+                for r[i] in Proj.sb-rows: Rectangle {
+                    height: 32px;
+                    background: Proj.sb-sel == i ? Theme.ember-soft : (sra.has-hover ? Theme.ink3 : transparent);
+                    property <length> c: self.width * 0.38;
+                    Text { x: 10px; text: r.start; color: Theme.text3; font-size: 12px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                    Text { x: 80px; width: parent.c - 86px; text: r.title; color: Theme.text; font-size: 12.5px; font-weight: 600; vertical-alignment: center; height: parent.height; overflow: elide; }
+                    Text { x: parent.c; width: 144px; text: r.artist; color: Theme.text2; font-size: 12px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                    Text { x: parent.c + 150px; text: r.bpm; color: Theme.text; font-size: 12px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                    Text { x: parent.c + 200px; text: r.camelot; color: Theme.text; font-size: 12px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                    Text { x: parent.c + 248px; text: r.energy; color: Theme.text2; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                    Text { x: parent.c + 312px; text: r.duration; color: Theme.text2; font-size: 12px; font-family: Theme.mono-font; vertical-alignment: center; height: parent.height; }
+                    Text {
+                        x: parent.c + 372px;
+                        width: parent.width - parent.c - 380px;
+                        text: r.transition;
+                        color: r.last ? Theme.text3 : (r.ok ? Theme.ok : Theme.ember2);
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        height: parent.height;
+                        overflow: elide;
+                    }
+                    sra := TouchArea { mouse-cursor: pointer; clicked => { Proj.sb-sel = i; } }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 8px;
+            Btn { text: "↑"; width: 40px; height: 30px; clicked => { Proj.sb-move(-1); } }
+            Btn { text: "↓"; width: 40px; height: 30px; clicked => { Proj.sb-move(1); } }
+            Btn { text: "Retirer"; height: 30px; ghost: true; clicked => { Proj.sb-remove(); } }
+            Text { horizontal-stretch: 1; text: Proj.sb-summary; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Copier la liste"; height: 30px; clicked => { Proj.sb-copy(); } }
+            Btn { text: "Exporter la playlist…"; height: 30px; clicked => { Proj.sb-export(); } }
+            Btn { text: "Enregistrer dans un set…"; height: 30px; clicked => { Proj.sb-save(); } }
+            Btn { text: "Fermer"; ghost: true; height: 30px; clicked => { Proj.sb-close(); } }
+        }
+    }
+    // Choisir le set où enregistrer la liste.
+    if Proj.sb-saving: Rectangle {
+        background: #000000aa;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 60px;
+            width: 460px;
+            height: min(parent.height - 120px, 420px);
+            border-radius: 12px;
+            background: Theme.ink2;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 14px;
+                spacing: 8px;
+                Text { text: "Enregistrer dans un set"; color: Theme.text; font-size: 16px; font-weight: 800; }
+                Text { text: "La liste minutée remplit celle du morceau de nature « Set » choisi (ton enregistrement)."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                ListView {
+                    vertical-stretch: 1;
+                    for s[i] in Proj.sb-sets: Rectangle {
+                        height: 34px;
+                        background: ssa.has-hover ? Theme.ink3 : transparent;
+                        Text { x: 10px; width: parent.width - 20px; text: s; color: Theme.text; font-size: 12.5px; vertical-alignment: center; height: parent.height; overflow: elide; }
+                        ssa := TouchArea { mouse-cursor: pointer; clicked => { Proj.sb-save-to(i); } }
+                    }
+                }
+                HorizontalLayout { alignment: end; Btn { text: "Annuler"; ghost: true; height: 30px; clicked => { Proj.sb-save-to(-1); } } }
+            }
+        }
+    }
+}

@@ -1,0 +1,23 @@
+[package]
+name = "otoko"
+description = "Otoko Studio Vault Pro"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+slint = { version = "1", default-features = false, features = ["std", "compat-1-2", "accessibility", "backend-winit", "renderer-software"] }
+otoko-library = { path = "../../crates/otoko-library" }
+otoko-mobile = { path = "../../crates/otoko-mobile" }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+rtrb.workspace = true
+cpal = "0.16"
+hound = "3.5"
+serde_json = "1"
+rfd = "0.15"
+qrcode = { version = "0.14", default-features = false }
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "aac", "isomp4", "ogg", "vorbis", "wav", "pcm", "aiff"] }
+
+[build-dependencies]
+slint-build = "1"
+embed-resource = "3"

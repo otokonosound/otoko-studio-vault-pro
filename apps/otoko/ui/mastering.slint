@@ -1,0 +1,708 @@
+// Carrière › Mastering (comme l'écran Mastering de Studio Vault) : le moteur PhaseLimiter piloté
+// par OTOKO. À gauche les morceaux, la barre de lancement et le résultat du morceau choisi (mesures
+// avant / après) ; à droite les réglages, chacun expliqué, les réglages avancés repliés. Rien ne
+// démarre seul et les originaux ne sont jamais modifiés. Tout passe par le global `Mast` (mastrage.rs).
+import { Theme } from "theme.slint";
+import { Btn, Hit } from "components.slint";
+import { Lib } from "library.slint";
+import { ListView, ScrollView, ComboBox, Slider } from "std-widgets.slint";
+
+export struct MJobUi {
+    id: int,
+    name: string,
+    sub: string,
+    // ready, waiting, running, done, failed, cancelled.
+    state: string,
+    chip: string,
+    progress: float,
+}
+
+// Un titre d'une sortie masterisée d'un bloc.
+export struct MAlbumUi {
+    title: string,
+    before: string,
+    after: string,
+    gap: string,
+    state: string,
+    far: bool,
+}
+
+export struct MParamUi {
+    key: string,
+    label: string,
+    // float, int, bool, choice, path ; « section » : un titre de section.
+    kind: string,
+    value: string,
+    num: float,
+    slider: bool,
+    choices: [string],
+    choice-index: int,
+    choice-label: string,
+    choice-help: string,
+    help: string,
+    unit: string,
+    placeholder: string,
+    disabled: bool,
+    note: string,
+}
+
+export struct MTileUi {
+    label: string,
+    value: string,
+    before: string,
+    help: string,
+}
+
+export struct MMeasureUi {
+    label: string,
+    before: string,
+    after: string,
+    help: string,
+}
+
+export global Mast {
+    in property <[MJobUi]> jobs;
+    in property <int> sel: -1;
+    // Barre de lancement.
+    in property <string> launch-title;
+    in property <string> launch-info;
+    in property <string> launch-text: "Lancer le mastering";
+    in property <bool> can-launch;
+    in property <bool> busy;
+    in property <bool> can-clear;
+    // Résultat du morceau choisi.
+    in property <bool> has-result;
+    in property <string> result-title;
+    in property <string> result-info;
+    in property <bool> result-failed;
+    in property <[MTileUi]> tiles;
+    in property <bool> show-tiles;
+    in property <[MMeasureUi]> measures;
+    in property <bool> all-measures;
+    in property <bool> can-play-out;
+    in property <bool> can-log;
+    // Le master rangé dans la bibliothèque, et la comparaison original / master à volume égal.
+    in property <string> attach-text;
+    in property <bool> can-compare;
+    // Réglages.
+    in property <string> summary;
+    in property <bool> dirty;
+    in property <string> estimate;
+    in property <[string]> presets;
+    in property <string> preset;
+    in property <string> preset-hint;
+    in property <bool> cool;
+    in property <[MParamUi]> simple;
+    in property <[MParamUi]> more;
+    in property <bool> advanced;
+    in property <bool> engine-ok;
+    in property <string> engine-text;
+    in property <string> engine-hint;
+    // Détails techniques.
+    in property <bool> log-open;
+    in property <string> log-title;
+    in property <string> log-text;
+    in property <string> msg;
+    // Une sortie masterisée d'un bloc.
+    in property <bool> album-on;
+    in property <string> album-title;
+    in property <string> album-text;
+    in property <bool> album-warn;
+    in property <bool> album-can-report;
+    in property <[MAlbumUi]> album;
+    callback album-close();
+    callback album-report();
+    callback add-files();
+    callback add-library();
+    callback clear();
+    callback launch();
+    callback stop();
+    callback select(int);
+    callback job-action(int, string);
+    callback play(string);
+    callback reveal();
+    callback compare();
+    callback show-library();
+    callback toggle-all-measures();
+    callback show-log();
+    callback close-log();
+    callback set-preset(string);
+    callback toggle-cool();
+    callback toggle-advanced();
+    callback param-text(string, string);
+    callback param-num(string, float);
+    callback param-choice(string, int);
+    callback param-toggle(string);
+    callback param-path(string);
+    callback param-clear(string);
+    callback choose-engine();
+    callback install-engine();
+    in property <bool> engine-busy;
+    callback save-defaults();
+    callback restore-defaults();
+    callback factory();
+}
+
+component MHead inherits Text {
+    color: Theme.text3;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+component MCard inherits Rectangle {
+    border-radius: 10px;
+    background: Theme.ink2;
+}
+
+component MChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    width: ct.preferred-width + 22px;
+    height: 28px;
+    border-radius: 14px;
+    background: root.on ? Theme.ember-soft : (ca.has-hover ? Theme.ink4 : Theme.ink3);
+    border-width: 1px;
+    border-color: root.on ? Theme.ember : Theme.line2;
+    ct := Text { text: root.text; color: root.on ? Theme.ember : Theme.text2; font-size: 11.5px; font-weight: 700; }
+    ca := Hit { clicked => { root.clicked(); } }
+}
+
+// Un réglage : son nom et sa commande sur une ligne, l'explication dessous (comme Studio Vault).
+component ParamRow inherits VerticalLayout {
+    in property <MParamUi> p;
+    spacing: 4px;
+    padding-top: 4px;
+    padding-bottom: 6px;
+    if p.kind == "section": Text { text: p.label; color: Theme.ember2; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+    if p.kind != "section" && p.kind != "path": HorizontalLayout {
+        spacing: 8px;
+        Text {
+            horizontal-stretch: 1;
+            text: p.label;
+            color: p.disabled ? Theme.text3 : Theme.text;
+            font-size: 12.5px;
+            font-weight: 700;
+            vertical-alignment: center;
+            wrap: word-wrap;
+        }
+        if p.kind == "bool": Rectangle {
+            width: bt.preferred-width + 32px;
+            height: 26px;
+            opacity: p.disabled ? 0.45 : 1;
+            HorizontalLayout {
+                spacing: 7px;
+                alignment: end;
+                Rectangle {
+                    y: 4px;
+                    width: 18px;
+                    height: 18px;
+                    border-radius: 5px;
+                    background: p.value == "true" ? Theme.ember : Theme.ink3;
+                    border-width: 1px;
+                    border-color: p.value == "true" ? Theme.ember : Theme.line2;
+                    if p.value == "true": Image { source: @image-url("icons/check.svg"); width: 12px; height: 12px; colorize: #1C0802; }
+                }
+                bt := Text { text: "Activé"; color: Theme.text2; font-size: 12px; vertical-alignment: center; }
+            }
+            TouchArea { enabled: !p.disabled; mouse-cursor: pointer; clicked => { Mast.param-toggle(p.key); } }
+        }
+        if p.kind == "choice": ComboBox {
+            width: 210px;
+            height: 28px;
+            enabled: !p.disabled;
+            model: p.choices;
+            current-index: p.choice-index;
+            selected => { Mast.param-choice(p.key, self.current-index); }
+        }
+        if p.slider: Slider {
+            width: 150px;
+            minimum: 0;
+            maximum: 1;
+            value: p.num;
+            enabled: !p.disabled;
+            changed(v) => { Mast.param-num(p.key, v); }
+        }
+        if p.slider: Text { width: 38px; text: p.value; color: Theme.text; font-size: 12.5px; font-weight: 700; horizontal-alignment: right; vertical-alignment: center; }
+        if (p.kind == "float" || p.kind == "int") && !p.slider: Rectangle {
+            width: 128px;
+            height: 28px;
+            border-radius: 7px;
+            background: Theme.ink3;
+            border-width: ni.has-focus ? 1px : 0;
+            border-color: Theme.ember;
+            opacity: p.disabled ? 0.45 : 1;
+            ni := TextInput {
+                x: 8px;
+                width: parent.width - 16px - ut.width;
+                height: 100%;
+                text: p.value;
+                enabled: !p.disabled;
+                color: Theme.text;
+                font-size: 12px;
+                font-family: Theme.mono-font;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                single-line: true;
+                edited => { Mast.param-text(p.key, self.text); }
+            }
+            ut := Text { x: parent.width - self.width - 8px; text: p.unit == "" ? "" : " " + p.unit; color: Theme.text3; font-size: 11px; vertical-alignment: center; height: 100%; }
+        }
+    }
+    if p.kind == "path": Text { text: p.label; color: p.disabled ? Theme.text3 : Theme.text; font-size: 12.5px; font-weight: 700; }
+    if p.kind == "path": HorizontalLayout {
+        spacing: 6px;
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 28px;
+            border-radius: 7px;
+            background: Theme.ink3;
+            Text {
+                x: 8px;
+                width: parent.width - 16px;
+                text: p.value == "" ? p.placeholder : p.value;
+                color: p.value == "" ? Theme.text3 : Theme.text2;
+                font-size: 11.5px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        Btn { text: "Choisir…"; height: 28px; opacity: p.disabled ? 0.45 : 1; clicked => { if !p.disabled { Mast.param-path(p.key); } } }
+        Btn { text: "Vider"; ghost: true; height: 28px; clicked => { if !p.disabled { Mast.param-clear(p.key); } } }
+    }
+    if p.kind != "section": Text { text: p.help; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+    if p.kind == "choice" && p.choice-help != "": Text { text: "▸ " + p.choice-label + " : " + p.choice-help; color: Theme.text2; font-size: 10.5px; wrap: word-wrap; }
+    if p.disabled && p.note != "": Rectangle {
+        border-radius: 6px;
+        background: Theme.ember-soft;
+        height: nt.preferred-height + 8px;
+        nt := Text { x: 8px; width: parent.width - 16px; text: p.note; color: Theme.ember2; font-size: 10.5px; wrap: word-wrap; }
+    }
+}
+
+// Une mesure clé : la valeur du master en grand, l'original dessous.
+component Tile inherits Rectangle {
+    in property <MTileUi> t;
+    horizontal-stretch: 1;
+    min-width: 96px;
+    height: 70px;
+    border-radius: 9px;
+    background: Theme.ink3;
+    VerticalLayout {
+        padding: 10px;
+        spacing: 1px;
+        Text { text: t.label; color: Theme.text3; font-size: 10.5px; font-weight: 700; overflow: elide; }
+        Text { text: t.value; color: Theme.text; font-size: 17px; font-weight: 800; font-family: Theme.display-font; overflow: elide; }
+        Text { text: t.before; color: Theme.text3; font-size: 10.5px; overflow: elide; }
+    }
+}
+
+export component MasteringView inherits Rectangle {
+    HorizontalLayout {
+        spacing: 18px;
+        // ---------- les morceaux, le lancement, le résultat
+        // La colonne remplit la hauteur, et défile dans une petite fenêtre au lieu de pousser le reste hors de l'écran.
+        left := ScrollView {
+            horizontal-stretch: 11;
+            min-width: 440px;
+            content-width: self.visible-width;
+            content-height: max(self.visible-height, col.min-height);
+            col := VerticalLayout {
+            width: left.visible-width;
+            height: left.content-height;
+            spacing: 10px;
+            if !Mast.engine-ok: MCard {
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    Text { text: "Le moteur de mastering n'est pas encore là"; color: Theme.text; font-size: 14px; font-weight: 700; wrap: word-wrap; }
+                    Text { text: "Un clic et il s'installe tout seul (environ 50 Mo). C'est PhaseLimiter, un moteur libre."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 8px;
+                        Btn { text: Mast.engine-busy ? "Installation en cours…" : "Installer le moteur"; primary: !Mast.engine-busy; ghost: Mast.engine-busy; height: 32px; clicked => { if (!Mast.engine-busy) { Mast.install-engine(); } } }
+                        Btn { text: "Je l'ai déjà…"; ghost: true; height: 32px; clicked => { Mast.choose-engine(); } }
+                    }
+                }
+            }
+            // Une sortie entière : ses titres comparés entre eux.
+            if Mast.album-on: MCard {
+                border-width: 1px;
+                border-color: Mast.album-warn ? Theme.ember : Theme.line2;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 6px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        MHead { text: "SORTIE"; vertical-alignment: center; }
+                        Text { horizontal-stretch: 1; text: Mast.album-title; color: Theme.text; font-size: 14px; font-weight: 800; font-family: Theme.display-font; overflow: elide; vertical-alignment: center; }
+                        Btn { text: "Rapport"; height: 26px; opacity: Mast.album-can-report ? 1 : 0.45; clicked => { if Mast.album-can-report { Mast.album-report(); } } }
+                        Btn { text: "Fermer"; ghost: true; height: 26px; clicked => { Mast.album-close(); } }
+                    }
+                    Text { text: Mast.album-text; color: Mast.album-warn ? Theme.ember2 : Theme.text2; font-size: 11.5px; wrap: word-wrap; }
+                    HorizontalLayout {
+                        height: 18px;
+                        spacing: 8px;
+                        padding-right: 14px;
+                        MHead { horizontal-stretch: 1; text: "TITRE"; vertical-alignment: center; }
+                        MHead { width: 52px; text: "AVANT"; horizontal-alignment: right; vertical-alignment: center; }
+                        MHead { width: 52px; text: "APRÈS"; horizontal-alignment: right; vertical-alignment: center; }
+                        MHead { width: 58px; text: "ÉCART"; horizontal-alignment: right; vertical-alignment: center; }
+                        MHead { width: 66px; text: "ÉTAT"; horizontal-alignment: right; vertical-alignment: center; }
+                    }
+                    Rectangle {
+                        height: min(Mast.album.length, 6) * 24px;
+                        clip: true;
+                        ListView {
+                            for a in Mast.album: HorizontalLayout {
+                                height: 24px;
+                                spacing: 8px;
+                                padding-right: 14px;
+                                Text { horizontal-stretch: 1; text: a.title; color: Theme.text; font-size: 12px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                                Text { width: 52px; text: a.before; color: Theme.text3; font-size: 11.5px; font-family: Theme.mono-font; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 52px; text: a.after; color: Theme.text; font-size: 11.5px; font-weight: 700; font-family: Theme.mono-font; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 58px; text: a.gap; color: a.far ? Theme.ember : Theme.text2; font-size: 11.5px; font-weight: a.far ? 700 : 400; font-family: Theme.mono-font; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 66px; text: a.state; color: Theme.text3; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; overflow: elide; }
+                            }
+                        }
+                    }
+                }
+            }
+            if !Mast.album-on: MCard {
+                height: 74px;
+                border-width: 1px;
+                border-color: Theme.line2;
+                HorizontalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        alignment: center;
+                        Text { text: "Ajoute tes morceaux"; color: Theme.text; font-size: 13.5px; font-weight: 800; }
+                        Text { text: "WAV, FLAC, MP3, AIFF… Les originaux ne sont jamais modifiés."; color: Theme.text3; font-size: 11px; overflow: elide; }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Btn { text: "Choisir des fichiers…"; primary: true; height: 30px; clicked => { Mast.add-files(); } }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Btn { text: "Depuis la bibliothèque"; height: 30px; clicked => { Mast.add-library(); } }
+                    }
+                }
+            }
+            HorizontalLayout {
+                MHead { text: "MORCEAUX"; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { text: "Vider la liste"; ghost: true; height: 26px; opacity: Mast.can-clear ? 1 : 0.4; clicked => { if Mast.can-clear { Mast.clear(); } } }
+            }
+            MCard {
+                vertical-stretch: 1;
+                min-height: 120px;
+                clip: true;
+                if Mast.jobs.length == 0: Text {
+                    width: parent.width - 60px;
+                    text: "Aucun morceau pour l'instant. Ajoute-en avec le bouton ci-dessus, ou depuis la Bibliothèque : clic droit sur un morceau › Ajouter au mastering.";
+                    color: Theme.text3;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                }
+                ListView {
+                    for j in Mast.jobs: Rectangle {
+                        height: j.state == "running" ? 62px : 52px;
+                        background: Mast.sel == j.id ? Theme.ember-soft : (ja.has-hover ? Theme.ink3 : transparent);
+                        ja := TouchArea { mouse-cursor: pointer; clicked => { Mast.select(j.id); } }
+                        Rectangle {
+                            x: 12px;
+                            y: 11px;
+                            width: 30px;
+                            height: 30px;
+                            border-radius: 8px;
+                            background: Theme.ink3;
+                            Image {
+                                width: 16px;
+                                height: 16px;
+                                source: j.state == "done" ? @image-url("icons/spark.svg") : j.state == "failed" ? @image-url("icons/alert.svg") : j.state == "running" ? @image-url("icons/wand.svg") : @image-url("icons/disc.svg");
+                                colorize: j.state == "done" ? Theme.ok : j.state == "failed" ? Theme.danger : Theme.ember;
+                            }
+                        }
+                        Text { x: 52px; y: 8px; width: parent.width - 52px - 190px; text: j.name; color: Theme.text; font-size: 12.5px; font-weight: 700; overflow: elide; }
+                        Text { x: 52px; y: 26px; width: parent.width - 52px - 190px; text: j.sub; color: j.state == "failed" ? Theme.danger : Theme.text3; font-size: 11px; overflow: elide; }
+                        HorizontalLayout {
+                            x: 0;
+                            y: 12px;
+                            width: parent.width - 10px;
+                            height: 26px;
+                            spacing: 6px;
+                            alignment: end;
+                            Rectangle {
+                                width: cht.preferred-width + 18px;
+                                border-radius: 11px;
+                                background: j.state == "done" ? #6EE7A022 : j.state == "failed" ? #FF4D6D22 : j.state == "running" ? Theme.ember-soft : Theme.ink3;
+                                cht := Text {
+                                    text: j.chip;
+                                    color: j.state == "done" ? Theme.ok : j.state == "failed" ? Theme.danger : j.state == "running" ? Theme.ember : Theme.text2;
+                                    font-size: 10.5px;
+                                    font-weight: 800;
+                                }
+                            }
+                            if j.state == "done" || j.state == "failed" || j.state == "cancelled": Rectangle {
+                                width: 26px;
+                                background: ra.has-hover ? Theme.ink4 : transparent;
+                                border-radius: 6px;
+                                Image { width: 14px; height: 14px; source: @image-url("icons/loop.svg"); colorize: Theme.text2; }
+                                ra := TouchArea { mouse-cursor: pointer; clicked => { Mast.job-action(j.id, "requeue"); } }
+                            }
+                            if j.state == "running" || j.state == "waiting": Rectangle {
+                                width: cxt.preferred-width + 12px;
+                                background: cxa.has-hover ? Theme.ink4 : transparent;
+                                border-radius: 6px;
+                                cxt := Text { text: j.state == "running" ? "Annuler" : "Retenir"; color: Theme.text2; font-size: 11px; }
+                                cxa := TouchArea { mouse-cursor: pointer; clicked => { Mast.job-action(j.id, "cancel"); } }
+                            }
+                            if j.state != "running": Rectangle {
+                                width: 26px;
+                                background: xa.has-hover ? Theme.ink4 : transparent;
+                                border-radius: 6px;
+                                Text { text: "×"; color: Theme.text2; font-size: 15px; }
+                                xa := TouchArea { mouse-cursor: pointer; clicked => { Mast.job-action(j.id, "remove"); } }
+                            }
+                        }
+                        if j.state == "running": Rectangle {
+                            x: 52px;
+                            y: 48px;
+                            width: parent.width - 64px;
+                            height: 4px;
+                            border-radius: 2px;
+                            background: Theme.ink4;
+                            Rectangle { x: 0; width: parent.width * j.progress; border-radius: 2px; background: Theme.ember; }
+                        }
+                    }
+                }
+            }
+            // La barre de lancement.
+            MCard {
+                border-width: 1px;
+                border-color: Mast.can-launch ? Theme.ember : Theme.line2;
+                HorizontalLayout {
+                    padding: 12px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        horizontal-stretch: 1;
+                        spacing: 2px;
+                        alignment: center;
+                        Text { text: Mast.launch-title; color: Theme.text; font-size: 13px; font-weight: 800; overflow: elide; }
+                        Text { text: Mast.launch-info; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+                    }
+                    if Mast.busy: VerticalLayout {
+                        alignment: center;
+                        Btn { text: "Arrêter"; height: 34px; clicked => { Mast.stop(); } }
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Btn {
+                            text: Mast.launch-text;
+                            icon: @image-url("icons/wand.svg");
+                            primary: Mast.can-launch;
+                            height: 34px;
+                            opacity: Mast.can-launch ? 1 : 0.5;
+                            clicked => { if Mast.can-launch { Mast.launch(); } }
+                        }
+                    }
+                }
+            }
+            // Le résultat du morceau choisi.
+            if Mast.has-result: MCard {
+                vertical-stretch: Mast.all-measures && Mast.can-play-out ? 3 : 0;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text { horizontal-stretch: 1; text: Mast.result-title; color: Theme.text; font-size: 15px; font-weight: 800; font-family: Theme.display-font; overflow: elide; vertical-alignment: center; }
+                        if Mast.can-play-out: Btn { text: Mast.all-measures ? "Mesures clés" : "Toutes les mesures"; ghost: true; height: 26px; clicked => { Mast.toggle-all-measures(); } }
+                        if Mast.can-log: Btn { text: "Détails techniques"; ghost: true; height: 26px; clicked => { Mast.show-log(); } }
+                    }
+                    Text { text: Mast.result-info; color: Mast.result-failed ? Theme.danger : Theme.text2; font-size: 11.5px; wrap: word-wrap; }
+                    if Mast.show-tiles: HorizontalLayout {
+                        spacing: 8px;
+                        for t in Mast.tiles: Tile { t: t; }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Btn { text: "Écouter le master"; icon: @image-url("icons/play.svg"); primary: Mast.can-play-out; height: 30px; opacity: Mast.can-play-out ? 1 : 0.45; clicked => { if Mast.can-play-out { Mast.play("out"); } } }
+                        Btn { text: "Écouter l'original"; icon: @image-url("icons/play.svg"); height: 30px; clicked => { Mast.play("in"); } }
+                        Btn { text: "Ouvrir le dossier"; height: 30px; opacity: Mast.can-play-out ? 1 : 0.45; clicked => { if Mast.can-play-out { Mast.reveal(); } } }
+                        Rectangle { horizontal-stretch: 1; }
+                    }
+                    if Mast.attach-text != "" && Mast.can-play-out: HorizontalLayout {
+                        spacing: 6px;
+                        Text { horizontal-stretch: 1; text: Mast.attach-text; color: Theme.lagoon; font-size: 11px; wrap: word-wrap; vertical-alignment: center; }
+                        if Mast.can-compare: VerticalLayout {
+                            alignment: center;
+                            Btn { text: "Comparer à volume égal"; height: 28px; clicked => { Mast.compare(); } }
+                        }
+                        if Mast.can-compare: VerticalLayout {
+                            alignment: center;
+                            Btn { text: "Voir dans la bibliothèque"; ghost: true; height: 28px; clicked => { Mast.show-library(); } }
+                        }
+                    }
+                    Text { text: "Le master est plus fort que l'original : pour juger le son et pas seulement la force, compare aussi à volume égal (Comparer A/B dans la Bibliothèque)."; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                    if Mast.all-measures && Mast.can-play-out: Rectangle {
+                        vertical-stretch: 1;
+                        min-height: 160px;
+                        border-radius: 8px;
+                        background: Theme.ink1;
+                        ScrollView {
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    MHead { width: 150px; text: "MESURE"; }
+                                    MHead { width: 78px; text: "ORIGINAL"; horizontal-alignment: right; }
+                                    MHead { width: 78px; text: "MASTER"; horizontal-alignment: right; }
+                                    MHead { horizontal-stretch: 1; text: "CE QUE ÇA VEUT DIRE"; }
+                                }
+                                for m in Mast.measures: HorizontalLayout {
+                                    spacing: 8px;
+                                    Text { width: 150px; text: m.label; color: Theme.text2; font-size: 11.5px; wrap: word-wrap; }
+                                    Text { width: 78px; text: m.before; color: Theme.text3; font-size: 11.5px; font-family: Theme.mono-font; horizontal-alignment: right; }
+                                    Text { width: 78px; text: m.after; color: Theme.text; font-size: 11.5px; font-weight: 700; font-family: Theme.mono-font; horizontal-alignment: right; }
+                                    Text { horizontal-stretch: 1; text: m.help; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if Mast.msg != "": Text { text: Mast.msg; color: Theme.lagoon; font-size: 11.5px; wrap: word-wrap; }
+            }
+        }
+        // ---------- les réglages
+        ScrollView {
+            horizontal-stretch: 9;
+            min-width: 400px;
+            VerticalLayout {
+                padding-right: 12px;
+                spacing: 10px;
+                alignment: start;
+                HorizontalLayout {
+                    MHead { text: "RÉGLAGES"; vertical-alignment: center; }
+                    Rectangle { horizontal-stretch: 1; }
+                    if Mast.dirty: Rectangle {
+                        width: dt.preferred-width + 16px;
+                        height: 22px;
+                        border-radius: 11px;
+                        background: Theme.ember-soft;
+                        dt := Text { text: "Modifiés — non enregistrés"; color: Theme.ember2; font-size: 10.5px; font-weight: 700; }
+                    }
+                }
+                Text { text: Mast.summary; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+                // La vitesse.
+                MCard {
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        HorizontalLayout {
+                            Text { text: "Vitesse"; color: Theme.text; font-size: 13px; font-weight: 800; }
+                            Rectangle { horizontal-stretch: 1; }
+                            Text { text: Mast.estimate; color: Theme.text3; font-size: 11px; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            for pr in Mast.presets: MChip { text: pr; on: Mast.preset == pr; clicked => { Mast.set-preset(pr); } }
+                        }
+                        Text { text: Mast.preset-hint; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            MChip { text: "Moins chauffer"; on: Mast.cool; clicked => { Mast.toggle-cool(); } }
+                            Text { horizontal-stretch: 1; text: "Moitié des cœurs : le PC chauffe moins, c'est un peu plus long."; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; vertical-alignment: center; }
+                        }
+                    }
+                }
+                // Les réglages essentiels.
+                MCard {
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 4px;
+                        for p in Mast.simple: ParamRow { p: p; }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: start;
+                    Btn { text: Mast.advanced ? "Moins de réglages" : "Plus de réglages ▸"; ghost: Mast.advanced; height: 28px; clicked => { Mast.toggle-advanced(); } }
+                }
+                if Mast.advanced: Text { text: "Tous les réglages du moteur, chacun expliqué. Les changements valent pour les prochains lancements ; pour les garder à chaque ouverture, enregistre-les comme tes réglages par défaut."; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                if Mast.advanced: MCard {
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 4px;
+                        for p in Mast.more: ParamRow { p: p; }
+                    }
+                }
+                if Mast.advanced: MCard {
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 6px;
+                        Text { text: "MOTEUR"; color: Theme.ember2; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+                        Text { text: Mast.engine-hint; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                        Text { text: Mast.engine-text; color: Mast.engine-ok ? Theme.ok : Theme.danger; font-size: 11.5px; wrap: word-wrap; }
+                        HorizontalLayout { alignment: start; Btn { text: "Choisir le dossier du moteur…"; height: 28px; clicked => { Mast.choose-engine(); } } }
+                    }
+                }
+                if Mast.advanced: MCard {
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 6px;
+                        Text { text: "MES RÉGLAGES PAR DÉFAUT"; color: Theme.ember2; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
+                        Text { text: "L'écran Mastering s'ouvre toujours avec tes réglages par défaut. Enregistre les réglages affichés pour qu'ils deviennent les nouveaux réglages par défaut."; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            Btn { text: "Enregistrer comme mes réglages"; primary: Mast.dirty; height: 28px; opacity: Mast.dirty ? 1 : 0.45; clicked => { if Mast.dirty { Mast.save-defaults(); } } }
+                            Btn { text: "Revenir à mes réglages"; height: 28px; opacity: Mast.dirty ? 1 : 0.45; clicked => { if Mast.dirty { Mast.restore-defaults(); } } }
+                        }
+                        HorizontalLayout { alignment: start; Btn { text: "Valeurs d'origine du moteur"; ghost: true; height: 28px; clicked => { Mast.factory(); } } }
+                    }
+                }
+            }
+        }
+    }
+    // ---------- détails techniques
+    if Mast.log-open: Rectangle {
+        background: #00000088;
+        TouchArea { }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 30px;
+            width: min(860px, parent.width - 40px);
+            height: parent.height - 60px;
+            border-radius: 14px;
+            background: Theme.ink1;
+            border-width: 1px;
+            border-color: Theme.line2;
+            VerticalLayout {
+                padding: 18px;
+                spacing: 10px;
+                Text { text: Mast.log-title; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; overflow: elide; }
+                Text { text: "Commande envoyée au moteur, puis ses derniers messages. Utile seulement en cas de problème."; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    background: Theme.ink0;
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 12px;
+                            Text { text: Mast.log-text; color: Theme.text2; font-size: 11px; font-family: Theme.mono-font; wrap: word-wrap; }
+                        }
+                    }
+                }
+                HorizontalLayout { alignment: end; Btn { text: "Fermer"; ghost: true; height: 30px; clicked => { Mast.close-log(); } } }
+            }
+        }
+    }
+}

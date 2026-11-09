@@ -1,0 +1,735 @@
+// Carrière › Accueil, Production et Statistiques (comme l'accueil, l'écran Production et les
+// statistiques de Studio Vault). Tout passe par le global `Home`, rempli et écouté côté Rust
+// (accueil.rs).
+import { Theme } from "theme.slint";
+import { Btn, Hit } from "components.slint";
+import { CPrefs, PInput } from "prefs_career.slint";
+import { ScrollView } from "std-widgets.slint";
+
+export struct HLinkUi {
+    id: int,
+    text: string,
+    // « play », « alert », « disc », « flask », « tag », « megaphone », « calendar », « wand », « plus ».
+    icon: string,
+    action: string,
+    // 0 normal, 1 à surveiller.
+    tone: int,
+    cover: image,
+    has-cover: bool,
+}
+
+// Une action de « Aujourd'hui » : 0 calme, 1 à surveiller, 2 en retard.
+export struct TodayUi {
+    title: string,
+    why: string,
+    label: string,
+    action: string,
+    tone: int,
+}
+
+export struct HBarUi {
+    label: string,
+    value: int,
+    frac: float,
+    strong: bool,
+}
+
+export struct TileUi {
+    id: int,
+    title: string,
+    kind: string,
+    when: string,
+    soon: bool,
+    done: int,
+    total: int,
+    cover: image,
+    has-cover: bool,
+    color: color,
+    initials: string,
+}
+
+export struct ChipUi {
+    text: string,
+    // 0 discret, 1 à surveiller, 2 bloquant, 3 accent.
+    tone: int,
+}
+
+export struct CardUi {
+    id: int,
+    title: string,
+    sub: string,
+    chips: [ChipUi],
+    keep: bool,
+    to-publish: bool,
+}
+
+export struct BoardColUi {
+    key: string,
+    title: string,
+    count: int,
+    cards: [CardUi],
+}
+
+export struct SliceUi {
+    label: string,
+    value: int,
+    path: string,
+    color: color,
+}
+
+export struct ChartUi {
+    title: string,
+    // 0 barres verticales, 1 barres horizontales, 2 anneau.
+    kind: int,
+    bars: [HBarUi],
+    slices: [SliceUi],
+    color: color,
+    empty: string,
+}
+
+export global Home {
+    // Accueil.
+    in property <string> hello: "Bonjour";
+    in property <string> date-text;
+    in property <bool> empty;
+    // Aujourd'hui : les trois actions, puis ce qui vient ensuite.
+    in property <[TodayUi]> today;
+    in property <[HLinkUi]> next-up;
+    in property <[string]> stats;
+    in property <[HLinkUi]> priority;
+    in property <[HBarUi]> months;
+    in property <string> production-text;
+    in property <[HLinkUi]> news;
+    in property <[HLinkUi]> todo;
+    // La semaine en chiffres (accueil d'OTOKO) : ajoutés, terminés, sorties sous 30 jours, à finir.
+    in property <[string]> week;
+    in property <[TileUi]> releases;
+    in property <[HLinkUi]> release-alerts;
+    in property <[HLinkUi]> deadlines;
+    in property <[HLinkUi]> unpaid;
+    in property <string> unpaid-total;
+    in property <bool> money;
+    callback stat(int);
+    callback play(int);
+    callback act(string);
+    // Production.
+    in-out property <string> board-mode: "mine";
+    in property <[BoardColUi]> board;
+    in property <string> board-text;
+    in-out property <int> drag-id: -1;
+    in-out property <string> drag-title;
+    callback board-mode-changed(string);
+    callback board-search(string);
+    callback board-drop(int, int);
+    callback board-menu(int, string);
+    // Statistiques.
+    in property <[string]> summary;
+    in-out property <int> stats-tab;
+    in property <[ChartUi]> creation;
+    in property <[ChartUi]> music;
+    in property <[ChartUi]> progress;
+    in property <[ChartUi]> career;
+}
+
+component Card inherits Rectangle {
+    in property <string> title;
+    background: Theme.ink2;
+    border-radius: 14px;
+    VerticalLayout {
+        padding: 16px;
+        padding-top: 14px;
+        spacing: 6px;
+        alignment: start;
+        if root.title != "": Text { text: root.title; color: Theme.text; font-size: 14px; font-weight: 800; font-family: Theme.display-font; }
+        @children
+    }
+}
+
+component LinkIcon inherits Image {
+    in property <string> name;
+    width: 16px;
+    height: 16px;
+    colorize: Theme.ember2;
+    source: name == "play" ? @image-url("icons/play.svg")
+        : name == "alert" ? @image-url("icons/alert.svg")
+        : name == "disc" ? @image-url("icons/disc.svg")
+        : name == "flask" ? @image-url("icons/flask.svg")
+        : name == "tag" ? @image-url("icons/tag.svg")
+        : name == "megaphone" ? @image-url("icons/megaphone.svg")
+        : name == "calendar" ? @image-url("icons/calendar.svg")
+        : name == "wand" ? @image-url("icons/wand.svg")
+        : name == "link" ? @image-url("icons/link.svg")
+        : @image-url("icons/plus.svg");
+}
+
+component HLink inherits Rectangle {
+    in property <HLinkUi> link;
+    callback clicked;
+    height: 28px;
+    border-radius: 7px;
+    background: ta.has-hover ? Theme.ink3 : transparent;
+    HorizontalLayout {
+        padding-left: 6px;
+        padding-right: 8px;
+        spacing: 8px;
+        if root.link.has-cover: Rectangle {
+            width: 22px;
+            Image { y: (parent.height - self.height) / 2; width: 22px; height: 22px; source: root.link.cover; image-fit: cover; }
+        }
+        if !root.link.has-cover && root.link.icon != "": Rectangle {
+            width: 16px;
+            LinkIcon { y: (parent.height - self.height) / 2; name: root.link.icon; colorize: root.link.tone == 1 ? Theme.ember : Theme.ember2; }
+        }
+        Text {
+            horizontal-stretch: 1;
+            text: root.link.text;
+            color: root.link.tone == 1 ? Theme.ember : (ta.has-hover ? Theme.text : Theme.text2);
+            font-size: 12.5px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+// Petit histogramme (la production de l'accueil, les graphiques des statistiques).
+component Bars inherits Rectangle {
+    in property <[HBarUi]> bars;
+    in property <color> tint: Theme.ember;
+    min-height: 160px;
+    property <length> slot: self.width / max(1, root.bars.length);
+    property <length> area: self.height - 38px;
+    for b[i] in root.bars: Rectangle {
+        x: root.slot * i;
+        width: root.slot;
+        height: root.height;
+        property <length> bw: min(26px, root.slot * 0.6);
+        property <length> bh: b.value > 0 ? max(3px, root.area * b.frac) : 2px;
+        Rectangle {
+            x: (parent.width - parent.bw) / 2;
+            y: 16px + root.area - parent.bh;
+            width: parent.bw;
+            height: parent.bh;
+            border-radius: 4px;
+            background: b.value == 0 ? Theme.line2 : (b.strong || bta.has-hover ? root.tint : root.tint.with-alpha(0.55));
+        }
+        if b.value > 0: Text {
+            y: 16px + root.area - parent.bh - 15px;
+            width: parent.width;
+            text: b.value;
+            color: b.strong ? Theme.text : Theme.text2;
+            font-size: 10.5px;
+            horizontal-alignment: center;
+        }
+        Text { y: root.height - 18px; width: parent.width; text: b.label; color: Theme.text3; font-size: 10.5px; horizontal-alignment: center; overflow: elide; }
+        bta := TouchArea { }
+    }
+}
+
+component HBars inherits VerticalLayout {
+    in property <[HBarUi]> bars;
+    in property <color> tint: Theme.ember;
+    spacing: 6px;
+    alignment: start;
+    for b in root.bars: HorizontalLayout {
+        spacing: 10px;
+        height: 22px;
+        Text { width: 120px; text: b.label; color: Theme.text2; font-size: 11.5px; vertical-alignment: center; overflow: elide; horizontal-alignment: right; }
+        Rectangle {
+            horizontal-stretch: 1;
+            Rectangle { x: 0; y: 4px; height: 14px; width: max(3px, parent.width * b.frac); border-radius: 4px; background: root.tint; }
+        }
+        Text { width: 34px; text: b.value; color: Theme.text; font-size: 11.5px; font-weight: 700; vertical-alignment: center; }
+    }
+}
+
+component Donut inherits HorizontalLayout {
+    in property <[SliceUi]> slices;
+    spacing: 16px;
+    alignment: start;
+    Rectangle {
+        width: 150px;
+        height: 150px;
+        for s in root.slices: Path {
+            width: 150px;
+            height: 150px;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            commands: s.path;
+            fill: s.color;
+            // Un anneau entier (deux moitiés) n'a pas de séparation.
+            stroke: root.slices.length > 1 ? Theme.ink2 : s.color;
+            stroke-width: 1px;
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        spacing: 5px;
+        for s in root.slices: HorizontalLayout {
+            spacing: 8px;
+            Rectangle {
+                width: 10px;
+                Rectangle { y: (parent.height - self.height) / 2; width: 10px; height: 10px; border-radius: 3px; background: s.color; }
+            }
+            Text { text: s.label + " (" + s.value + ")"; color: Theme.text2; font-size: 11.5px; overflow: elide; }
+        }
+    }
+}
+
+component Chart inherits Rectangle {
+    in property <ChartUi> chart;
+    horizontal-stretch: 1;
+    background: Theme.ink2;
+    border-radius: 14px;
+    min-height: 250px;
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+        Text { text: root.chart.title; color: Theme.text; font-size: 13px; font-weight: 800; font-family: Theme.display-font; }
+        if root.chart.empty != "": Text { text: root.chart.empty; color: Theme.text3; font-size: 12px; wrap: word-wrap; vertical-stretch: 1; }
+        if root.chart.empty == "" && root.chart.kind == 0: Bars { vertical-stretch: 1; bars: root.chart.bars; tint: root.chart.color; }
+        if root.chart.empty == "" && root.chart.kind == 1: HBars { vertical-stretch: 1; bars: root.chart.bars; tint: root.chart.color; }
+        if root.chart.empty == "" && root.chart.kind == 2: Donut { vertical-stretch: 1; slices: root.chart.slices; }
+    }
+}
+
+// Une sortie du bandeau : pochette, compte à rebours, titre, type, avancement.
+component Tile inherits Rectangle {
+    in property <TileUi> tile;
+    callback clicked;
+    width: 140px;
+    height: 216px;
+    border-radius: 12px;
+    background: ta.has-hover ? Theme.ink3 : transparent;
+    VerticalLayout {
+        padding: 4px;
+        spacing: 4px;
+        Rectangle {
+            width: 132px;
+            height: 132px;
+            border-radius: 10px;
+            clip: true;
+            background: root.tile.color;
+            if root.tile.has-cover: Image { width: 132px; height: 132px; source: root.tile.cover; image-fit: cover; }
+            if !root.tile.has-cover: Text { text: root.tile.initials; color: #ffffffcc; font-size: 34px; font-weight: 800; font-family: Theme.display-font; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        Text { text: root.tile.when; color: root.tile.soon ? Theme.ember : Theme.text3; font-size: 11.5px; font-weight: root.tile.soon ? 800 : 500; }
+        Text { text: root.tile.title; color: Theme.text; font-size: 12.5px; font-weight: 700; overflow: elide; }
+        Text { text: root.tile.kind; color: Theme.text3; font-size: 11px; }
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: Theme.ink4;
+            Rectangle { x: 0; width: parent.width * root.tile.done / max(1, root.tile.total); border-radius: 3px; background: root.tile.done >= root.tile.total ? Theme.ok : Theme.ember2; }
+        }
+    }
+    ta := Hit { clicked => { root.clicked(); } }
+}
+
+export component HomeView inherits ScrollView {
+    callback add-folder();
+    callback import-vault();
+    callback open-mobile();
+    in property <bool> vault;
+    VerticalLayout {
+        padding-right: 8px;
+        spacing: 14px;
+        alignment: start;
+        VerticalLayout {
+            spacing: 2px;
+            Text { text: Home.hello; color: Theme.text; font-size: 22px; font-weight: 800; font-family: Theme.display-font; }
+            Text { text: Home.date-text; color: Theme.text3; font-size: 12.5px; }
+        }
+        if Home.empty: Card {
+            title: "Bienvenue ! Deux minutes pour commencer";
+            Text { text: "1.  Ton nom d'artiste"; color: Theme.text; font-size: 13.5px; font-weight: 700; }
+            Text { text: "Il s'affiche sur tes liens de partage et dans les tags de tes fichiers."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: start;
+                PInput { width: 320px; value: CPrefs.alias; placeholder: "Ton nom d'artiste"; changed(t) => { CPrefs.alias-edited(t); } }
+            }
+            Rectangle { height: 6px; }
+            Text { text: "2.  Ton dossier de musique"; color: Theme.text; font-size: 13.5px; font-weight: 700; }
+            Text { text: "Là où tu ranges tes morceaux. Ils sont reconnus et analysés en arrière-plan, sans jamais être déplacés ni modifiés."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: start;
+                spacing: 8px;
+                Btn { text: "+ Ajouter mon dossier de musique"; primary: true; height: 32px; clicked => { root.add-folder(); } }
+                if root.vault: Btn { text: "Importer ma base Studio Vault"; height: 32px; clicked => { root.import-vault(); } }
+            }
+            Rectangle { height: 6px; }
+            Text { text: "3.  Et ensuite ?"; color: Theme.text; font-size: 13.5px; font-weight: 700; }
+            Text { text: "Écoute ta musique sur ton téléphone et dans la voiture, ou envoie un lien privé à quelqu'un. C'est guidé pas à pas."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: start;
+                Btn { text: "Voir Mobile et partage"; ghost: true; height: 30px; clicked => { root.open-mobile(); } }
+            }
+        }
+        // Aujourd'hui : ce qu'il y a de plus utile à faire, calculé d'après la base.
+        if !Home.empty: VerticalLayout {
+            spacing: 8px;
+            Text { text: "AUJOURD'HUI"; color: Theme.text3; font-size: 10.5px; font-weight: 800; letter-spacing: 1px; }
+            if Home.today.length == 0: Rectangle {
+                height: 86px;
+                border-radius: 14px;
+                background: Theme.ink2;
+                Text { text: "Rien d'urgent. Ta musique est à jour."; color: Theme.text2; font-size: 14px; font-weight: 600; }
+            }
+            if Home.today.length > 0: HorizontalLayout {
+                spacing: 12px;
+                for a in Home.today: Rectangle {
+                    horizontal-stretch: 1;
+                    min-height: 124px;
+                    border-radius: 14px;
+                    background: Theme.ink2;
+                    border-width: a.tone == 0 ? 0 : 1px;
+                    border-color: a.tone == 2 ? Theme.danger : Theme.ember;
+                    VerticalLayout {
+                        padding: 16px;
+                        spacing: 6px;
+                        Text { text: a.title; color: Theme.text; font-size: 15px; font-weight: 800; font-family: Theme.display-font; wrap: word-wrap; }
+                        Text { vertical-stretch: 1; text: a.why; color: a.tone == 2 ? Theme.danger : Theme.text3; font-size: 12px; wrap: word-wrap; }
+                        HorizontalLayout { alignment: start; Btn { text: a.label; primary: a.tone > 0; height: 30px; clicked => { Home.act(a.action); } } }
+                    }
+                }
+            }
+        }
+        if !Home.empty: Card {
+            title: "";
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Sorties"; color: Theme.text; font-size: 14px; font-weight: 800; font-family: Theme.display-font; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { text: "Planning"; ghost: true; height: 26px; clicked => { Home.act("planning"); } }
+                Btn { text: "Toutes les sorties"; ghost: true; height: 26px; clicked => { Home.act("releases"); } }
+            }
+            if Home.releases.length == 0: Text { text: "Aucune sortie préparée."; color: Theme.text3; font-size: 12.5px; }
+            if Home.releases.length == 0: HorizontalLayout { alignment: start; Btn { text: "Préparer une sortie…"; height: 28px; clicked => { Home.act("releases"); } } }
+            if Home.releases.length > 0: HorizontalLayout {
+                spacing: 12px;
+                alignment: start;
+                for t in Home.releases: Tile { tile: t; clicked => { Home.act("release:" + t.id); } }
+            }
+        }
+        if !Home.empty: HorizontalLayout {
+            spacing: 12px;
+            Card {
+                horizontal-stretch: 1;
+                title: "À reprendre";
+                for p in Home.priority: HLink { link: p; clicked => { Home.play(p.id); } }
+                if Home.priority.length == 0: Text { text: "Rien en attente."; color: Theme.text2; font-size: 12.5px; }
+            }
+            Card {
+                horizontal-stretch: 1;
+                title: "Nouveautés";
+                for p in Home.news: HLink { link: p; clicked => { Home.play(p.id); } }
+                if Home.news.length == 0: Text { text: "Aucun nouveau fichier ces deux dernières semaines."; color: Theme.text2; font-size: 12.5px; }
+            }
+            Card {
+                horizontal-stretch: 1;
+                title: "Ensuite";
+                for t in Home.next-up: HLink { link: t; clicked => { Home.act(t.action); } }
+                if Home.next-up.length == 0: Text { text: "Rien d'autre."; color: Theme.text2; font-size: 12.5px; }
+            }
+        }
+        if !Home.empty && Home.money: HorizontalLayout {
+            spacing: 12px;
+            Card {
+                horizontal-stretch: 1;
+                title: "Échéances";
+                for d in Home.deadlines: HLink { link: d; clicked => { Home.act("production-clients"); } }
+                if Home.deadlines.length == 0: Text { text: "Aucune échéance à venir."; color: Theme.text2; font-size: 12.5px; }
+            }
+            Card {
+                horizontal-stretch: 1;
+                title: "Paiements en attente";
+                for d in Home.unpaid: HLink { link: d; clicked => { Home.act("production-clients"); } }
+                if Home.unpaid.length == 0: Text { text: "Rien à encaisser."; color: Theme.text2; font-size: 12.5px; }
+                if Home.unpaid-total != "": Text { text: Home.unpaid-total; color: Theme.text; font-size: 13px; font-weight: 800; }
+            }
+        }
+    }
+}
+
+component MenuItem inherits Rectangle {
+    in property <string> text;
+    in property <bool> header;
+    callback clicked;
+    height: header ? 24px : 28px;
+    border-radius: 6px;
+    background: !header && ta.has-hover ? Theme.ink3 : transparent;
+    Text {
+        x: 10px;
+        width: parent.width - 20px;
+        text: root.text;
+        color: root.header ? Theme.text3 : Theme.text;
+        font-size: root.header ? 10px : 12px;
+        font-weight: root.header ? 700 : 500;
+        letter-spacing: root.header ? 1px : 0;
+        vertical-alignment: center;
+        height: parent.height;
+        overflow: elide;
+    }
+    ta := TouchArea { enabled: !root.header; mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
+// Le tableau de production : glisser une carte d'une colonne à l'autre change son statut
+// (ou l'étape de la commande, en mode « Commandes clients »).
+export component BoardView inherits Rectangle {
+    property <length> col-w: (self.width - (Home.board.length - 1) * 10px) / max(1, Home.board.length);
+    property <length> drag-x;
+    property <length> drag-y;
+    property <bool> dragging: Home.drag-id >= 0;
+    property <int> over: self.dragging ? floor((self.drag-x) / (self.col-w + 10px)) : -1;
+    property <int> menu-id: -1;
+    property <bool> menu-publish;
+    property <string> menu-title;
+    property <length> menu-x;
+    property <length> menu-y;
+    VerticalLayout {
+        spacing: 10px;
+        HorizontalLayout {
+            spacing: 8px;
+            for m[k] in [{ key: "mine", label: "Mes morceaux" }, { key: "clients", label: "Commandes clients" }]: Rectangle {
+                width: mt.preferred-width + 24px;
+                height: 30px;
+                border-radius: 15px;
+                background: Home.board-mode == m.key ? Theme.ember-soft : (mta.has-hover ? Theme.ink3 : Theme.ink2);
+                border-width: 1px;
+                border-color: Home.board-mode == m.key ? Theme.ember : Theme.line2;
+                mt := Text { text: m.label; color: Home.board-mode == m.key ? Theme.ember : Theme.text2; font-size: 12px; font-weight: 700; }
+                mta := TouchArea { mouse-cursor: pointer; clicked => { Home.board-mode = m.key; Home.board-mode-changed(m.key); } }
+            }
+            Rectangle {
+                width: 240px;
+                height: 30px;
+                border-radius: 9px;
+                background: Theme.ink2;
+                if fi.text == "": Text { x: 10px; text: "filtrer (titre, sortie, client)"; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                fi := TextInput { x: 10px; width: parent.width - 20px; height: 100%; color: Theme.text; font-size: 12px; vertical-alignment: center; single-line: true; edited => { Home.board-search(self.text); } }
+            }
+            Text { horizontal-stretch: 1; text: Home.board-text; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+            // L'Atelier Suno (prompts v6, import) vit dans Production.
+            Btn { text: "Atelier Suno"; height: 30px; clicked => { Home.act("suno"); } }
+        }
+        HorizontalLayout {
+            vertical-stretch: 1;
+            spacing: 10px;
+            // Colonnes égales : même largeur conseillée, même étirement.
+            for col[ci] in Home.board: Rectangle {
+                horizontal-stretch: 1;
+                min-width: 120px;
+                preferred-width: 120px;
+                border-radius: 12px;
+                background: root.over == ci ? Theme.ink3 : Theme.ink2;
+                border-width: root.over == ci ? 1px : 0;
+                border-color: Theme.ember;
+                VerticalLayout {
+                    padding: 8px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        padding-left: 4px;
+                        spacing: 6px;
+                        height: 22px;
+                        Text { text: col.title; color: Theme.text; font-size: 12.5px; font-weight: 800; vertical-alignment: center; overflow: elide; }
+                        Text { horizontal-stretch: 1; text: col.count; color: Theme.text3; font-size: 11.5px; vertical-alignment: center; }
+                    }
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            for card in col.cards: Rectangle {
+                                height: cl.preferred-height;
+                                border-radius: 9px;
+                                background: Home.drag-id == card.id ? Theme.ink1 : (cta.has-hover ? Theme.ink4 : Theme.ink3);
+                                opacity: Home.drag-id == card.id ? 0.5 : 1;
+                                cl := VerticalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    padding-top: 9px;
+                                    padding-bottom: 9px;
+                                    spacing: 4px;
+                                    HorizontalLayout {
+                                        spacing: 5px;
+                                        if card.keep: VerticalLayout { alignment: center; Image { source: @image-url("icons/star.svg"); width: 11px; height: 11px; colorize: Theme.ember2; } }
+                                        Text { horizontal-stretch: 1; text: card.title; color: Theme.text; font-size: 12px; font-weight: 700; overflow: elide; }
+                                    }
+                                    if card.sub != "": Text { text: card.sub; color: Theme.text3; font-size: 10.5px; overflow: elide; }
+                                    if card.chips.length > 0: HorizontalLayout {
+                                        spacing: 4px;
+                                        alignment: start;
+                                        for ch in card.chips: Rectangle {
+                                            width: cht.preferred-width + 12px;
+                                            height: 18px;
+                                            border-radius: 9px;
+                                            background: ch.tone == 2 ? Theme.danger.with-alpha(0.18) : ch.tone == 1 ? Theme.ember2.with-alpha(0.18) : ch.tone == 3 ? Theme.lagoon-soft : Theme.ink4;
+                                            cht := Text { text: ch.text; color: ch.tone == 2 ? Theme.danger : ch.tone == 1 ? Theme.ember2 : ch.tone == 3 ? Theme.lagoon : Theme.text3; font-size: 10px; font-weight: 700; }
+                                        }
+                                    }
+                                }
+                                cta := TouchArea {
+                                    mouse-cursor: Home.drag-id == card.id ? MouseCursor.grabbing : MouseCursor.grab;
+                                    property <length> px;
+                                    property <length> py;
+                                    pointer-event(e) => {
+                                        if e.kind == PointerEventKind.down && e.button == PointerEventButton.left {
+                                            self.px = self.mouse-x;
+                                            self.py = self.mouse-y;
+                                        }
+                                        if e.kind == PointerEventKind.up && e.button == PointerEventButton.left && Home.drag-id == card.id {
+                                            Home.drag-id = -1;
+                                            if root.over >= 0 && root.over < Home.board.length {
+                                                Home.board-drop(card.id, root.over);
+                                            }
+                                        }
+                                        if e.kind == PointerEventKind.down && e.button == PointerEventButton.right {
+                                            root.menu-id = card.id;
+                                            root.menu-publish = card.to-publish;
+                                            root.menu-title = card.title;
+                                            root.menu-x = min(root.width - 230px, self.absolute-position.x + self.mouse-x - root.absolute-position.x);
+                                            root.menu-y = min(root.height - 60px, self.absolute-position.y + self.mouse-y - root.absolute-position.y);
+                                            menu.show();
+                                        }
+                                    }
+                                    moved => {
+                                        if self.pressed && Home.drag-id != card.id && (abs(self.mouse-x - self.px) > 6px || abs(self.mouse-y - self.py) > 6px) {
+                                            Home.drag-id = card.id;
+                                            Home.drag-title = card.title;
+                                        }
+                                        root.drag-x = self.absolute-position.x + self.mouse-x - root.absolute-position.x;
+                                        root.drag-y = self.absolute-position.y + self.mouse-y - root.absolute-position.y;
+                                    }
+                                    double-clicked => { Home.board-menu(card.id, "play"); }
+                                }
+                            }
+                            if col.count > col.cards.length: Text { text: "… et " + (col.count - col.cards.length) + " autre(s)"; color: Theme.text3; font-size: 11px; horizontal-alignment: center; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // La carte qui suit la souris.
+    if root.dragging: Rectangle {
+        x: root.drag-x + 12px;
+        y: root.drag-y + 8px;
+        width: min(220px, dt.preferred-width + 24px);
+        height: 30px;
+        border-radius: 9px;
+        background: Theme.ink4;
+        border-width: 1px;
+        border-color: Theme.ember;
+        drop-shadow-blur: 12px;
+        drop-shadow-color: #0008;
+        dt := Text { x: 12px; width: parent.width - 24px; text: Home.drag-title; color: Theme.text; font-size: 12px; font-weight: 700; vertical-alignment: center; height: parent.height; overflow: elide; }
+    }
+    menu := PopupWindow {
+        x: root.menu-x;
+        y: root.menu-y;
+        width: 230px;
+        Rectangle {
+            background: Theme.ink2;
+            border-radius: 10px;
+            border-width: 1px;
+            border-color: Theme.line2;
+            drop-shadow-blur: 16px;
+            drop-shadow-color: #0009;
+            VerticalLayout {
+                padding: 6px;
+                spacing: 1px;
+                MenuItem { text: root.menu-title; header: true; }
+                MenuItem { text: "Écouter"; clicked => { Home.board-menu(root.menu-id, "play"); } }
+                MenuItem { text: "Voir dans la bibliothèque"; clicked => { Home.board-menu(root.menu-id, "reveal"); } }
+                MenuItem { text: "Fiche projet…"; clicked => { Home.board-menu(root.menu-id, "project"); } }
+                MenuItem { text: "Ouvrir le projet"; clicked => { Home.board-menu(root.menu-id, "open-project"); } }
+                MenuItem { text: "Ajouter au mastering"; clicked => { Home.board-menu(root.menu-id, "master"); } }
+                if Home.board-mode == "mine": MenuItem { text: root.menu-publish ? "Retirer de « À publier »" : "Marquer « À publier »"; clicked => { Home.board-menu(root.menu-id, root.menu-publish ? "unpublish" : "publish"); } }
+                MenuItem { text: "DÉPLACER VERS"; header: true; }
+                for col[ci] in Home.board: MenuItem { text: col.title; clicked => { Home.board-drop(root.menu-id, ci); } }
+            }
+        }
+    }
+}
+
+export component StatsView inherits ScrollView {
+    VerticalLayout {
+        padding-right: 8px;
+        spacing: 12px;
+        alignment: start;
+        HorizontalLayout {
+            spacing: 12px;
+            for cap[k] in ["morceaux", "de musique", "gardés", "analysés", "BPM moyen"]: Rectangle {
+                horizontal-stretch: 1;
+                height: 80px;
+                border-radius: 14px;
+                background: Theme.ink2;
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 2px;
+                    Text { text: Home.summary.length > k ? Home.summary[k] : "—"; color: Theme.text; font-size: 24px; font-weight: 800; font-family: Theme.display-font; }
+                    Text { text: cap; color: Theme.text3; font-size: 12px; font-weight: 600; }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+            for t[k] in ["Création", "Musique", "Avancement", "Parcours"]: Rectangle {
+                width: tt.preferred-width + 24px;
+                height: 30px;
+                border-radius: 15px;
+                background: Home.stats-tab == k ? Theme.ember-soft : (tta.has-hover ? Theme.ink3 : Theme.ink2);
+                border-width: 1px;
+                border-color: Home.stats-tab == k ? Theme.ember : Theme.line2;
+                tt := Text { text: t; color: Home.stats-tab == k ? Theme.ember : Theme.text2; font-size: 12px; font-weight: 700; }
+                tta := TouchArea { mouse-cursor: pointer; clicked => { Home.stats-tab = k; } }
+            }
+        }
+        if Home.stats-tab == 0: VerticalLayout {
+            spacing: 12px;
+            Chart { chart: Home.creation[0]; }
+            HorizontalLayout {
+                spacing: 12px;
+                Chart { chart: Home.creation[1]; }
+                Chart { chart: Home.creation[2]; }
+            }
+        }
+        if Home.stats-tab == 1: VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 12px;
+                Chart { chart: Home.music[0]; }
+                Chart { chart: Home.music[1]; }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Chart { chart: Home.music[2]; }
+                Chart { chart: Home.music[3]; }
+            }
+        }
+        if Home.stats-tab == 2: VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 12px;
+                Chart { chart: Home.progress[0]; }
+                Chart { chart: Home.progress[1]; }
+            }
+            Chart { chart: Home.progress[2]; }
+        }
+        if Home.stats-tab == 3: VerticalLayout {
+            spacing: 12px;
+            HorizontalLayout {
+                spacing: 12px;
+                Chart { chart: Home.career[0]; }
+                Chart { chart: Home.career[1]; }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                Chart { chart: Home.career[2]; }
+                Chart { chart: Home.career[3]; }
+            }
+        }
+    }
+}

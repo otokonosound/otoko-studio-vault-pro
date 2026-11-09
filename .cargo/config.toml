@@ -1,0 +1,1 @@
+# Le dossier de compilation se choisit par CARGO_TARGET_DIR (installer\build.cmd le fait) : aucun chemin personnel ici.
