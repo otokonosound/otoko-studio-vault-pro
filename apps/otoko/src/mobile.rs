@@ -13,7 +13,7 @@ const STUDIO_VAULT_PORT: u16 = 8765;
 /// Les réglages du serveur quand il tourne dans le logiciel : pas de conversion de toute la bibliothèque (la tâche
 /// planifiée du PC s'en charge).
 fn config(st: &State) -> otoko_mobile::Config {
-    let mut cfg = otoko_mobile::Config::new(&crate::library::data_dir(), env!("CARGO_PKG_VERSION"));
+    let mut cfg = otoko_mobile::Config::new(&crate::donnees::data_dir(), env!("CARGO_PKG_VERSION"));
     cfg.db = st.career_path.clone();
     cfg.shares_db = crate::career::shares_path(&st.career_path);
     cfg.convert_ahead = false;
@@ -282,7 +282,7 @@ pub fn step(app: &AppWindow, st: &mut State, action: &str) {
 
 /// Le dossier où le serveur lit son choix pour le Wi-Fi : celui de la base qu'il sert.
 fn data(st: &State) -> PathBuf {
-    st.career_path.parent().map(PathBuf::from).unwrap_or_else(crate::library::data_dir)
+    st.career_path.parent().map(PathBuf::from).unwrap_or_else(crate::donnees::data_dir)
 }
 
 /// Ouvrir au Wi-Fi demande le pare-feu, donc les droits d'administrateur : le script explique et demande confirmation.
@@ -354,7 +354,7 @@ pub fn refresh(app: &AppWindow, st: &mut State) {
 
 /// La bascule depuis Studio Vault a été faite (date).
 fn switched() -> Option<String> {
-    let t = std::fs::read_to_string(crate::library::data_dir().join("bascule.json")).ok()?;
+    let t = std::fs::read_to_string(crate::donnees::data_dir().join("bascule.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(t.trim_start_matches('\u{feff}')).ok()?;
     Some(v["date"].as_str().unwrap_or("").chars().take(10).collect())
 }

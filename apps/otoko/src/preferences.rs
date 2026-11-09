@@ -19,7 +19,7 @@ fn model<T: Clone + 'static>(v: Vec<T>) -> ModelRc<T> {
 
 /// Le dossier des sauvegardes quotidiennes de la Carrière.
 pub fn backup_dir() -> std::path::PathBuf {
-    crate::library::data_dir().join("sauvegardes")
+    crate::donnees::data_dir().join("sauvegardes")
 }
 
 fn setting(st: &State, key: &str) -> String {
@@ -71,8 +71,20 @@ pub fn cover_accent(app: &AppWindow, st: &State, cover: Option<&slint::Image>) {
     }
 }
 
-/// Remplit la partie Carrière des Réglages.
+/// Remplit la partie sortie d'écoute des Réglages.
+fn fill_audio(app: &AppWindow, st: &State) {
+    app.set_audio_text(
+        match st.ecoute.description() {
+            Some(d) => format!("En lecture sur : {d}."),
+            None => "Le son sort par la sortie de Windows. La carte son ne s'ouvre que pendant l'écoute : le reste du temps, elle est libre pour tes autres logiciels.".to_string(),
+        }
+        .into(),
+    );
+}
+
+/// Remplit les Réglages : la sortie d'écoute, puis la partie Carrière.
 pub fn fill(app: &AppWindow, st: &mut State) {
+    fill_audio(app, st);
     let g = app.global::<CPrefs>();
     let Some(c) = st.career.as_ref() else {
         g.set_ready(false);
@@ -129,7 +141,7 @@ pub fn fill(app: &AppWindow, st: &mut State) {
     }
     // Le code que l'autre PC doit recopier : seulement si ce PC n'en suit pas un autre (et jamais pendant l'autotest).
     let main = crate::distant::address().is_none() && !st.selftest;
-    g.set_link_code(if main { otoko_mobile::link_code(&crate::library::data_dir()) } else { String::new() }.into());
+    g.set_link_code(if main { otoko_mobile::link_code(&crate::donnees::data_dir()) } else { String::new() }.into());
     crate::majs::push(app, st);
     if let Some(c) = st.career.as_ref() {
         g.set_auto_status(lib::flag(c.conn(), statuts::FLAG, true));
@@ -246,7 +258,7 @@ fn restore_from(app: &AppWindow, st: &mut State, src: std::path::PathBuf) {
 /// La restauration elle-même, une fois confirmée.
 pub fn restore_now(app: &AppWindow, st: &mut State, src: &std::path::Path) {
     // La sauvegarde préalable peut faire disparaître la plus ancienne : on travaille sur une copie.
-    let keep = crate::library::data_dir().join("restauration-en-cours.db");
+    let keep = crate::donnees::data_dir().join("restauration-en-cours.db");
     if let Err(e) = std::fs::copy(src, &keep) {
         app.set_message(format!("Restauration impossible : {e}").into());
         return;
@@ -458,7 +470,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
         if st.selftest {
             return;
         }
-        let code = otoko_mobile::link_renew(&crate::library::data_dir());
+        let code = otoko_mobile::link_renew(&crate::donnees::data_dir());
         app.global::<CPrefs>().set_link_code(code.into());
         app.set_message("Nouveau code de liaison : l'autre PC devra recopier celui-ci.".into());
     });

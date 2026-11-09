@@ -17,12 +17,12 @@ pub fn parse(v: &str) -> (u32, u32, u32) {
 
 /// Le dossier des installateurs de ce PC.
 pub fn folder() -> Option<PathBuf> {
-    let file = crate::library::data_dir().join(otoko_mobile::UPDATES_FILE);
+    let file = crate::donnees::data_dir().join(otoko_mobile::UPDATES_FILE);
     std::fs::read_to_string(file).ok().map(|d| PathBuf::from(d.trim())).filter(|d| !d.as_os_str().is_empty())
 }
 
 pub fn set_folder(dir: Option<&Path>) {
-    let file = crate::library::data_dir().join(otoko_mobile::UPDATES_FILE);
+    let file = crate::donnees::data_dir().join(otoko_mobile::UPDATES_FILE);
     let _ = match dir {
         Some(d) => std::fs::write(file, d.to_string_lossy().as_bytes()),
         None => std::fs::remove_file(file),

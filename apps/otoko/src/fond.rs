@@ -383,7 +383,7 @@ pub fn waves(st: &mut State) {
     }
     st.waves_busy = true;
     let db = st.career_path.clone();
-    let cache = if st.career_path == crate::career::default_path() { crate::library::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
+    let cache = if st.career_path == crate::career::default_path() { crate::donnees::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
     let tx = st.jobs.clone();
     st.spawn(move || {
         let Ok(c) = Career::open(&db) else { return Done::Waves(true) };

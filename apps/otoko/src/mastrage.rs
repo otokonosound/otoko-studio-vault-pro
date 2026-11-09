@@ -338,7 +338,7 @@ pub fn engine(st: &State) -> Option<m::Engine> {
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
         extra.push(dir.join("Phaselimiter"));
     }
-    extra.push(crate::library::data_dir().join("Phaselimiter"));
+    extra.push(crate::donnees::data_dir().join("Phaselimiter"));
     extra.push(otoko_mobile::complements::engine_root());
     if let Some(p) = std::env::var_os("OTOKO_PHASELIMITER") {
         extra.push(PathBuf::from(p));

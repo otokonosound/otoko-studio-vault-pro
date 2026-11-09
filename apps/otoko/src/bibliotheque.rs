@@ -372,7 +372,7 @@ fn update_row(app: &AppWindow, st: &mut State, id: i64) {
 /// Dossier du cache des pochettes : celui du serveur mobile pour la vraie Carrière, un dossier
 /// temporaire pour une Carrière d'essai (autotest, vitrine).
 fn cover_cache(st: &State) -> PathBuf {
-    if st.career_path == crate::career::default_path() { crate::library::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") }
+    if st.career_path == crate::career::default_path() { crate::donnees::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") }
 }
 
 /// Demande en fond les pochettes des lignes qui n'en ont pas encore.

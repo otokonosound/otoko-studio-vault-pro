@@ -155,7 +155,7 @@ pub fn ask_covers(st: &mut State, ids: Vec<i64>) {
     }
     st.home.covers_asked.extend(ids.iter().copied());
     let db = st.career_path.clone();
-    let cache = if st.career_path == crate::career::default_path() { crate::library::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
+    let cache = if st.career_path == crate::career::default_path() { crate::donnees::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
     let remote = st.distant.as_ref().map(|d| d.url.clone());
     st.spawn(move || {
         let Ok(con) = otoko_mobile::library::connect(&db) else { return Done::ReleaseCovers(Vec::new()) };
@@ -268,7 +268,7 @@ fn backup_to_drive(app: &AppWindow, st: &mut State) {
     }
     let Some(c) = st.career.as_ref() else { return };
     let _ = c.set_setting(backup::EXTRA_SETTING, &dir.to_string_lossy());
-    let r = backup::now(c.conn(), &crate::library::data_dir().join("sauvegardes"), Some(&dir));
+    let r = backup::now(c.conn(), &crate::donnees::data_dir().join("sauvegardes"), Some(&dir));
     app.set_message(match r {
         Ok(_) => "Sauvegarde copiée sur Google Drive.".into(),
         Err(e) => format!("Copie impossible ({e}) : vérifie que Google Drive est lancé.").into(),

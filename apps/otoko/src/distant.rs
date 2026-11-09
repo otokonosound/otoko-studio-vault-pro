@@ -35,12 +35,12 @@ pub struct Distant {
 }
 
 fn file() -> PathBuf {
-    crate::library::data_dir().join("distant.json")
+    crate::donnees::data_dir().join("distant.json")
 }
 
 /// Le dossier de ce mode : la copie de la base et les caches.
 pub fn dir() -> PathBuf {
-    crate::library::data_dir().join("distant")
+    crate::donnees::data_dir().join("distant")
 }
 
 pub fn base_path() -> PathBuf {
