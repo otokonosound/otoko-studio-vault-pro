@@ -171,7 +171,7 @@ export component CareerPrefs inherits VerticalLayout {
     if CPrefs.ready && root.part == "general": VerticalLayout {
         spacing: 10px;
         H2 { text: "Dossier d'arrivée des exports"; }
-        Text { text: "Indique le dossier où FL Studio exporte. Chaque nouveau WAV est reconnu d'après son nom, analysé et rangé comme version du morceau. Le fichier ne bouge pas."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        Text { text: "Indique le dossier où ton logiciel de musique exporte (FL Studio, Ableton Live, Cubase, Reaper, Bitwig…). Chaque nouvel export (WAV, AIFF, FLAC, MP3…) est reconnu d'après son nom, analysé et rangé comme version du morceau. Le fichier ne bouge pas."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
         HorizontalLayout {
             spacing: 8px;
             Text { horizontal-stretch: 1; text: CPrefs.arrival-dir == "" ? "Aucun dossier choisi" : CPrefs.arrival-dir; color: CPrefs.arrival-dir == "" ? Theme.text3 : Theme.text2; font-size: 12px; vertical-alignment: center; overflow: elide; }

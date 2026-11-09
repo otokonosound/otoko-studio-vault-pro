@@ -25,6 +25,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -66,6 +67,11 @@ class Downloads(
     /** Infos propres au fichier : extension réelle, tags présents, copie dans Musique */
     private val extras = mutableMapOf<Long, JSONObject>()
 
+    private val _covers = MutableStateFlow<Set<Long>>(emptySet())
+    /** Morceaux dont la pochette est sur le téléphone : l'appli et la voiture la montrent sans ton PC */
+    val covers: StateFlow<Set<Long>> = _covers
+    private val completing = Mutex()
+
     init {
         val tracks = dir.listFiles { f -> f.name.endsWith(".json") }.orEmpty().mapNotNull { f ->
             runCatching {
@@ -76,17 +82,28 @@ class Downloads(
         _saved.value = tracks
         _states.value = tracks.associate { it.id to DlState.Done }
         _inMusic.value = tracks.filter { extras[it.id]?.optBoolean("in_music") == true }.map { it.id }.toSet()
+        _covers.value = tracks.filter { coverFile(it.id).exists() }.map { it.id }.toSet()
     }
 
     private fun audioFile(id: Long) = File(dir, "$id.audio")
     private fun metaFile(id: Long) = File(dir, "$id.json")
+    private fun coverFile(id: Long) = File(dir, "$id.jpg")
+    private fun releaseCoverFile(id: Long) = File(dir, "sortie-$id.jpg")
+
+    /** La pochette d'un morceau gardé hors ligne, si elle est sur le téléphone */
+    fun localCover(id: Long): File? = coverFile(id).takeIf { id in _covers.value }
+
+    /** La pochette d'une sortie dont un morceau est gardé hors ligne */
+    fun localReleaseCover(id: Long): File? = releaseCoverFile(id).takeIf { it.exists() }
 
     fun localFile(id: Long): File? = audioFile(id).takeIf { _states.value[id] == DlState.Done && it.exists() }
     fun usedBytes(): Long = dir.listFiles().orEmpty().sumOf { it.length() }
 
     private fun writeMeta(track: Track, ext: String, tagged: Boolean, inMusic: Boolean) {
+        val checked = extras[track.id]?.optLong("cover_checked", 0L) ?: 0L
         val o = track.toJson().apply {
             put("file_ext", ext); put("tagged", tagged); put("in_music", inMusic)
+            if (checked > 0) put("cover_checked", checked)
         }
         extras[track.id] = o
         metaFile(track.id).writeText(o.toString())
@@ -129,6 +146,7 @@ class Downloads(
                     writeMeta(track, ext, tagged = true, inMusic = false)
                     _saved.update { listOf(track) + it.filter { t -> t.id != track.id } }
                     _states.update { it + (track.id to DlState.Done) }
+                    runCatching { saveCovers(track) }
                     if (settings.saveToMusic.value) saveToMusic(track)
                 } catch (e: Exception) {
                     part.delete()
@@ -166,13 +184,86 @@ class Downloads(
     /** Retire du téléphone (stockage de l'appli). La copie dans Musique, elle, reste. */
     fun remove(id: Long) {
         jobs.remove(id)?.cancel()
+        val release = _saved.value.firstOrNull { it.id == id }?.release?.id
         audioFile(id).delete()
         metaFile(id).delete()
+        coverFile(id).delete()
+        _covers.update { it - id }
         File(dir, "$id.part").delete()
         extras.remove(id)
         _saved.update { list -> list.filter { it.id != id } }
         _states.update { it - id }
         _inMusic.update { it - id }
+        // Plus aucun morceau de cette sortie sur le téléphone : sa pochette part aussi
+        if (release != null && _saved.value.none { it.release?.id == release }) releaseCoverFile(release).delete()
+    }
+
+    // ------------------------------------------------------------ pochettes et rangement
+
+    /** Pochette du morceau et de sa sortie, à côté du fichier. IOException si ton PC ne répond pas. */
+    private fun saveCovers(track: Track) {
+        if (!coverFile(track.id).exists()) {
+            if (fetchTo(api.coverUrl(track.id, COVER_PX), coverFile(track.id))) _covers.update { it + track.id }
+            // Sans pochette sur ton PC : on ne redemande qu'une fois par semaine
+            extras[track.id]?.let { o ->
+                o.put("cover_checked", System.currentTimeMillis())
+                runCatching { metaFile(track.id).writeText(o.toString()) }
+            }
+        }
+        val rid = track.release?.id?.takeIf { it > 0 } ?: return
+        if (!releaseCoverFile(rid).exists()) fetchTo(api.releaseCoverUrl(rid, COVER_PX), releaseCoverFile(rid))
+    }
+
+    /** true si l'image est arrivée ; false si ton PC n'en a pas ; IOException s'il ne répond pas */
+    private fun fetchTo(url: String, file: File): Boolean {
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.connectTimeout = 5000
+        c.readTimeout = 15000
+        try {
+            if (c.responseCode != 200) return false
+            val part = File(file.path + ".part")
+            c.inputStream.use { input -> part.outputStream().use { input.copyTo(it) } }
+            return part.length() > 0 && part.renameTo(file)
+        } finally {
+            c.disconnect()
+        }
+    }
+
+    /**
+     * Quand ton PC répond : les anciens téléchargements récupèrent leur pochette et leur place dans la sortie
+     * (pour le rangement par album). S'arrête dès que ton PC ne répond plus.
+     */
+    fun completeSaved() {
+        if (completing.isLocked) return
+        scope.launch(Dispatchers.IO) {
+            completing.withLock {
+                try {
+                    // La place dans la sortie : une demande par sortie
+                    val unplaced = _saved.value.filter { (it.release?.id ?: 0) > 0 && (it.release?.position ?: 0) <= 0 }
+                    for (rid in unplaced.mapNotNull { it.release?.id }.distinct()) {
+                        val fresh = api.release(rid).second.associateBy { it.id }
+                        for (t in _saved.value) {
+                            val f = fresh[t.id] ?: continue
+                            val o = extras[t.id] ?: continue
+                            writeMeta(f, o.optString("file_ext", "flac"), o.optBoolean("tagged"), o.optBoolean("in_music"))
+                            _saved.update { list -> list.map { if (it.id == f.id) f else it } }
+                        }
+                    }
+                    val week = 7L * 24 * 3600 * 1000
+                    for (t in _saved.value) {
+                        val checked = extras[t.id]?.optLong("cover_checked", 0L) ?: 0L
+                        val needTrack = !coverFile(t.id).exists() && System.currentTimeMillis() - checked > week
+                        val rid = t.release?.id ?: 0L
+                        val needRelease = rid > 0 && !releaseCoverFile(rid).exists()
+                        if (needTrack || needRelease) saveCovers(t)
+                    }
+                } catch (e: IOException) {
+                    // Ton PC ne répond plus : on reprendra à la prochaine connexion
+                } catch (e: Exception) {
+                    // Réponse inattendue : rien de grave, le rangement reste alphabétique en attendant
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------ copie dans Musique
@@ -278,6 +369,7 @@ class Downloads(
     }
 
     companion object {
+        private const val COVER_PX = 480
         private val FORBIDDEN = "<>:\"/\\|?*"
 
         fun safeName(s: String): String =

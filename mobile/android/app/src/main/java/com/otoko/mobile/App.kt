@@ -42,7 +42,20 @@ class App : Application() {
         downloads = Downloads(this, api, settings, scope)
         cast = Cast(this)
         watchNetwork()
+        // Ton PC répond : les morceaux hors ligne récupèrent ce qui leur manque (pochette, place dans la sortie)
+        scope.launch {
+            connection.collect { if (it == Connection.LAN || it == Connection.TAILSCALE) downloads.completeSaved() }
+        }
     }
+
+    @Volatile private var downUntil = 0L
+
+    /**
+     * Ton PC vient de ne pas répondre : pendant 30 s, on ne le relance pas à chaque ligne ou à chaque onglet
+     * (Android Auto attendrait chaque fois la fin du délai). « Hors ligne » reste immédiat.
+     */
+    fun serverDown(): Boolean = System.currentTimeMillis() < downUntil
+    fun markServerDown() { downUntil = System.currentTimeMillis() + DOWN_MS }
 
     /** Wi-Fi ou Ethernet : pas de limite de données */
     fun onUnmeteredNetwork(): Boolean {
@@ -95,10 +108,12 @@ class App : Application() {
             return@withLock use(s, Connection.TAILSCALE)
         }
         _connection.value = Connection.OFFLINE
+        markServerDown()
         false
     }
 
     private fun use(server: String, how: Connection): Boolean {
+        downUntil = 0L
         settings.setServer(server)
         _connection.value = how
         return true
@@ -156,6 +171,7 @@ class App : Application() {
         lateinit var instance: App
             private set
         private const val LAN_TIMEOUT = 1500
+        private const val DOWN_MS = 30_000L
         private const val DEFAULT_PORT = 8775
 
         /** « mon-pc.xxxx.ts.net », « 100.1.2.3 » ou une adresse déjà complète → une adresse complète, avec le port */

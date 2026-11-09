@@ -82,14 +82,15 @@ fn round(x: f64, d: i32) -> f64 {
 fn release_by_track(con: &Connection) -> rusqlite::Result<HashMap<i64, Json>> {
     let mut out = HashMap::new();
     let mut st = con.prepare(
-        "SELECT rt.track_id, r.id, r.title, r.rtype, r.release_date FROM release_tracks rt JOIN releases r ON r.id = rt.release_id ORDER BY r.release_date DESC",
+        "SELECT rt.track_id, r.id, r.title, r.rtype, r.release_date, rt.position FROM release_tracks rt JOIN releases r ON r.id = rt.release_id ORDER BY r.release_date DESC",
     )?;
     let mut q = st.query([])?;
     while let Some(r) = q.next()? {
         let tid: i64 = r.get(0)?;
         out.entry(tid).or_insert_with(|| {
             let t = s(r, "rtype");
-            json!({ "id": r.get::<_, i64>(1).unwrap_or(0), "title": s(r, "title"), "type": t, "type_label": if t.is_empty() { "Sortie".into() } else { release_label(&t) }, "date": s(r, "release_date") })
+            // La place du morceau dans la sortie : le téléphone range ainsi ce qu'il garde hors ligne.
+            json!({ "id": r.get::<_, i64>(1).unwrap_or(0), "title": s(r, "title"), "type": t, "type_label": if t.is_empty() { "Sortie".into() } else { release_label(&t) }, "date": s(r, "release_date"), "position": i(r, "position") })
         });
     }
     Ok(out)

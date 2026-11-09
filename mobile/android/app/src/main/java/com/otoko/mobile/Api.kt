@@ -86,9 +86,14 @@ data class Track(
 }
 
 /** La sortie d'un morceau, en bref (id 0 : inconnue, vieux téléchargement) */
-data class ReleaseRef(val id: Long, val title: String, val type: String, val typeLabel: String, val date: String) {
+data class ReleaseRef(
+    val id: Long, val title: String, val type: String, val typeLabel: String, val date: String,
+    /** Place du morceau dans la sortie (0 si inconnue) */
+    val position: Int = 0,
+) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("title", title); put("type", type); put("type_label", typeLabel); put("date", date)
+        put("position", position)
     }
 
     companion object {
@@ -98,6 +103,7 @@ data class ReleaseRef(val id: Long, val title: String, val type: String, val typ
             type = o.optStr("type") ?: "",
             typeLabel = o.optStr("type_label") ?: "",
             date = o.optStr("date") ?: "",
+            position = o.optInt("position", 0),
         )
     }
 }

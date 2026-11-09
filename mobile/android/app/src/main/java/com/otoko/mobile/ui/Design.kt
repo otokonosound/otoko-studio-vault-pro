@@ -135,6 +135,8 @@ object Icons {
     val Lock = icon("lock", "M6,11h12v9H6zM8.5,11V8a3.5,3.5 0 0,1 7,0v3", false, 1.8f)
     val Copy = icon("copy", "M9,9h11v11H9zM5,15H4V4h11v1", false, 1.8f)
     val Plus = icon("plus", "M12,5v14M5,12h14", false)
+    val Shuffle = icon("shuffle", "M16,3h5v5M4,20L21,3M21,16v5h-5M15,15l6,6M4,4l5,5", false, 1.9f)
+    val Repeat = icon("repeat", "M17,2l4,4 -4,4M3,11V10a4,4 0 0,1 4,-4h14M7,22l-4,-4 4,-4M21,13v1a4,4 0 0,1 -4,4H3", false, 1.9f)
     val Close = icon("x", "M6,6l12,12M18,6l-12,12", false)
 }
 

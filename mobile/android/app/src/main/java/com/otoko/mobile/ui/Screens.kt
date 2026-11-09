@@ -64,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -93,6 +94,8 @@ import com.otoko.mobile.ShareRequest
 import com.otoko.mobile.Sort
 import com.otoko.mobile.Track
 import com.otoko.mobile.UiState
+import com.otoko.mobile.allTracks
+import com.otoko.mobile.offlineGroups
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -360,6 +363,18 @@ internal fun TrackRow(
     }
 }
 
+/** Aléatoire ou répétition : allumé, l'icône est pleine et soulignée d'un point */
+@Composable
+private fun ModeButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, on: Boolean, badge: String?, onClick: () -> Unit) {
+    Box(Modifier.size(48.dp).clip(CircleShape).clickable(onClick = onClick).semantics { contentDescription = label },
+        contentAlignment = Alignment.Center) {
+        Icon(icon, null, tint = if (on) Palette.White else Palette.White.copy(alpha = 0.45f), modifier = Modifier.size(22.dp))
+        if (badge != null) Text(badge, color = Palette.White, fontFamily = Body, fontWeight = FontWeight.Bold, fontSize = 10.sp,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp))
+        if (on) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp).size(4.dp).clip(CircleShape).background(Palette.White))
+    }
+}
+
 // ------------------------------------------------------------------ hors ligne
 
 @Composable
@@ -398,6 +413,8 @@ private fun OfflineScreen(ui: UiState, vm: MainViewModel, accent: Color, onMessa
                     if (running > 0) " · $running en cours" else "",
                 fontFamily = Body, fontSize = 14.sp, color = Palette.Muted, modifier = Modifier.padding(top = 8.dp))
         }
+
+        OfflineMusic(saved, inMusic, vm, onMessage)
 
         Column {
             Text("Qualité en données mobiles", fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
@@ -450,41 +467,112 @@ private fun OfflineScreen(ui: UiState, vm: MainViewModel, accent: Color, onMessa
             if (changing) ConnectForm(vm, address) { changing = false; onMessage("Appli reliée à ce PC.") }
         }
 
-        Column {
-            Text("Sur ce téléphone", fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Palette.White,
-                modifier = Modifier.padding(bottom = 4.dp))
-            if (saved.isEmpty()) Text(
-                "Rien pour l'instant. Touche la flèche à droite d'un morceau dans la bibliothèque pour le garder ici.",
-                fontFamily = Body, fontSize = 14.sp, color = Palette.Muted, modifier = Modifier.padding(top = 6.dp))
-            saved.forEachIndexed { i, t ->
+    }
+}
+
+/** Ce qui est sur le téléphone, rangé par sortie (ou du plus récent, ou de A à Z), avec « Tout écouter » et l'aléatoire */
+@Composable
+private fun OfflineMusic(saved: List<Track>, inMusic: Set<Long>, vm: MainViewModel, onMessage: (String) -> Unit) {
+    var mode by rememberSaveable { mutableStateOf(0) }
+    val groups = remember(saved) { offlineGroups(saved) }
+    val ordered = remember(saved, mode) {
+        when (mode) {
+            0 -> groups.allTracks()
+            1 -> saved
+            else -> saved.sortedBy { it.title.lowercase() }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Sur ce téléphone", fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Palette.White)
+        if (saved.isEmpty()) {
+            Text("Rien pour l'instant. Touche la flèche à droite d'un morceau dans la bibliothèque pour le garder ici.",
+                fontFamily = Body, fontSize = 14.sp, color = Palette.Muted)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
-                    Modifier.fillMaxWidth().height(62.dp).clickable { vm.play(saved, i) },
+                    Modifier.height(46.dp).clip(RoundedCornerShape(23.dp)).background(Palette.White)
+                        .clickable { vm.playAll(ordered, shuffle = false) }.padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Play, null, tint = Palette.Black, modifier = Modifier.size(16.dp))
+                    Text("Tout écouter", color = Palette.Black, fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                }
+                if (saved.size > 1) Row(
+                    Modifier.height(46.dp).clip(RoundedCornerShape(23.dp)).background(Palette.Surface)
+                        .clickable { vm.playAll(ordered, shuffle = true) }.padding(horizontal = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(Icons.Shuffle, null, tint = Palette.White, modifier = Modifier.size(18.dp))
+                    Text("Aléatoire", color = Palette.White, fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Par sortie", "Récents", "A à Z").forEachIndexed { i, label ->
+                    val on = mode == i
+                    Box(
+                        Modifier.height(34.dp).clip(RoundedCornerShape(17.dp))
+                            .background(if (on) Palette.White else Palette.Surface)
+                            .clickable { mode = i }.padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, color = if (on) Palette.Black else Palette.White, fontFamily = Body,
+                            fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                    }
+                }
+            }
+            if (mode == 0) groups.forEach { g ->
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp).clickable { vm.playAll(g.tracks, shuffle = false) },
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Cover(t, 46.dp, 6.dp)
+                    Cover(g.tracks.first(), 54.dp, 8.dp)
                     Column(Modifier.weight(1f)) {
-                        Text(t.title, fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = Palette.White,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(t.qualityLabel + if (t.id in inMusic) " · dans Musique" else "",
-                            fontFamily = Body, fontSize = 14.sp, color = Palette.Muted)
+                        Text(g.title, fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 22.sp, lineHeight = 24.sp,
+                            color = Palette.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(g.subtitle, fontFamily = Body, fontSize = 14.sp, color = Palette.Muted)
                     }
-                    Box(
-                        Modifier.size(44.dp).clip(CircleShape).clickable {
-                            if (t.id in inMusic) onMessage("Déjà dans Musique › OTOKO.") else vm.saveToMusic(t, onMessage)
-                        },
+                    if (g.tracks.size > 1) Box(
+                        Modifier.size(44.dp).clip(CircleShape).clickable { vm.playAll(g.tracks, shuffle = true) }
+                            .semantics { contentDescription = "Aléatoire : ${g.title}" },
                         contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Music, "Enregistrer dans Musique",
-                            tint = if (t.id in inMusic) Palette.White else Palette.Dim, modifier = Modifier.size(20.dp))
-                    }
-                    Box(
-                        Modifier.size(44.dp).clip(CircleShape).clickable { vm.downloads.remove(t.id) },
-                        contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Trash, "Retirer du téléphone", tint = Palette.Dim, modifier = Modifier.size(20.dp)) }
+                    ) { Icon(Icons.Shuffle, null, tint = Palette.White, modifier = Modifier.size(20.dp)) }
                 }
-            }
+                g.tracks.forEachIndexed { i, t -> OfflineRow(t, inMusic, vm, onMessage) { vm.play(g.tracks, i) } }
+            } else ordered.forEachIndexed { i, t -> OfflineRow(t, inMusic, vm, onMessage) { vm.play(ordered, i) } }
         }
+    }
+}
+
+@Composable
+private fun OfflineRow(t: Track, inMusic: Set<Long>, vm: MainViewModel, onMessage: (String) -> Unit, onPlay: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().height(62.dp).clickable(onClick = onPlay),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Cover(t, 46.dp, 6.dp)
+        Column(Modifier.weight(1f)) {
+            Text(t.title, fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = Palette.White,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(t.qualityLabel + if (t.id in inMusic) " · dans Musique" else "",
+                fontFamily = Body, fontSize = 14.sp, color = Palette.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Box(
+            Modifier.size(44.dp).clip(CircleShape).clickable {
+                if (t.id in inMusic) onMessage("Déjà dans Musique › OTOKO.") else vm.saveToMusic(t, onMessage)
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Music, "Enregistrer dans Musique",
+                tint = if (t.id in inMusic) Palette.White else Palette.Dim, modifier = Modifier.size(20.dp))
+        }
+        Box(
+            Modifier.size(44.dp).clip(CircleShape).clickable { vm.downloads.remove(t.id) },
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Trash, "Retirer du téléphone", tint = Palette.Dim, modifier = Modifier.size(20.dp)) }
     }
 }
 
@@ -689,6 +777,7 @@ private fun PlayerSheet(ui: UiState, vm: MainViewModel, accent: Color, onCast: (
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                ModeButton(Icons.Shuffle, if (ui.shuffle) "Aléatoire activé" else "Aléatoire", ui.shuffle, null) { vm.toggleShuffle() }
                 Box(Modifier.size(56.dp).clip(CircleShape).clickable { vm.previous() }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Prev, "Morceau précédent", tint = Palette.White, modifier = Modifier.size(30.dp))
                 }
@@ -703,6 +792,11 @@ private fun PlayerSheet(ui: UiState, vm: MainViewModel, accent: Color, onCast: (
                 Box(Modifier.size(56.dp).clip(CircleShape).clickable { vm.next() }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Next, "Morceau suivant", tint = Palette.White, modifier = Modifier.size(30.dp))
                 }
+                ModeButton(
+                    Icons.Repeat,
+                    when (ui.repeat) { 1 -> "Répéter ce morceau"; 2 -> "Répéter la file"; else -> "Répétition" },
+                    ui.repeat != 0, if (ui.repeat == 1) "1" else null,
+                ) { vm.cycleRepeat() }
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {

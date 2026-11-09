@@ -86,7 +86,7 @@ pub const ACTIONS: &[Action] = &[
     a("production", "Production", "Ctrl+3", "Le tableau de production"),
     a("mobile", "Mobile et partage", "Ctrl+8", ""),
     a("camelot", "Roue de Camelot", "", ""),
-    a("open_studio", "Ouvrir le projet", "", "Le projet du morceau dans son logiciel (FL Studio, Ableton…)"),
+    a("open_studio", "Ouvrir le projet", "", "Le projet du morceau dans son logiciel (FL Studio, Ableton Live, Cubase, Reaper…)"),
     a("batches", "Genres proposés par lots…", "", "Les morceaux sans genre, regroupés, à valider d'un clic"),
     a("statuses", "Statuts automatiques…", "", "Ce que la base prouve sur l'avancement des morceaux"),
     a("link_tracks", "Relier les morceaux à SoundCloud", "", "Retrouve le lien de chaque titre à partir de celui de sa sortie"),

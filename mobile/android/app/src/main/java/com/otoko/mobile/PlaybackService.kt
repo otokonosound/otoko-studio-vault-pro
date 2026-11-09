@@ -8,6 +8,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaConstants
 import androidx.media3.session.MediaLibraryService
@@ -15,7 +16,9 @@ import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSession.MediaItemsWithStartPosition
+import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionError
+import androidx.media3.session.SessionResult
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +27,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
@@ -51,6 +55,9 @@ class PlaybackService : MediaLibraryService() {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_TIMELINE_CHANGED,
                         Player.EVENT_IS_PLAYING_CHANGED)) saveQueue(player)
+                // Aléatoire ou répétition changés (depuis l'appli ou la voiture) : les boutons suivent
+                if (events.containsAny(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED))
+                    session?.setCustomLayout(buttons(player))
             }
         })
         val open = PendingIntent.getActivity(this, 0,
@@ -58,6 +65,7 @@ class PlaybackService : MediaLibraryService() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         session = MediaLibrarySession.Builder(this, player, LibraryCallback())
             .setSessionActivity(open)
+            .setCustomLayout(buttons(player))
             .build()
         local = player
         mainScope.launch { app.cast.target.collect { switchTo(it) } }
@@ -94,6 +102,7 @@ class PlaybackService : MediaLibraryService() {
                 local.playWhenReady = wasPlaying && !lost
             }
             s.player = local
+            s.setCustomLayout(buttons(local))
             old?.release()
             return
         }
@@ -109,10 +118,38 @@ class PlaybackService : MediaLibraryService() {
         local.pause()
         remote = r
         s.player = r
+        s.setCustomLayout(buttons(r))
         old?.let { it.stopRemote(); it.release() }
     }
 
     private var lostFlag = false
+
+    /**
+     * Aléatoire et répétition, à côté des commandes de lecture : dans la voiture (Android Auto les montre près de
+     * lecture et pause), la notification et l'écran verrouillé. Leur icône dit l'état en cours.
+     */
+    private fun buttons(player: Player): List<CommandButton> {
+        val shuffle = player.shuffleModeEnabled
+        val repeat = player.repeatMode
+        return listOf(
+            CommandButton.Builder(if (shuffle) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF)
+                .setDisplayName(if (shuffle) "Aléatoire activé" else "Aléatoire")
+                .setSessionCommand(SHUFFLE)
+                .build(),
+            CommandButton.Builder(when (repeat) {
+                Player.REPEAT_MODE_ALL -> CommandButton.ICON_REPEAT_ALL
+                Player.REPEAT_MODE_ONE -> CommandButton.ICON_REPEAT_ONE
+                else -> CommandButton.ICON_REPEAT_OFF
+            })
+                .setDisplayName(when (repeat) {
+                    Player.REPEAT_MODE_ALL -> "Répéter la file"
+                    Player.REPEAT_MODE_ONE -> "Répéter ce morceau"
+                    else -> "Répétition"
+                })
+                .setSessionCommand(REPEAT)
+                .build(),
+        )
+    }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? = session
 
@@ -134,6 +171,31 @@ class PlaybackService : MediaLibraryService() {
 
     private inner class LibraryCallback : MediaLibrarySession.Callback {
         private val app get() = application as App
+
+        override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
+            MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                .setAvailableSessionCommands(
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(SHUFFLE).add(REPEAT).build())
+                .setCustomLayout(buttons(session.player))
+                .build()
+
+        override fun onCustomCommand(
+            session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            val p = session.player
+            when (customCommand.customAction) {
+                SHUFFLE.customAction -> p.shuffleModeEnabled = !p.shuffleModeEnabled
+                REPEAT.customAction -> p.repeatMode = when (p.repeatMode) {
+                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                    else -> Player.REPEAT_MODE_OFF
+                }
+                else -> return immediate(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+            }
+            // Un lecteur réseau ne connaît pas toujours ces modes : les boutons montrent l'état réel
+            session.setCustomLayout(buttons(p))
+            return immediate(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession, browser: MediaSession.ControllerInfo, params: LibraryParams?,
@@ -206,12 +268,14 @@ class PlaybackService : MediaLibraryService() {
             if (mediaItems.all { it.localConfiguration != null }) {
                 MediaItemsWithStartPosition(mediaItems, startIndex, startPositionMs)
             } else {
-                val (items, index) = tree.resolveQueue(mediaItems, startIndex)
+                val q = tree.resolveQueue(mediaItems, startIndex)
                 // Une demande sans morceau (une commande vocale, par exemple) est ignorée
-                if (items.isEmpty()) throw UnsupportedOperationException("Rien à jouer")
+                if (q.items.isEmpty()) throw UnsupportedOperationException("Rien à jouer")
+                // « Lecture aléatoire » : le mode aléatoire s'allume, le bouton de la voiture le montre
+                if (q.shuffle) withContext(Dispatchers.Main) { mediaSession.player.shuffleModeEnabled = true }
                 val resume = if (mediaItems.size == 1 && MediaTree.parseTrackId(mediaItems[0].mediaId)?.first == MediaTree.RECENT)
                     LastQueue.load(app)?.positionMs ?: C.TIME_UNSET else startPositionMs
-                MediaItemsWithStartPosition(items, index, resume)
+                MediaItemsWithStartPosition(q.items, q.index, resume)
             }
         }
 
@@ -244,3 +308,6 @@ class PlaybackService : MediaLibraryService() {
 }
 
 private fun <T> immediate(v: T): ListenableFuture<T> = com.google.common.util.concurrent.Futures.immediateFuture(v)
+
+private val SHUFFLE = SessionCommand("otoko.aleatoire", Bundle.EMPTY)
+private val REPEAT = SessionCommand("otoko.repetition", Bundle.EMPTY)

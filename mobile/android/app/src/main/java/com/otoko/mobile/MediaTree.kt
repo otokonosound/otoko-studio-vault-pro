@@ -8,19 +8,22 @@ import androidx.media3.session.MediaConstants
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.random.Random
 
 /**
  * L'arborescence vue par Android Auto (et tout autre navigateur de médias) :
  *   racine ─ Sorties ─ une sortie ─ ses morceaux
  *          ├ Derniers publiés
  *          ├ Bibliothèque ─ Publiés, Terminés, En cours, Idées ─ leurs morceaux
- *          └ Hors ligne
+ *          └ Hors ligne ─ une sortie (ou « Sans sortie ») ─ ses morceaux gardés sur le téléphone
  * Identifiants : « releases », « release:12 », « latest », « library », « library:done », « offline »,
- * et pour un morceau « <dossier>/track:345 » (le dossier sert à remplir la file d'attente).
+ * « offline:release:12 », « offline:none », et pour un morceau « <dossier>/track:345 » (le dossier sert à
+ * remplir la file d'attente). Chaque liste de morceaux commence par « <dossier>/shuffle » : lecture aléatoire.
  *
  * Android Auto ne demande pas les listes par pages et Media3 coupe sans prévenir celles qui dépassent
  * 256 Ko : d'où les dossiers par statut et des éléments de liste légers (voir buildTrackItem).
@@ -35,6 +38,21 @@ class MediaTree(private val app: App) {
     @Volatile private var catalog: List<Track> = emptyList()
     @Volatile private var catalogAt = 0L
 
+    /** Une liste venue de ton PC, gardée 5 minutes, et conservée s'il ne répond plus */
+    private class Kept<T>(@Volatile var value: T? = null, @Volatile var at: Long = 0L)
+    private val releasesKept = Kept<List<Release>>()
+    private val latestKept = Kept<List<Track>>()
+
+    private suspend fun <T> kept(k: Kept<T>, load: suspend () -> T): T {
+        val now = System.currentTimeMillis()
+        k.value?.let { if (now - k.at < CATALOG_TTL) return it }
+        return try {
+            withServer { load() }.also { k.value = it; k.at = now }
+        } catch (e: Exception) {
+            k.value ?: throw e
+        }
+    }
+
     // ------------------------------------------------------------ dossiers
 
     fun root(): MediaItem = folder(ROOT, "Otoko Vault", null, MediaMetadata.MEDIA_TYPE_FOLDER_MIXED)
@@ -45,7 +63,8 @@ class MediaTree(private val app: App) {
         folder(LATEST, "Derniers publiés", "ic_auto_nouveautes", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
         folder(LIBRARY, "Bibliothèque", "ic_auto_bibliotheque", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
             browsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM),
-        folder(OFFLINE, "Hors ligne", "ic_auto_hors_ligne", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED),
+        folder(OFFLINE, "Hors ligne", "ic_auto_hors_ligne", MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+            browsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM),
     )
 
     /** Racine « récents » pour la reprise de lecture : le dernier morceau joué */
@@ -60,10 +79,53 @@ class MediaTree(private val app: App) {
     // ------------------------------------------------------------ contenus (réseau, hors thread principal)
 
     suspend fun releases(): List<MediaItem> {
-        val list = withServer { api.releases() }
+        val list = kept(releasesKept) { api.releases() }
         list.forEach { releaseCache[it.id] = it }
         return list.map { releaseItem(it) }
     }
+
+    /** Hors ligne : la lecture aléatoire, puis une entrée par sortie (voir offlineGroups) */
+    private fun offlineFolders(): List<MediaItem> {
+        val saved = app.downloads.saved.value
+        if (saved.isEmpty()) return listOf(notice(
+            "Rien sur le téléphone pour l'instant",
+            "Dans l'appli, touche la flèche d'un morceau pour le garder ici"))
+        val groups = offlineGroups(saved)
+        lists[OFFLINE] = groups.allTracks()
+        return buildList {
+            if (saved.size > 1) add(shuffleItem(OFFLINE, saved.size))
+            groups.forEach { add(offlineFolder(it)) }
+        }
+    }
+
+    private fun offlineFolder(g: OfflineGroup): MediaItem = MediaItem.Builder()
+        .setMediaId(OFFLINE_PREFIX + g.key)
+        .setMediaMetadata(MediaMetadata.Builder()
+            .setTitle(g.title)
+            .setSubtitle(g.subtitle)
+            .setAlbumTitle(g.release?.title)
+            .setIsBrowsable(true)
+            .setIsPlayable(false)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_ALBUM)
+            .setArtworkUri(g.release?.let { ArtworkProvider.releaseUri(it.id) } ?: ArtworkProvider.defaultUri)
+            .setExtras(Bundle().apply {
+                putInt(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_PLAYABLE, MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM)
+            })
+            .build())
+        .build()
+
+    /** En tête d'une liste de morceaux : tout le dossier, au hasard */
+    private fun shuffleItem(parent: String, count: Int): MediaItem = MediaItem.Builder()
+        .setMediaId("$parent/$SHUFFLE")
+        .setMediaMetadata(MediaMetadata.Builder()
+            .setTitle("Lecture aléatoire")
+            .setSubtitle(morceaux(count))
+            .setIsBrowsable(false)
+            .setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_PLAYLIST)
+            .setArtworkUri(ArtworkProvider.iconUri("aleatoire"))
+            .build())
+        .build()
 
     /** Toute la bibliothèque, dans l'ordre de l'appli, gardée 5 minutes : changer de dossier ne recharge rien */
     private suspend fun catalog(): List<Track> {
@@ -89,11 +151,16 @@ class MediaTree(private val app: App) {
             }
 
     suspend fun tracksOf(parent: String): List<Track> {
-        if (parent == OFFLINE) return app.downloads.saved.value.also { lists[parent] = it }
+        if (parent == OFFLINE) return offlineGroups(app.downloads.saved.value).allTracks().also { lists[parent] = it }
+        if (parent.startsWith(OFFLINE_PREFIX)) {
+            val key = parent.removePrefix(OFFLINE_PREFIX)
+            return offlineGroups(app.downloads.saved.value).firstOrNull { it.key == key }?.tracks.orEmpty()
+                .also { lists[parent] = it }
+        }
         if (parent == RECENT) return LastQueue.load(app)?.tracks.orEmpty()
         if (parent == SEARCH) return lists[SEARCH].orEmpty()
         val tracks = when {
-            parent == LATEST -> withServer {
+            parent == LATEST -> kept(latestKept) {
                 api.tracks(mapOf("status" to "released", "sort" to "published", "limit" to "30"))
             }
             parent.startsWith(STATUS_PREFIX) -> catalog().filter { it.status == parent.removePrefix(STATUS_PREFIX) }
@@ -114,7 +181,11 @@ class MediaTree(private val app: App) {
         if (parent == RECENT) return recentChildren()
         if (parent == RELEASES) return releases().paged(page, pageSize)
         if (parent == LIBRARY) return libraryFolders().paged(page, pageSize)
-        return tracksOf(parent).map { trackItem(it, "$parent/track:${it.id}") }.paged(page, pageSize)
+        if (parent == OFFLINE) return offlineFolders().paged(page, pageSize)
+        val tracks = tracksOf(parent)
+        val items = tracks.map { trackItem(it, "$parent/track:${it.id}") }
+        val withShuffle = if (tracks.size > 1 && parent != SEARCH) listOf(shuffleItem(parent, tracks.size)) + items else items
+        return withShuffle.paged(page, pageSize)
     }
 
     suspend fun search(query: String): List<Track> {
@@ -137,6 +208,14 @@ class MediaTree(private val app: App) {
         rootChildren().firstOrNull { it.mediaId == mediaId }?.let { return it }
         if (mediaId.startsWith(STATUS_PREFIX) && '/' !in mediaId)
             return libraryFolders().firstOrNull { it.mediaId == mediaId }
+        if (mediaId.startsWith(OFFLINE_PREFIX) && '/' !in mediaId) {
+            val key = mediaId.removePrefix(OFFLINE_PREFIX)
+            return offlineGroups(app.downloads.saved.value).firstOrNull { it.key == key }?.let { offlineFolder(it) }
+        }
+        if (mediaId.endsWith("/$SHUFFLE")) {
+            val parent = mediaId.removeSuffix("/$SHUFFLE")
+            return shuffleItem(parent, runCatching { tracksOf(parent) }.getOrDefault(emptyList()).size)
+        }
         if (mediaId.startsWith("release:") && '/' !in mediaId) {
             val id = mediaId.removePrefix("release:").toLongOrNull() ?: return null
             val r = releaseCache[id] ?: runCatching { withServer { api.release(id) }.first }.getOrNull() ?: return null
@@ -148,28 +227,38 @@ class MediaTree(private val app: App) {
 
     // ------------------------------------------------------------ lecture
 
+    /** Une file prête à jouer ; shuffle = true pour la lecture aléatoire d'un dossier */
+    class Queue(val items: List<MediaItem>, val index: Int, val shuffle: Boolean = false)
+
     /**
      * Ce que la voiture envoie (un identifiant) devient un morceau jouable.
-     * Si on lance un seul titre d'un dossier, toute la liste du dossier part en file d'attente.
+     * Si on lance un seul titre d'un dossier, toute la liste du dossier part en file d'attente ;
+     * « Lecture aléatoire » lance tout le dossier au hasard.
      */
-    suspend fun resolveQueue(items: List<MediaItem>, startIndex: Int): Pair<List<MediaItem>, Int> {
+    suspend fun resolveQueue(items: List<MediaItem>, startIndex: Int): Queue {
+        if (items.size == 1 && items[0].mediaId.endsWith("/$SHUFFLE")) {
+            val parent = items[0].mediaId.removeSuffix("/$SHUFFLE")
+            val list = runCatching { tracksOf(parent) }.getOrDefault(emptyList())
+            if (list.isNotEmpty())
+                return Queue(list.map { playable(it, "$parent/track:${it.id}") }, Random.nextInt(list.size), shuffle = true)
+        }
         if (items.size == 1 && items[0].localConfiguration == null) {
             val parsed = parseTrackId(items[0].mediaId)
             if (parsed != null && parsed.first != null && parsed.first != RECENT) {
                 val (parent, trackId) = parsed
                 val list = lists[parent] ?: runCatching { tracksOf(parent!!) }.getOrDefault(emptyList())
                 val index = list.indexOfFirst { it.id == trackId }
-                if (index >= 0) return list.map { playable(it, "$parent/track:${it.id}") } to index
+                if (index >= 0) return Queue(list.map { playable(it, "$parent/track:${it.id}") }, index)
             }
             if (parsed?.first == RECENT) {
                 LastQueue.load(app)?.let { q ->
-                    return q.tracks.map { playable(it, "$RECENT/track:${it.id}") } to q.index.coerceIn(0, q.tracks.size - 1)
+                    return Queue(q.tracks.map { playable(it, "$RECENT/track:${it.id}") }, q.index.coerceIn(0, q.tracks.size - 1))
                 }
             }
         }
         // Sans adresse audio, le lecteur planterait : ce qu'on ne reconnaît pas est écarté
         val ready = items.map { resolve(it) }.filter { it.localConfiguration != null }
-        return ready to startIndex.coerceAtMost(ready.lastIndex)
+        return Queue(ready, startIndex.coerceAtMost(ready.lastIndex))
     }
 
     suspend fun resolve(item: MediaItem): MediaItem {
@@ -241,24 +330,35 @@ class MediaTree(private val app: App) {
         buildTrackItem(app, t, mediaId, withUri)
 
     /** Élément affiché quand ton PC ne répond pas (non jouable) */
-    fun unreachable(): MediaItem = MediaItem.Builder()
+    fun unreachable(): MediaItem =
+        if (app.settings.server.value.isBlank())
+            notice("L'appli n'est pas encore reliée", "Ouvre Otoko Vault sur le téléphone pour la relier à ton PC")
+        else notice("Ton PC ne répond pas", "Vérifie que son serveur tourne et que Tailscale est actif · « Hors ligne » reste disponible")
+
+    /** Une ligne d'information, ni jouable ni dossier */
+    private fun notice(title: String, subtitle: String): MediaItem = MediaItem.Builder()
         .setMediaId(UNREACHABLE)
         .setMediaMetadata(MediaMetadata.Builder()
-            .setTitle(if (app.settings.server.value.isBlank()) "L'appli n'est pas encore reliée" else "Ton PC ne répond pas")
-            .setSubtitle(if (app.settings.server.value.isBlank()) "Ouvre Otoko Vault sur le téléphone pour la relier à ton PC"
-                else "Vérifie Tailscale sur le téléphone · « Hors ligne » reste disponible")
+            .setTitle(title)
+            .setSubtitle(subtitle)
             .setIsBrowsable(false)
             .setIsPlayable(false)
-            .setArtworkUri(Uri.parse("android.resource://${app.packageName}/drawable/ic_auto_hors_ligne"))
+            .setArtworkUri(ArtworkProvider.iconUri("hors_ligne"))
             .build())
         .build()
 
-    /** Si ton PC ne répond pas, on cherche une autre adresse (HTTPS, nom, IP Tailscale) puis on réessaie */
-    private suspend fun <T> withServer(block: suspend () -> T): T = try {
-        block()
-    } catch (e: Exception) {
-        if (!app.findServer()) throw e
-        block()
+    /**
+     * Si ton PC ne répond pas, on cherche une autre adresse (HTTPS, nom, IP Tailscale) puis on réessaie.
+     * Il vient de ne répondre nulle part : on le dit tout de suite au lieu de refaire attendre la voiture.
+     */
+    private suspend fun <T> withServer(block: suspend () -> T): T {
+        if (app.serverDown()) throw IOException("Ton PC ne répond pas")
+        return try {
+            block()
+        } catch (e: Exception) {
+            if (!app.findServer()) throw e
+            block()
+        }
     }
 
     companion object {
@@ -270,7 +370,9 @@ class MediaTree(private val app: App) {
         const val OFFLINE = "offline"
         const val SEARCH = "search"
         const val UNREACHABLE = "unreachable"
+        const val SHUFFLE = "shuffle"
         private const val STATUS_PREFIX = "$LIBRARY:"
+        private const val OFFLINE_PREFIX = "$OFFLINE:"
         private const val CATALOG_TTL = 5 * 60 * 1000L
         private val STATUS_ORDER = listOf("released", "done", "wip", "idea")
         private val STATUS_TITLES = mapOf(

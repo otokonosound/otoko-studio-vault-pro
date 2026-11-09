@@ -1108,7 +1108,7 @@ pub fn details(app: &AppWindow, st: &mut State) {
             text("sc_url", "LIEN SOUNDCLOUD"),
             text("published_at", "PUBLIÉ LE (AAAA-MM-JJ)"),
         ],
-        3 => vec![pick("role", "TYPE DE FICHIER", lib::role_label(&r.role)), text("version_label", "VERSION"), text("daw_project", "PROJET (FL, ABLETON…)")],
+        3 => vec![pick("role", "TYPE DE FICHIER", lib::role_label(&r.role)), text("version_label", "VERSION"), text("daw_project", "PROJET (FL, ABLETON, CUBASE, REAPER…)")],
         _ => vec![
             text("title", "TITRE"),
             text("artist", "ARTISTE"),

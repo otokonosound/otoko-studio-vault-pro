@@ -81,6 +81,10 @@ data class UiState(
     val sheetOpen: Boolean = false,
     val playingQuality: Quality? = null,
     val offlinePlayback: Boolean = false,
+    /** Lecture aléatoire allumée */
+    val shuffle: Boolean = false,
+    /** Player.REPEAT_MODE_OFF, _ALL ou _ONE */
+    val repeat: Int = 0,
     val shares: List<Share> = emptyList(),
     val sharesLoading: Boolean = false,
     val sharesError: String? = null,
@@ -260,14 +264,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun closeRelease() = _ui.update { it.copy(releaseView = null) }
 
-    /** Joue toute la sortie dans l'ordre (la file d'attente devient la sortie) */
-    fun playRelease(id: Long, onError: (String) -> Unit) {
+    /** Joue toute la sortie, dans l'ordre ou au hasard (la file d'attente devient la sortie) */
+    fun playRelease(id: Long, onError: (String) -> Unit, shuffle: Boolean = false) {
         val v = _ui.value.releaseView
-        if (v?.id == id && v.tracks.isNotEmpty()) { play(v.tracks, 0); return }
+        if (v?.id == id && v.tracks.isNotEmpty()) { playAll(v.tracks, shuffle); return }
         viewModelScope.launch {
             try {
                 val tracks = a.api.release(id).second
-                if (tracks.isEmpty()) onError("Cette sortie n'a pas encore de morceaux.") else play(tracks, 0)
+                if (tracks.isEmpty()) onError("Cette sortie n'a pas encore de morceaux.") else playAll(tracks, shuffle)
             } catch (e: Exception) {
                 onError("Ton PC ne répond pas.")
             }
@@ -309,6 +313,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ------------------------------------------------------------ lecture
+
+    /** Toute une liste : dans l'ordre depuis le premier, ou au hasard (le mode aléatoire s'allume) */
+    fun playAll(list: List<Track>, shuffle: Boolean) {
+        if (list.isEmpty()) return
+        val c = controller ?: return
+        c.shuffleModeEnabled = shuffle
+        play(list, if (shuffle) kotlin.random.Random.nextInt(list.size) else 0)
+    }
+
+    fun toggleShuffle() {
+        val c = controller ?: return
+        c.shuffleModeEnabled = !c.shuffleModeEnabled
+    }
+
+    /** Sans répétition → toute la file → ce morceau → sans répétition */
+    fun cycleRepeat() {
+        val c = controller ?: return
+        c.repeatMode = when (c.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+    }
 
     fun play(list: List<Track>, index: Int) {
         val c = controller ?: return
@@ -367,6 +394,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 position = c.currentPosition,
                 duration = durationOf(c),
                 playingQuality = id?.let { k -> queueQuality[k] },
+                shuffle = c.shuffleModeEnabled,
+                repeat = c.repeatMode,
                 offlinePlayback = id != null && queueQuality.containsKey(id) && queueQuality[id] == null,
                 waveform = if (changed) emptyList() else it.waveform,
             )

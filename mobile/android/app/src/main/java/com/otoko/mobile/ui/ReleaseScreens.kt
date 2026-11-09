@@ -38,6 +38,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -164,13 +166,13 @@ private fun ReleaseHero(r: Release, vm: MainViewModel, onMessage: (String) -> Un
             Modifier.fillMaxWidth().aspectRatio(1f).shadow(24.dp, RoundedCornerShape(10.dp))
                 .clickable { vm.openRelease(r.id) },
             radius = 10.dp)
-        ReleaseInfo(r, descLines = 3, onPlay = { vm.playRelease(r.id, onMessage) })
+        ReleaseInfo(r, descLines = 3, onPlay = { vm.playRelease(r.id, onMessage) }, onShuffle = { vm.playRelease(r.id, onMessage, shuffle = true) })
     }
 }
 
 /** Titre, type, date, « 5 titres · 18 min », description, boutons */
 @Composable
-private fun ReleaseInfo(r: Release, descLines: Int, onPlay: () -> Unit, extra: (@Composable () -> Unit)? = null) {
+private fun ReleaseInfo(r: Release, descLines: Int, onPlay: () -> Unit, onShuffle: () -> Unit, extra: (@Composable () -> Unit)? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(r.title, fontFamily = Display, fontWeight = FontWeight.Bold, fontSize = 34.sp, lineHeight = 36.sp,
             letterSpacing = (-1).sp, color = Palette.White, maxLines = 3, overflow = TextOverflow.Ellipsis)
@@ -193,6 +195,11 @@ private fun ReleaseInfo(r: Release, descLines: Int, onPlay: () -> Unit, extra: (
                 Icon(Icons.Play, null, tint = Palette.Black, modifier = Modifier.size(18.dp))
                 Text("Tout écouter", color = Palette.Black, fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
             }
+            if (r.tracks > 1) Box(
+                Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f)).clickable(onClick = onShuffle)
+                    .semantics { contentDescription = "Lecture aléatoire" },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Shuffle, null, tint = Palette.White, modifier = Modifier.size(20.dp)) }
             extra?.invoke()
             if (r.soundcloud.isNotBlank()) {
                 val context = LocalContext.current
@@ -355,6 +362,7 @@ fun ReleaseDetail(ui: UiState, vm: MainViewModel, accent: Color, onMessage: (Str
                                     .shadow(28.dp, RoundedCornerShape(10.dp)),
                                 radius = 10.dp)
                             ReleaseInfo(r, descLines = Int.MAX_VALUE, onPlay = { vm.playRelease(r.id, onMessage) },
+                                onShuffle = { vm.playRelease(r.id, onMessage, shuffle = true) },
                                 extra = if (view.tracks.isEmpty()) null else {
                                     { ReleaseDownloadButton(r, view.tracks, vm, onMessage) }
                                 })

@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -67,8 +68,11 @@ fun Cover(track: Track?, size: Dp, radius: Dp, modifier: Modifier = Modifier, hi
     val shape = RoundedCornerShape(radius)
     Box(modifier.size(size).clip(shape)) {
         val fallback = @Composable { CoverFallback(track) }
+        // Gardée hors ligne : elle s'affiche même sans ton PC
+        val covers by App.instance.downloads.covers.collectAsState()
         if (track == null) fallback() else SubcomposeAsyncImage(
-            model = App.instance.api.coverUrl(track.id, if (hiRes) 600 else 160),
+            model = App.instance.downloads.localCover(track.id).takeIf { track.id in covers }
+                ?: App.instance.api.coverUrl(track.id, if (hiRes) 600 else 160),
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
