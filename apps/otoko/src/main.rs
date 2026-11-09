@@ -16,10 +16,10 @@ mod bibliotheque;
 mod callbacks;
 mod career;
 mod distant;
+mod donnees;
 mod fond;
 mod images;
 mod lecteur;
-mod library;
 mod loudness;
 mod majs;
 mod mastrage;
@@ -29,7 +29,6 @@ mod outils;
 mod palette;
 mod partage;
 mod preferences;
-mod prefs;
 mod projets;
 mod publish;
 mod raccourcis;
@@ -144,7 +143,7 @@ fn main() {
     let (jobs_tx, jobs_rx) = mpsc::channel();
     let poll = Rc::new(Timer::default());
     // Relié au PC principal : on travaille sur une copie de sa base.
-    let lien = if flag("--selftest") || flag("--demo") { None } else { distant::address().map(|url| distant::boot(&url)) };
+    let lien = if flag("--selftest") || flag("--demo") { None } else { distant::address().map(|url| distant::boot(&url, &distant::code())) };
     let base = if lien.is_some() { distant::base_path() } else { career::default_path() };
     let state = Rc::new(RefCell::new(State {
         jobs: jobs_tx,
@@ -186,7 +185,7 @@ fn main() {
         }
     }
     // Les connaissances sur Suno : une copie posée dans les données remplace celles fournies.
-    otoko_library::career::suno::init_caps(Some(&library::data_dir().join("suno_capabilities.json")));
+    otoko_library::career::suno::init_caps(Some(&donnees::data_dir().join("suno_capabilities.json")));
     // Le serveur de l'app mobile, si on a demandé que le logiciel le fasse tourner (jamais sur une copie).
     if !mesure && state.borrow().distant.is_none() {
         mobile::autostart(&mut state.borrow_mut());

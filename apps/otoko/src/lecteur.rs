@@ -214,7 +214,7 @@ pub fn play_id(app: &AppWindow, st: &mut State, id: i64, at: f64) {
     start_stream(app, st, at);
     // La forme d'onde, calculée une fois (cache du serveur mobile).
     let path = r.path.clone();
-    let cache = if st.career_path == crate::career::default_path() { crate::library::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
+    let cache = if st.career_path == crate::career::default_path() { crate::donnees::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
     st.spawn(move || {
         let w = otoko_mobile::media::Cache::new(cache).waveform(Path::new(&path), 400);
         let peaks: Vec<f32> = w.as_ref().and_then(|v| v["peaks"].as_array().cloned()).unwrap_or_default().iter().filter_map(|p| p.as_f64()).map(|p| p as f32).collect();

@@ -17,12 +17,12 @@ pub fn parse(v: &str) -> (u32, u32, u32) {
 
 /// Le dossier des installateurs de ce PC.
 pub fn folder() -> Option<PathBuf> {
-    let file = crate::library::data_dir().join(otoko_mobile::UPDATES_FILE);
+    let file = crate::donnees::data_dir().join(otoko_mobile::UPDATES_FILE);
     std::fs::read_to_string(file).ok().map(|d| PathBuf::from(d.trim())).filter(|d| !d.as_os_str().is_empty())
 }
 
 pub fn set_folder(dir: Option<&Path>) {
-    let file = crate::library::data_dir().join(otoko_mobile::UPDATES_FILE);
+    let file = crate::donnees::data_dir().join(otoko_mobile::UPDATES_FILE);
     let _ = match dir {
         Some(d) => std::fs::write(file, d.to_string_lossy().as_bytes()),
         None => std::fs::remove_file(file),
@@ -30,26 +30,65 @@ pub fn set_folder(dir: Option<&Path>) {
 }
 
 /// D'où vient une nouvelle version.
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Source {
     /// Le dossier des installateurs de ce PC.
     Folder(PathBuf),
-    /// Le PC principal, pour un autre PC qui lui est relié.
-    MainPc,
-    /// La page des versions sur GitHub : l'adresse de l'installateur.
-    Web(String),
+    /// Le PC principal, pour un autre PC qui lui est relié, avec l'empreinte SHA-256 qu'il donne de son installateur (un
+    /// serveur plus ancien n'en donne pas).
+    MainPc(Option<String>),
+    /// La page des versions sur GitHub : l'adresse de l'installateur et de quoi le vérifier.
+    Web(Release),
+}
+
+/// Un installateur publié sur GitHub. Il ne se lance qu'après vérification de son empreinte SHA-256 : celle que GitHub
+/// calcule à l'envoi (« digest »), sinon celle du fichier « ….exe.sha256 » publié à côté.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Release {
+    pub url: String,
+    pub sha256: Option<String>,
+    pub sha256_url: Option<String>,
+}
+
+/// « sha256:ABC… », « abc…  fichier.exe » ou « abc… » : les 64 chiffres hexadécimaux, en minuscules.
+pub fn sha256_in(text: &str) -> Option<String> {
+    let t = text.trim();
+    let t = t.strip_prefix("sha256:").unwrap_or(t);
+    let hex = t.split_whitespace().next()?.to_ascii_lowercase();
+    (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then_some(hex)
+}
+
+/// Le fichier est-il exactement celui attendu ? Sinon il est effacé : rien ne lance un installateur douteux.
+fn verified(path: &Path, expected: &str) -> Result<(), String> {
+    match otoko_mobile::complements::sha256_of(path) {
+        Ok(h) if h == expected => Ok(()),
+        Ok(_) => {
+            let _ = std::fs::remove_file(path);
+            Err("l'installateur reçu n'est pas celui publié (empreinte différente) : il a été effacé. Réessaie plus tard, ou installe la version à la main depuis la page Releases.".into())
+        }
+        Err(e) => Err(format!("installateur illisible : {e}")),
+    }
 }
 
 /// La dernière version publiée. Rien n'est envoyé : c'est une simple lecture de la page publique.
 const RELEASES: &str = "https://api.github.com/repos/otokonosound/otoko-studio-vault-pro/releases/latest";
 
-/// (version, adresse de l'installateur) d'après la réponse de GitHub.
-fn read_release(v: &serde_json::Value) -> Option<(String, String)> {
+/// (version, installateur) d'après la réponse de GitHub.
+fn read_release(v: &serde_json::Value) -> Option<(String, Release)> {
     let version = v["tag_name"].as_str()?.trim_start_matches('v').to_string();
     let name = format!("Otoko-Studio-Vault-Pro-{version}-installation.exe");
-    let asset = v["assets"].as_array()?.iter().find(|a| a["name"] == name.as_str())?;
-    let url = asset["browser_download_url"].as_str()?;
-    url.starts_with("https://github.com/otokonosound/").then(|| (version, url.to_string()))
+    let ours = |u: &str| u.starts_with("https://github.com/otokonosound/");
+    let assets = v["assets"].as_array()?;
+    let asset = assets.iter().find(|a| a["name"] == name.as_str())?;
+    let url = asset["browser_download_url"].as_str().filter(|u| ours(u))?;
+    let sha256 = asset["digest"].as_str().and_then(sha256_in);
+    let sha256_url = assets
+        .iter()
+        .find(|a| a["name"] == format!("{name}.sha256").as_str())
+        .and_then(|a| a["browser_download_url"].as_str())
+        .filter(|u| ours(u))
+        .map(str::to_string);
+    Some((version, Release { url: url.to_string(), sha256, sha256_url }))
 }
 
 /// Cherche une version plus récente, en fond.
@@ -61,7 +100,11 @@ pub fn check(st: &mut State) {
     st.spawn(move || {
         let current = parse(env!("CARGO_PKG_VERSION"));
         let found = match remote {
-            Some(url) => crate::fond::fetch_json(&format!("{url}/api/maj")).ok().and_then(|v| v["pc"].as_str().map(str::to_string)).filter(|v| parse(v) > current).map(|v| (v, Source::MainPc)),
+            Some(url) => crate::fond::fetch_json(&format!("{url}/api/maj"))
+                .ok()
+                .and_then(|v| Some((v["pc"].as_str()?.to_string(), v["pc_sha256"].as_str().and_then(sha256_in))))
+                .filter(|(v, _)| parse(v) > current)
+                .map(|(v, sha)| (v, Source::MainPc(sha))),
             None => folder()
                 .and_then(|d| otoko_mobile::newest_in(&d))
                 .filter(|(v, _)| parse(v) > current)
@@ -122,24 +165,64 @@ pub fn install(app: &AppWindow, st: &mut State) {
     if st.selftest {
         return;
     }
-    let url = match st.update_source.clone() {
+    let (url, check) = match st.update_source.clone() {
         Some(Source::Folder(p)) => return launch(app, &p),
-        Some(Source::Web(u)) => u,
-        Some(Source::MainPc) => {
+        Some(Source::Web(r)) => {
+            let check = match (r.sha256, r.sha256_url) {
+                (Some(h), _) => Check::Known(h),
+                (None, Some(u)) => Check::At(u),
+                (None, None) => Check::Missing,
+            };
+            (r.url, check)
+        }
+        Some(Source::MainPc(sha)) => {
             let Some(d) = st.distant.as_ref() else { return };
             if !trusted_source(&d.url) {
                 app.set_message("Mise à jour refusée : pour la recevoir, relie ce PC avec son adresse Tailscale (….ts.net), ou installe-la à la main.".into());
                 return;
             }
-            format!("{}/maj/pc", d.url)
+            // Un PC principal plus ancien ne donne pas d'empreinte : Tailscale garantit alors seul à qui on parle.
+            (format!("{}/maj/pc", d.url), sha.map(Check::Known).unwrap_or(Check::Tailscale))
         }
         None => return,
     };
     app.set_message("Téléchargement de la mise à jour…".into());
-    st.spawn(move || {
-        let out = std::env::temp_dir().join("Otoko-Studio-Vault-Pro-installation.exe");
-        Done::UpdateFetched(crate::fond::fetch_file(&url, &out).map(|()| out))
-    });
+    st.spawn(move || Done::UpdateFetched(fetch_installer(&url, check)));
+}
+
+/// Comment vérifier un installateur avant de le lancer.
+#[derive(Debug)]
+enum Check {
+    /// L'empreinte SHA-256 attendue.
+    Known(String),
+    /// L'adresse du fichier « .sha256 » publié à côté.
+    At(String),
+    /// Un PC principal plus ancien, par Tailscale : pas d'empreinte, le réseau garantit l'appareil.
+    Tailscale,
+    /// Depuis Internet sans aucune empreinte : refusé.
+    Missing,
+}
+
+/// Télécharge l'installateur dans un fichier à soi, puis le vérifie. Depuis Internet, sans empreinte, il n'est pas lancé.
+fn fetch_installer(url: &str, check: Check) -> Result<PathBuf, String> {
+    let expected = match check {
+        Check::Known(h) => Some(h),
+        Check::At(u) => Some(
+            crate::fond::fetch_text(&u)
+                .ok()
+                .and_then(|t| sha256_in(&t))
+                .ok_or("l'empreinte de l'installateur est illisible : installe la version à la main depuis la page Releases.")?,
+        ),
+        Check::Tailscale => None,
+        Check::Missing => return Err("cette version n'a pas d'empreinte publiée : installe-la à la main depuis la page Releases.".into()),
+    };
+    let out = std::env::temp_dir().join(format!("Otoko-Studio-Vault-Pro-installation-{}.exe", std::process::id()));
+    let _ = std::fs::remove_file(&out);
+    crate::fond::fetch_file(url, &out)?;
+    if let Some(h) = expected {
+        verified(&out, &h)?;
+    }
+    Ok(out)
 }
 
 /// L'installateur est arrivé : on le lance.
@@ -179,12 +262,44 @@ mod tests {
             { "name": "autre.zip", "browser_download_url": "https://github.com/otokonosound/x/autre.zip" },
             { "name": "Otoko-Studio-Vault-Pro-1.2.3-installation.exe", "browser_download_url": "https://github.com/otokonosound/otoko-studio-vault-pro/releases/download/v1.2.3/a.exe" },
         ] });
-        let (v, url) = read_release(&good).unwrap();
+        let (v, r) = read_release(&good).unwrap();
         assert_eq!(v, "1.2.3");
-        assert!(url.ends_with("a.exe"));
+        assert!(r.url.ends_with("a.exe"));
+        assert_eq!((r.sha256, r.sha256_url), (None, None), "sans empreinte : rien à vérifier, donc pas d'installation automatique");
         let elsewhere = serde_json::json!({ "tag_name": "v1.2.3", "assets": [{ "name": "Otoko-Studio-Vault-Pro-1.2.3-installation.exe", "browser_download_url": "https://example.com/a.exe" }] });
         assert!(read_release(&elsewhere).is_none());
         assert!(read_release(&serde_json::json!({ "message": "Not Found" })).is_none());
+    }
+
+    #[test]
+    fn a_release_says_how_to_check_its_installer() {
+        let hex = "ab".repeat(32);
+        let with_digest = serde_json::json!({ "tag_name": "v1.2.3", "assets": [
+            { "name": "Otoko-Studio-Vault-Pro-1.2.3-installation.exe", "digest": format!("sha256:{}", hex.to_uppercase()),
+              "browser_download_url": "https://github.com/otokonosound/otoko-studio-vault-pro/releases/download/v1.2.3/a.exe" },
+        ] });
+        assert_eq!(read_release(&with_digest).unwrap().1.sha256.as_deref(), Some(hex.as_str()));
+        let with_file = serde_json::json!({ "tag_name": "v1.2.3", "assets": [
+            { "name": "Otoko-Studio-Vault-Pro-1.2.3-installation.exe", "browser_download_url": "https://github.com/otokonosound/otoko-studio-vault-pro/releases/download/v1.2.3/a.exe" },
+            { "name": "Otoko-Studio-Vault-Pro-1.2.3-installation.exe.sha256", "browser_download_url": "https://github.com/otokonosound/otoko-studio-vault-pro/releases/download/v1.2.3/a.exe.sha256" },
+        ] });
+        assert!(read_release(&with_file).unwrap().1.sha256_url.is_some_and(|u| u.ends_with(".sha256")));
+        assert_eq!(sha256_in(&format!("{hex}  Otoko-Studio-Vault-Pro-1.2.3-installation.exe\r\n")).as_deref(), Some(hex.as_str()));
+        assert_eq!(sha256_in("sha256:1234"), None);
+        assert_eq!(sha256_in(""), None);
+    }
+
+    #[test]
+    fn an_installer_is_launched_only_if_it_is_the_one_published() {
+        let dir = std::env::temp_dir().join(format!("otoko-majs-sha-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.exe");
+        std::fs::write(&f, b"abc").unwrap();
+        assert!(verified(&f, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad").is_ok());
+        assert!(verified(&f, &"00".repeat(32)).is_err());
+        assert!(!f.exists(), "un installateur douteux est effacé");
+        assert!(fetch_installer("https://github.com/otokonosound/x.exe", Check::Missing).is_err(), "depuis Internet, sans empreinte : refusé avant même le téléchargement");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

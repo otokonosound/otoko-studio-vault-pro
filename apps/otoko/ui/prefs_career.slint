@@ -58,6 +58,11 @@ export global CPrefs {
     callback update-install();
     // Ce PC relié au PC principal.
     in-out property <string> remote-address;
+    in-out property <string> remote-code;
+    // Le code de liaison de ce PC, quand c'est lui le PC principal.
+    in property <string> link-code;
+    callback link-copy();
+    callback link-renew();
     in property <bool> remote-on;
     in property <string> remote-info;
     callback remote-test();
@@ -183,7 +188,13 @@ export component CareerPrefs inherits VerticalLayout {
     if CPrefs.ready && root.part == "general": VerticalLayout {
         spacing: 10px;
         H2 { text: "Travailler depuis un autre PC"; }
-        Text { text: "À régler sur l'autre PC, pas sur le PC principal : indique l'adresse Tailscale du PC principal. La base reste sur le PC principal : ce PC en garde une copie, envoie ce que tu modifies et reçoit la musique à la demande. L'analyse, le mastering et les dossiers surveillés restent sur le PC principal."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        Text { text: "À régler sur l'autre PC, pas sur le PC principal : indique l'adresse Tailscale du PC principal et son code de liaison. La base reste sur le PC principal : ce PC en garde une copie, envoie ce que tu modifies et reçoit la musique à la demande. L'analyse, le mastering et les dossiers surveillés restent sur le PC principal."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        if !CPrefs.remote-on && CPrefs.link-code != "": HorizontalLayout {
+            spacing: 8px;
+            Text { horizontal-stretch: 1; text: "Si c'est ce PC le principal, son code de liaison : " + CPrefs.link-code; color: Theme.text2; font-size: 12px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Copier"; height: 28px; clicked => { CPrefs.link-copy(); } }
+            Btn { text: "Nouveau code"; height: 28px; ghost: true; clicked => { CPrefs.link-renew(); } }
+        }
         HorizontalLayout {
             spacing: 8px;
             Rectangle {
@@ -193,6 +204,14 @@ export component CareerPrefs inherits VerticalLayout {
                 background: Theme.ink3;
                 if ra.text == "": Text { x: 9px; text: "mon-pc.xxxx.ts.net"; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; }
                 ra := TextInput { x: 9px; width: parent.width - 18px; height: 100%; text <=> CPrefs.remote-address; color: Theme.text; font-size: 12.5px; vertical-alignment: center; single-line: true; }
+            }
+            Rectangle {
+                width: 190px;
+                height: 30px;
+                border-radius: 8px;
+                background: Theme.ink3;
+                if rc.text == "": Text { x: 9px; text: "Code de liaison"; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                rc := TextInput { x: 9px; width: parent.width - 18px; height: 100%; text <=> CPrefs.remote-code; color: Theme.text; font-size: 12.5px; font-family: Theme.mono-font; vertical-alignment: center; single-line: true; }
             }
             Btn { text: "Tester"; height: 30px; clicked => { CPrefs.remote-test(); } }
             if !CPrefs.remote-on: Btn { text: "Se connecter"; primary: true; height: 30px; clicked => { CPrefs.remote-connect(); } }

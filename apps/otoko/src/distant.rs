@@ -9,7 +9,7 @@ use serde_json::{Value as Json, json};
 
 use slint::ComponentHandle;
 
-use crate::fond::{fetch_file, fetch_json, post_json};
+use crate::fond::{fetch_file, fetch_json, main_file, main_json, post_json};
 use crate::{AppWindow, CPrefs};
 use crate::state::{Done, State};
 
@@ -24,19 +24,23 @@ const AUDIO_CACHE: u64 = 3 * 1024 * 1024 * 1024;
 #[derive(Default)]
 pub struct Distant {
     pub url: String,
+    /// Le code de liaison du PC principal : sans lui, il ne donne pas sa base.
+    pub code: String,
     pub stamp: String,
     pub online: bool,
+    /// Le PC principal a refusé le code de liaison : le dire, pas « injoignable ».
+    pub refused: bool,
     pub busy: bool,
     pub ticks: u32,
 }
 
 fn file() -> PathBuf {
-    crate::library::data_dir().join("distant.json")
+    crate::donnees::data_dir().join("distant.json")
 }
 
 /// Le dossier de ce mode : la copie de la base et les caches.
 pub fn dir() -> PathBuf {
-    crate::library::data_dir().join("distant")
+    crate::donnees::data_dir().join("distant")
 }
 
 pub fn base_path() -> PathBuf {
@@ -63,9 +67,15 @@ pub fn address() -> Option<String> {
     v["adresse"].as_str().map(normalize).filter(|a| !a.is_empty())
 }
 
-pub fn set_address(addr: Option<&str>) {
-    let _ = match addr {
-        Some(a) => std::fs::write(file(), json!({ "adresse": normalize(a) }).to_string()),
+/// Le code de liaison du PC principal, tel que recopié ici.
+pub fn code() -> String {
+    std::fs::read_to_string(file()).ok().and_then(|t| serde_json::from_str::<Json>(&t).ok()).and_then(|v| v["code"].as_str().map(str::to_string)).unwrap_or_default()
+}
+
+/// Relie ce PC au PC principal (adresse et code de liaison), ou l'en détache.
+pub fn set_address(link: Option<(&str, &str)>) {
+    let _ = match link {
+        Some((a, code)) => std::fs::write(file(), json!({ "adresse": normalize(a), "code": code.trim() }).to_string()),
         None => std::fs::remove_file(file()),
     };
 }
@@ -77,13 +87,18 @@ fn too_old(version: &str) -> bool {
 }
 
 /// Le PC principal répond-il ? Rend de quoi l'afficher.
-pub fn test(url: &str) -> Result<String, String> {
+pub fn test(url: &str, code: &str) -> Result<String, String> {
     let ping = fetch_json(&format!("{url}/api/ping")).map_err(|_| format!("Rien ne répond à {url}. Vérifie que Tailscale est connecté sur les deux PC et que le serveur tourne sur le PC principal."))?;
     let version = ping["version"].as_str().unwrap_or("");
     if too_old(version) {
         return Err(format!("Le serveur du PC principal est en version {version}, trop ancienne pour ce mode. Sur le PC principal, lance « Installer le serveur mobile » (dossier mobile du logiciel), puis réessaie."));
     }
-    let state = fetch_json(&format!("{url}/api/distant/etat")).map_err(|_| "Le PC principal répond, mais il refuse cette adresse : passe par Tailscale.".to_string())?;
+    if otoko_mobile::link_normalize(code).len() < 16 {
+        return Err("Recopie aussi le code de liaison du PC principal : il l'affiche dans Réglages › Général, sous « Travailler depuis un autre PC ».".to_string());
+    }
+    let state = main_json(&format!("{url}/api/distant/etat"), code).map_err(|e| {
+        if e == crate::fond::REFUSED_CODE { e } else { "Le PC principal répond, mais il refuse cette adresse : passe par Tailscale, et vérifie que son serveur est à jour (« Installer le serveur mobile »).".to_string() }
+    })?;
     let here = std::env::var("COMPUTERNAME").unwrap_or_default();
     if !here.is_empty() && state["machine"].as_str().is_some_and(|m| m.eq_ignore_ascii_case(&here)) {
         return Err("C'est l'adresse de ce PC : le PC principal travaille sur sa propre base. Ce réglage sert sur un autre ordinateur.".to_string());
@@ -99,19 +114,20 @@ pub fn try_address(app: &AppWindow, st: &mut State, connect: bool) {
         g.set_remote_info("Indique d'abord l'adresse du PC principal.".into());
         return;
     }
+    let code = g.get_remote_code().trim().to_string();
     g.set_remote_address(url.as_str().into());
     g.set_remote_info("Recherche du PC principal…".into());
     st.spawn(move || {
-        let result = test(&url);
-        Done::RemoteTest { url, connect, result }
+        let result = test(&url, &code);
+        Done::RemoteTest { url, code, connect, result }
     });
 }
 
-pub fn tried(app: &AppWindow, url: &str, connect: bool, r: Result<String, String>) {
+pub fn tried(app: &AppWindow, url: &str, code: &str, connect: bool, r: Result<String, String>) {
     let g = app.global::<CPrefs>();
     match r {
         Ok(_) if connect => {
-            set_address(Some(url));
+            set_address(Some((url, code)));
             g.set_remote_on(true);
             g.set_remote_info("Relié au PC principal : relance le logiciel pour travailler sur sa base.".into());
         }
@@ -124,10 +140,10 @@ fn new_copy() -> PathBuf {
 }
 
 /// Rapatrie la base du PC principal à côté de la copie en place : une coupure ne casse rien, et l'interface continue pendant ce temps.
-fn fetch_copy(url: &str) -> Result<String, String> {
+fn fetch_copy(url: &str, code: &str) -> Result<String, String> {
     let _ = std::fs::create_dir_all(dir());
-    let stamp = fetch_json(&format!("{url}/api/distant/etat"))?["stamp"].as_str().unwrap_or("").to_string();
-    fetch_file(&format!("{url}/api/distant/base"), &new_copy())?;
+    let stamp = main_json(&format!("{url}/api/distant/etat"), code)?["stamp"].as_str().unwrap_or("").to_string();
+    main_file(&format!("{url}/api/distant/base"), &new_copy(), code)?;
     prepare(&new_copy())?;
     Ok(stamp)
 }
@@ -148,18 +164,26 @@ fn prepare(path: &Path) -> Result<(), String> {
 }
 
 /// Au lancement : la base du PC principal, sinon la dernière copie (hors ligne, les écritures attendront).
-pub fn boot(url: &str) -> Distant {
-    let waiting = base_path().is_file() && Career::open(&base_path()).map(|c| distant::waiting(c.conn())).unwrap_or(0) > 0;
-    let (online, stamp) = if waiting {
+pub fn boot(url: &str, code: &str) -> Distant {
+    // La copie en place reprend les déclencheurs de cette version (colonnes changées seulement) avant toute écriture.
+    let waiting = base_path().is_file()
+        && Career::open(&base_path())
+            .map(|c| {
+                let _ = distant::install(c.conn());
+                distant::waiting(c.conn())
+            })
+            .unwrap_or(0)
+            > 0;
+    let (online, refused, stamp) = if waiting {
         // Des écritures attendent : la copie est gardée, elles partiront d'abord.
-        (true, String::new())
+        (true, false, String::new())
     } else {
-        match fetch_copy(url).and_then(|s| swap_copy().map(|()| s)) {
-            Ok(s) => (true, s),
-            Err(_) => (false, String::new()),
+        match fetch_copy(url, code).and_then(|s| swap_copy().map(|()| s)) {
+            Ok(s) => (true, false, s),
+            Err(e) => (false, e == crate::fond::REFUSED_CODE, String::new()),
         }
     };
-    Distant { url: url.to_string(), stamp, online, ..Default::default() }
+    Distant { url: url.to_string(), code: code.to_string(), stamp, online, refused, ..Default::default() }
 }
 
 /// Toutes les quelques secondes : envoyer ce qui attend, puis regarder si le PC principal a changé.
@@ -176,14 +200,14 @@ pub fn tick(st: &mut State) {
         return;
     }
     d.busy = true;
-    let (url, stamp, path) = (d.url.clone(), d.stamp.clone(), st.career_path.clone());
+    let (url, code, stamp, path) = (d.url.clone(), d.code.clone(), d.stamp.clone(), st.career_path.clone());
     st.spawn(move || {
         if waiting > 0 {
             // Le PC principal a pu changer de son côté : on le regarde avant d'écrire, après ce ne serait plus visible.
-            let stale = fetch_json(&format!("{url}/api/distant/etat")).map(|v| v["stamp"].as_str().unwrap_or("") != stamp).unwrap_or(false);
-            return Done::Distant(push(&url, &path).map(|s| (s, stale)));
+            let stale = main_json(&format!("{url}/api/distant/etat"), &code).map(|v| v["stamp"].as_str().unwrap_or("") != stamp).unwrap_or(false);
+            return Done::Distant(push(&url, &code, &path).map(|s| (s, stale)));
         }
-        Done::Distant(match fetch_json(&format!("{url}/api/distant/etat")) {
+        Done::Distant(match main_json(&format!("{url}/api/distant/etat"), &code) {
             Ok(v) => {
                 let now = v["stamp"].as_str().unwrap_or("").to_string();
                 Ok((now.clone(), now != stamp))
@@ -194,10 +218,10 @@ pub fn tick(st: &mut State) {
 }
 
 /// Envoie le journal. Rend le nouvel état du PC principal.
-fn push(url: &str, path: &Path) -> Result<String, String> {
+fn push(url: &str, code: &str, path: &Path) -> Result<String, String> {
     let c = Career::open(path).map_err(|e| e.to_string())?;
     let (changes, last) = distant::pending(c.conn(), 500).map_err(|e| e.to_string())?;
-    let v = post_json(&format!("{url}/api/distant/ecrire"), &json!({ "changes": changes }))?;
+    let v = post_json(&format!("{url}/api/distant/ecrire"), &json!({ "changes": changes }), code)?;
     distant::sent(c.conn(), last).map_err(|e| e.to_string())?;
     Ok(v["stamp"].as_str().unwrap_or("").to_string())
 }
@@ -206,6 +230,7 @@ fn push(url: &str, path: &Path) -> Result<String, String> {
 pub fn ticked(app: &AppWindow, st: &mut State, r: Result<(String, bool), String>) {
     let Some(d) = st.distant.as_mut() else { return };
     d.busy = false;
+    d.refused = r.as_ref().is_err_and(|e| e == crate::fond::REFUSED_CODE);
     match r {
         Ok((stamp, stale)) => {
             d.online = true;
@@ -236,9 +261,9 @@ fn reload(app: &AppWindow, st: &mut State) {
         return;
     }
     let Some(d) = st.distant.as_mut() else { return };
-    let url = d.url.clone();
+    let (url, code) = (d.url.clone(), d.code.clone());
     d.busy = true;
-    st.spawn(move || Done::DistantCopy(fetch_copy(&url)));
+    st.spawn(move || Done::DistantCopy(fetch_copy(&url, &code)));
 }
 
 /// La nouvelle copie est là : la base se ferme le temps de la remplacer.
@@ -246,6 +271,7 @@ pub fn copied(app: &AppWindow, st: &mut State, r: Result<String, String>) {
     let Some(d) = st.distant.as_mut() else { return };
     d.busy = false;
     d.online = r.is_ok();
+    d.refused = r.as_ref().is_err_and(|e| e == crate::fond::REFUSED_CODE);
     if let Ok(stamp) = r
         && !later(st)
     {
@@ -271,7 +297,9 @@ pub fn show(app: &AppWindow, st: &State) {
     };
     let waiting = st.career.as_ref().map(|c| distant::waiting(c.conn())).unwrap_or(0);
     app.set_remote_text(
-        if !d.online {
+        if d.refused {
+            format!("Code de liaison refusé par le PC principal (Réglages › Général){}", if waiting > 0 { format!(" · {waiting} écriture(s) en attente") } else { String::new() })
+        } else if !d.online {
             format!("PC principal injoignable{}", if waiting > 0 { format!(" · {waiting} écriture(s) en attente") } else { String::new() })
         } else if waiting > 0 {
             format!("Connecté au PC principal · envoi de {waiting} écriture(s)…")

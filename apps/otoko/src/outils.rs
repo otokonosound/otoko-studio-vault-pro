@@ -957,7 +957,7 @@ pub fn button(app: &AppWindow, st: &mut State, id: &str) {
                 return;
             }
             // La base est sauvegardée juste avant (comme Studio Vault).
-            let _ = otoko_library::career::backup::now(conn, &crate::library::data_dir().join("sauvegardes"), None);
+            let _ = otoko_library::career::backup::now(conn, &crate::donnees::data_dir().join("sauvegardes"), None);
             match folders::relocate(conn, &old, &new.to_string_lossy()) {
                 Ok((changed, settings, replaced)) => {
                     let _ = otoko_library::career::scan::refresh_missing(conn);

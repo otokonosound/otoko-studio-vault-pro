@@ -150,7 +150,6 @@ pub fn aller(app: &AppWindow, st: &mut State, espace: i32, onglet: i32) {
     match espace {
         6 => {
             app.set_space(6);
-            crate::prefs::fill(app, st);
             crate::preferences::fill(app, st);
         }
         7 => {

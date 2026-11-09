@@ -574,9 +574,12 @@ fn route(st: &State, req: &Request, c: &mut Conn) -> Out {
     }
     match &p[1..] {
         ["maj"] => {
-            let pc = crate::newest_installer(&st.cfg).map(|x| x.0);
+            let found = crate::newest_installer(&st.cfg);
+            let pc_sha256 = found.as_ref().and_then(|(_, f)| installer_sha256(f));
+            let pc = found.map(|x| x.0);
             let apk = st.cfg.apk.as_ref().and_then(|a| std::fs::read_to_string(a.with_extension("version")).ok()).and_then(|t| t.trim().parse::<i64>().ok());
-            Ok(c.json(200, &json!({ "pc": pc, "apk_code": apk }))?)
+            // L'empreinte de l'installateur : l'autre PC ne lance que le fichier qui a exactement celle-ci.
+            Ok(c.json(200, &json!({ "pc": pc, "pc_sha256": pc_sha256, "apk_code": apk }))?)
         }
         ["distant", "etat"] => {
             if !distant_ok(st, req, c)? {
@@ -637,20 +640,47 @@ fn route(st: &State, req: &Request, c: &mut Conn) -> Out {
     }
 }
 
+/// L'empreinte SHA-256 d'un installateur, recalculée seulement quand le fichier change (il pèse des dizaines de Mo, et
+/// `/api/maj` est demandé par chaque appareil).
+fn installer_sha256(f: &Path) -> Option<String> {
+    type Known = Option<(PathBuf, std::time::SystemTime, u64, String)>;
+    static LAST: Mutex<Known> = Mutex::new(None);
+    let m = std::fs::metadata(f).ok()?;
+    let (when, len) = (m.modified().ok()?, m.len());
+    let mut g = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((p, w, l, h)) = g.as_ref() {
+        if p == f && *w == when && *l == len {
+            return Some(h.clone());
+        }
+    }
+    let h = crate::complements::sha256_of(f).ok()?;
+    *g = Some((f.to_path_buf(), when, len, h.clone()));
+    Some(h)
+}
+
 /// L'état de la base : change à chaque écriture, sans la lire.
 fn stamp(db: &Path) -> String {
     let t = |p: &Path| std::fs::metadata(p).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0);
     format!("{}-{}", t(db), t(&PathBuf::from(format!("{}-wal", db.display()))))
 }
 
-/// L'autre PC passe par Tailscale ou cet ordinateur, jamais par le Wi-Fi : c'est ce qui autorise à écrire dans la base.
-fn distant_ok(_st: &State, req: &Request, c: &mut Conn) -> std::io::Result<bool> {
+/// L'en-tête où l'autre PC donne le code de liaison du PC principal.
+pub const LINK_HEADER: &str = "X-Otoko-Code";
+
+/// L'autre PC passe par Tailscale ou cet ordinateur, jamais par le Wi-Fi, et donne le code de liaison de ce PC : c'est ce
+/// qui autorise à lire toute la base et à y écrire. Tout appareil de Tailscale n'est pas l'autre PC.
+fn distant_ok(st: &State, req: &Request, c: &mut Conn) -> std::io::Result<bool> {
     if is_lan(req.peer) {
         c.error(403, "L'autre PC se connecte par Tailscale, pas par le Wi-Fi.")?;
         return Ok(false);
     }
     if req.header("X-Studio-Vault") != Some("1") {
         c.error(403, "Requête refusée.")?;
+        return Ok(false);
+    }
+    let Some(data) = st.cfg.db.parent() else { return Ok(false) };
+    if !req.header(LINK_HEADER).is_some_and(|code| crate::link_matches(data, code)) {
+        c.error(401, "Code de liaison absent ou faux : recopie celui du PC principal (Réglages › Général › Travailler depuis un autre PC).")?;
         return Ok(false);
     }
     Ok(true)

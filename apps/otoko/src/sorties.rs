@@ -851,7 +851,7 @@ pub fn discography_dialog(app: &AppWindow, st: &mut State) {
         .show()
         == rfd::MessageDialogResult::Yes;
     let db = st.career_path.clone();
-    let cache = if st.career_path == crate::career::default_path() { crate::library::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
+    let cache = if st.career_path == crate::career::default_path() { crate::donnees::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
     app.set_message("Discographie en cours…".into());
     st.spawn(move || Done::Discography(write_discography(&db, &cache, &out, only)));
 }

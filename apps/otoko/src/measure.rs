@@ -403,14 +403,16 @@ pub fn install(app: &AppWindow, state: &Rc<RefCell<State>>, args: &[String]) -> 
     if let Some(y) = value("--scroll").and_then(|s| s.parse::<f32>().ok()) {
         app.set_prefs_scroll(-y);
     }
-    // `--remote-test adresse` : le bouton Tester des Réglages, pour voir sa réponse.
+    // `--remote-test adresse [--remote-code code]` : le bouton Tester des Réglages, pour voir sa réponse.
     if let Some(addr) = value("--remote-test") {
+        let code = value("--remote-code").unwrap_or_default();
         let weak = app.as_weak();
         let st2 = state.clone();
         let t = Timer::default();
         t.start(TimerMode::SingleShot, Duration::from_millis(1500), move || {
             let app = weak.unwrap();
             app.global::<crate::CPrefs>().set_remote_address(addr.as_str().into());
+            app.global::<crate::CPrefs>().set_remote_code(code.as_str().into());
             crate::distant::try_address(&app, &mut st2.borrow_mut(), false);
         });
         timers.push(t);

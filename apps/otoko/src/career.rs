@@ -9,7 +9,7 @@ use crate::state::{Done, State};
 
 /// L'emplacement de la base Carrière de l'utilisateur.
 pub fn default_path() -> std::path::PathBuf {
-    crate::library::data_dir().join("carriere.db")
+    crate::donnees::data_dir().join("carriere.db")
 }
 
 pub fn open(path: &std::path::Path) -> Option<Career> {

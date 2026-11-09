@@ -88,6 +88,69 @@ pub fn lan_set(data: &Path, on: bool) -> std::io::Result<()> {
     std::fs::write(data.join(LAN_FILE), if on { "1" } else { "0" })
 }
 
+/// Le code de liaison de l'autre PC, dans le dossier de données. Sans lui, personne ne lit ni n'écrit la base par
+/// `/api/distant/…` : être sur le même Tailscale ne suffit plus (un téléphone perdu, un appareil partagé).
+pub const LINK_FILE: &str = "code_autre_pc.txt";
+
+/// Lettres et chiffres sans ambiguïté à recopier (ni 0/O, ni 1/I) : 32 signes, 5 bits chacun.
+const LINK_ALPHABET: &[u8; 32] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/// Un nouveau code : 16 signes (80 bits), en quatre groupes, « ABCD-EFGH-JKMN-PQRS ».
+fn new_link_code() -> String {
+    let mut raw = [0u8; 16];
+    getrandom::getrandom(&mut raw).expect("aléa du système indisponible");
+    let signs: Vec<char> = raw.iter().map(|b| LINK_ALPHABET[(b & 31) as usize] as char).collect();
+    signs.chunks(4).map(|c| c.iter().collect::<String>()).collect::<Vec<_>>().join("-")
+}
+
+/// Le code tel qu'on le compare : sans espaces ni tirets, en majuscules.
+pub fn link_normalize(code: &str) -> String {
+    code.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect()
+}
+
+/// Le code de liaison de ce PC, créé la première fois. Le logiciel et le serveur peuvent le demander en même temps : le
+/// premier qui l'écrit gagne, l'autre relit le sien.
+pub fn link_code(data: &Path) -> String {
+    let file = data.join(LINK_FILE);
+    for _ in 0..3 {
+        if let Ok(t) = std::fs::read_to_string(&file) {
+            if link_normalize(&t).len() >= 16 {
+                return t.trim().to_string();
+            }
+        }
+        let code = new_link_code();
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&file) {
+            Ok(mut f) => {
+                use std::io::Write;
+                if f.write_all(code.as_bytes()).is_ok() {
+                    return code;
+                }
+            }
+            // Déjà là (écrit à l'instant par l'autre) ou illisible : on le relit, ou on le remplace s'il est vide.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if std::fs::read_to_string(&file).is_ok_and(|t| link_normalize(&t).len() < 16) {
+                    let _ = std::fs::remove_file(&file);
+                }
+            }
+            Err(_) => return code,
+        }
+    }
+    std::fs::read_to_string(&file).map(|t| t.trim().to_string()).unwrap_or_default()
+}
+
+/// Un nouveau code : l'autre PC devra recopier celui-ci.
+pub fn link_renew(data: &Path) -> String {
+    let code = new_link_code();
+    let _ = std::fs::write(data.join(LINK_FILE), &code);
+    code
+}
+
+/// Le code reçu est-il celui de ce PC ? Comparé en temps constant.
+pub fn link_matches(data: &Path, given: &str) -> bool {
+    let (a, b) = (link_normalize(&link_code(data)), link_normalize(given));
+    a.len() >= 16 && a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 /// Avant ce réglage, ouvrir le pare-feu suffisait : qui l'a déjà fait garde son Wi-Fi. Le choix est ensuite écrit une
 /// fois pour toutes.
 fn lan_first_run(data: &Path) {
@@ -278,4 +341,35 @@ pub fn send(port: u16, method: &str, path: &str, body: &serde_json::Value) -> Op
 /// Un serveur mobile (OTOKO ou Studio Vault) répond sur ce port ?
 pub fn answering(port: u16) -> bool {
     ask(port, "/api/ping").is_some_and(|v| v.get("version").is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_link_code_is_made_once_and_typed_loosely() {
+        let tmp = std::env::temp_dir().join(format!("otoko-essai-code-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let code = link_code(&tmp);
+        assert_eq!(code.len(), 19, "{code}");
+        assert_eq!(link_normalize(&code).len(), 16);
+        assert!(link_normalize(&code).bytes().all(|b| LINK_ALPHABET.contains(&b)), "{code}");
+        assert_eq!(link_code(&tmp), code, "le même à chaque fois");
+        assert!(link_matches(&tmp, &code));
+        assert!(link_matches(&tmp, &format!("  {}  ", code.replace('-', " ").to_lowercase())), "espaces et minuscules acceptés");
+        assert!(!link_matches(&tmp, ""));
+        assert!(!link_matches(&tmp, &code[..14]));
+        assert!(!link_matches(&tmp, "AAAA-AAAA-AAAA-AAAA"));
+        // Un fichier vide ou abîmé : un code neuf.
+        std::fs::write(tmp.join(LINK_FILE), "x").unwrap();
+        let fresh = link_code(&tmp);
+        assert_ne!(fresh, code);
+        assert_eq!(link_normalize(&fresh).len(), 16);
+        // Nouveau code : l'ancien ne passe plus.
+        let renewed = link_renew(&tmp);
+        assert!(link_matches(&tmp, &renewed) && !link_matches(&tmp, &fresh));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

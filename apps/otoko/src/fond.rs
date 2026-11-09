@@ -143,37 +143,73 @@ fn tell(app: &AppWindow, st: &mut State, moved: &[Change]) {
 
 // ---------------------------------------------------------------------- les liens par morceau
 
-/// `curl` est fourni avec Windows : pas de bibliothèque réseau à embarquer. L'en-tête ne sert qu'au PC principal.
-fn curl(args: &[&str]) -> std::process::Command {
+/// `curl` est fourni avec Windows : pas de bibliothèque réseau à embarquer. L'en-tête de l'application et le code de liaison
+/// ne partent que vers le PC principal (`code`) : un autre site n'a pas à les connaître.
+fn curl(code: Option<&str>, args: &[&str]) -> std::process::Command {
     let mut c = std::process::Command::new("curl.exe");
-    c.args(["-sL", "--fail", "-H", "X-Studio-Vault: 1"]).args(args).creation_flags(0x0800_0000);
+    c.arg("-sL").arg("--fail");
+    if let Some(code) = code {
+        c.args(["-H", "X-Studio-Vault: 1", "-H"]).arg(format!("{}: {code}", otoko_mobile::server::LINK_HEADER));
+    }
+    c.args(args).creation_flags(0x0800_0000);
     c
 }
 
 /// Lit une page.
 fn fetch(url: &str) -> Result<String, String> {
-    let out = curl(&["--max-time", "25", "-A", "Mozilla/5.0", url]).output().map_err(|e| format!("curl : {e}"))?;
+    fetch_from(None, url)
+}
+
+fn fetch_from(code: Option<&str>, url: &str) -> Result<String, String> {
+    let out = curl(code, &["--max-time", "25", "-A", "Mozilla/5.0", "-w", "\n%{http_code}", url]).output().map_err(|e| format!("curl : {e}"))?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
     if !out.status.success() {
-        return Err(format!("{url} ne répond pas"));
+        // « --fail » : pas de corps, mais le code HTTP reste lisible à la fin.
+        return Err(match text.trim().rsplit('\n').next().unwrap_or("") {
+            "401" => REFUSED_CODE.to_string(),
+            _ => format!("{url} ne répond pas"),
+        });
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(text.rsplit_once('\n').map(|(body, _)| body.to_string()).unwrap_or(text))
+}
+
+/// Ce que dit le PC principal quand le code de liaison manque ou ne va pas.
+pub const REFUSED_CODE: &str = "Le PC principal refuse le code de liaison : recopie celui qu'il affiche (Réglages › Général › Travailler depuis un autre PC).";
+
+/// Lit un petit fichier texte (une empreinte publiée, par exemple).
+pub fn fetch_text(url: &str) -> Result<String, String> {
+    fetch(url)
 }
 
 pub fn fetch_json(url: &str) -> Result<serde_json::Value, String> {
     serde_json::from_str(&fetch(url)?).map_err(|e| e.to_string())
 }
 
+/// Une lecture chez le PC principal, avec son code de liaison.
+pub fn main_json(url: &str, code: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(&fetch_from(Some(code), url)?).map_err(|e| e.to_string())
+}
+
 /// Télécharge un fichier.
 pub fn fetch_file(url: &str, out: &Path) -> Result<(), String> {
+    file_from(None, url, out)
+}
+
+/// Télécharge un fichier du PC principal, avec son code de liaison.
+pub fn main_file(url: &str, out: &Path, code: &str) -> Result<(), String> {
+    file_from(Some(code), url, out)
+}
+
+fn file_from(code: Option<&str>, url: &str, out: &Path) -> Result<(), String> {
     let path = out.to_string_lossy().into_owned();
-    let done = curl(&["--max-time", "900", "-o", &path, url]).status().map_err(|e| format!("curl : {e}"))?;
+    let done = curl(code, &["--max-time", "900", "-o", &path, url]).status().map_err(|e| format!("curl : {e}"))?;
     if done.success() { Ok(()) } else { Err(format!("{url} ne répond pas")) }
 }
 
-/// Envoie du JSON et rend la réponse.
-pub fn post_json(url: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+/// Envoie du JSON au PC principal et rend la réponse.
+pub fn post_json(url: &str, body: &serde_json::Value, code: &str) -> Result<serde_json::Value, String> {
     use std::io::Write;
-    let mut child = curl(&["--max-time", "60", "-H", "Content-Type: application/json", "--data-binary", "@-", url])
+    let mut child = curl(Some(code), &["--max-time", "60", "-H", "Content-Type: application/json", "--data-binary", "@-", "-w", "\n%{http_code}", url])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -181,10 +217,12 @@ pub fn post_json(url: &str, body: &serde_json::Value) -> Result<serde_json::Valu
         .map_err(|e| format!("curl : {e}"))?;
     child.stdin.take().ok_or("curl")?.write_all(body.to_string().as_bytes()).map_err(|e| e.to_string())?;
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let (body, status) = text.rsplit_once('\n').unwrap_or(("", text.as_str()));
     if !out.status.success() {
-        return Err("Le PC principal a refusé.".into());
+        return Err(if status.trim() == "401" { REFUSED_CODE.into() } else { "Le PC principal a refusé.".into() });
     }
-    serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
+    serde_json::from_str(body).map_err(|e| e.to_string())
 }
 
 /// Le flux complet d'un compte : toutes ses pages.
@@ -345,7 +383,7 @@ pub fn waves(st: &mut State) {
     }
     st.waves_busy = true;
     let db = st.career_path.clone();
-    let cache = if st.career_path == crate::career::default_path() { crate::library::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
+    let cache = if st.career_path == crate::career::default_path() { crate::donnees::data_dir().join("mobile") } else { std::env::temp_dir().join("otoko-essai-pochettes") };
     let tx = st.jobs.clone();
     st.spawn(move || {
         let Ok(c) = Career::open(&db) else { return Done::Waves(true) };
