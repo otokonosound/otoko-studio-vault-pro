@@ -1168,15 +1168,63 @@ pub fn write_tags(app: &AppWindow, st: &mut State) {
     crate::bibliotheque::fill(app, st);
 }
 
+/// Ce que retirer ces morceaux fait perdre,, en clair.
+fn forget_notes(c: &otoko_library::career::Career, ids: &[i64]) -> String {
+    let conn = c.conn();
+    let (in_release, with_children, on_disk) = files::forget_impact(conn, ids);
+    let mut out = String::from("\n\nCe que tu as saisi sur ces morceaux (notes, tags, statut, historique) est effacé avec eux, et cela ne s'annule pas avec Ctrl+Z.");
+    let many = |n: usize, one: &str, more: &str| if n > 1 { format!("{n} {more}") } else { format!("1 {one}") };
+    if in_release > 0 {
+        out.push_str(&format!("\n\n{} : la sortie reste, sans {}.", many(in_release, "morceau fait partie d'une sortie", "morceaux font partie d'une sortie"), if in_release > 1 { "eux" } else { "lui" }));
+    }
+    if with_children > 0 {
+        out.push_str(&format!("\n\n{} : ceux-là restent, comme morceaux à part.", many(with_children, "morceau a des versions ou des stems rattachés", "morceaux ont des versions ou des stems rattachés")));
+    }
+    if on_disk > 0 {
+        out.push_str(&format!(
+            "\n\n{} : rien n'est supprimé du disque, et un dossier surveillé les remettra dans la bibliothèque (« Archiver » les cache sans les retirer).",
+            many(on_disk, "fichier existe encore sur le disque", "fichiers existent encore sur le disque")
+        ));
+    }
+    out
+}
+
 /// Retire la sélection de la bibliothèque (les fichiers ne bougent pas).
 pub fn forget(app: &AppWindow, st: &mut State) {
     let ids = selection(st);
-    if ids.is_empty() || !confirm(st, "Retirer de la bibliothèque", &format!("Retirer {} morceau(x) de la bibliothèque ?\n\nLes fichiers ne sont pas touchés ; un dossier surveillé les remettra s'ils y sont encore (sinon, « Archiver » les cache sans les retirer).", ids.len())) {
+    let Some(notes) = st.career.as_ref().map(|c| forget_notes(c, &ids)) else { return };
+    if ids.is_empty() || !confirm(st, "Retirer de la bibliothèque", &format!("Retirer {} morceau(x) de la bibliothèque ?{notes}", ids.len())) {
         return;
     }
-    if let Some(c) = st.career.as_ref() {
-        files::forget(c.conn(), &ids);
+    let n = st.career.as_ref().map(|c| files::forget(c.conn(), &ids)).unwrap_or(0);
+    st.lib.selected.clear();
+    app.set_message(format!("{n} morceau(x) retiré(s) de la bibliothèque.").into());
+    crate::bibliotheque::fill(app, st);
+}
+
+/// Retire d'un coup tous les morceaux dont le fichier est introuvable (ceux de la vue « Fichiers manquants »), après
+/// avoir revérifié le disque : un fichier revenu entre-temps n'est pas retiré.
+pub fn forget_missing(app: &AppWindow, st: &mut State) {
+    let Some(c) = st.career.as_ref() else { return };
+    if st.distant.is_none() {
+        let _ = otoko_library::career::scan::refresh_missing(c.conn());
     }
+    let ids = files::missing_ids(c.conn());
+    if ids.is_empty() {
+        app.set_message("Aucun fichier manquant : il n'y a rien à retirer.".into());
+        return crate::bibliotheque::fill(app, st);
+    }
+    let text = format!(
+        "{} morceau(x) de la bibliothèque n'ont plus leur fichier (supprimé, déplacé ou renommé hors de l'appli).\n\nLes retirer tous de la bibliothèque ?{}\n\nPour n'en retirer que certains : réponds Non, sélectionne-les dans la vue « Fichiers manquants », puis clic droit › « Retirer de la bibliothèque ».",
+        ids.len(),
+        forget_notes(c, &ids)
+    );
+    if !confirm(st, "Retirer les fichiers manquants", &text) {
+        return crate::bibliotheque::fill(app, st);
+    }
+    let n = files::forget(c.conn(), &ids);
+    st.lib.selected.clear();
+    app.set_message(format!("{n} morceau(x) sans fichier retiré(s) de la bibliothèque.").into());
     crate::bibliotheque::fill(app, st);
 }
 

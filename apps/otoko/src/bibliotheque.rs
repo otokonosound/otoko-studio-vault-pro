@@ -1013,6 +1013,7 @@ pub fn action(app: &AppWindow, st: &mut State, what: &str) {
             return search(app, st, &q);
         }
         "undo" => return crate::outils::undo(app, st),
+        "forget-missing" => return crate::outils::forget_missing(app, st),
         "analyze-missing" => {
             let todo = st.career.as_ref().map(|c| lib::unanalyzed(c.conn())).unwrap_or_default();
             return crate::analyse::start(app, st, todo, false);
