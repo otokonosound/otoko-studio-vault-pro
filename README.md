@@ -12,17 +12,17 @@ Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 
 - **Bibliothèque** : tempo, tonalité, loudness, énergie et ambiance détectés tout seuls ; recherche du genre `bpm:120-128 key:Am` ; tableau ou cartes ; vues gardées ; palette Ctrl+K pour tout trouver.
 - **Écoute** : waveform, marqueurs, boucle A-B, notes, file d'attente, comparaison de deux morceaux à volume égal, « Volume égal » pour toute l'écoute, tri des idées au clavier, morceaux compatibles et roue de Camelot.
-- **Outils** : renommer, réorganiser, trouver les doublons (Ctrl+Z annule), compléter genres et artistes, éditer en lot, exporter en CSV.
+- **Outils** : renommer, réorganiser, trouver les doublons, compléter genres et artistes, éditer en lot, exporter en CSV. Ctrl+Z annule la dernière modification, de fichiers comme de fiches, et chaque morceau garde l'historique de ses changements.
 - **Ton logiciel de musique, quel qu'il soit** : FL Studio, Ableton Live, Cubase, Reaper, Bitwig… Le projet de chaque morceau s'ouvre d'un clic, et le dossier où tu exportes est surveillé : chaque nouvel export rejoint son morceau, rangé comme version.
 - **Production** : un tableau de l'idée à la sortie, des statuts qui avancent tout seuls sur preuve, tes commandes et ton carnet de clients, un outil pour construire tes sets DJ, l'Atelier Suno pour tes prompts.
 - **Mastering** : le moteur libre PhaseLimiter, installé d'un clic. Mesures avant et après, écoute à volume égal, un EP entier avec les mêmes réglages. L'original n'est jamais touché.
-- **Sorties** : la galerie, le compte à rebours, la prochaine étape et ce qui reste à faire, le planning, le contrôle avant publication, la discographie en PDF ou en page web.
+- **Sorties** : sur les plateformes de ton choix (streaming par un distributeur, SoundCloud, Bandcamp, YouTube), la galerie, le compte à rebours, la prochaine étape et ce qui reste à faire, le planning et ses rappels dans ton agenda, le contrôle avant publication, le dossier à envoyer au distributeur (UPC, ISRC), la discographie en PDF ou en page web.
 - **Publier** : un texte par plateforme (SoundCloud, Instagram, story), six tons, tes propres modèles. Tout reste hors ligne.
 - **Statistiques** : création, musique, avancement, parcours.
 - **Écouter partout** : ta bibliothèque sur ton téléphone et dans Android Auto, avec des morceaux gardés hors ligne. En écoutant, tu gardes, rejettes, changes le statut et poses une note à l'instant précis : elle t'attend sur la forme d'onde du PC.
-- **Partager** : un lien privé pour faire écouter un morceau ou une sortie, avec mot de passe et date de fin si tu veux. La personne n'a rien à installer, et tu vois les écoutes.
+- **Partager** : un lien privé pour faire écouter un morceau ou une sortie, avec mot de passe et date de fin si tu veux. La personne n'a rien à installer. Elle peut aimer un morceau et laisser un avis à un instant précis, qui arrive en repère sur ta forme d'onde, et tu vois jusqu'où elle a écouté.
 - **Rester tranquille** : ta musique reste chez toi. Rien ne part dans le cloud. Ta base est sauvegardée chaque jour, tu peux revenir à une date ou repartir de zéro.
-- **Le confort** : sombre ou clair, couleur d'accent, raccourcis modifiables, l'icône près de l'horloge (Ouvrir, Vérifier une mise à jour, Fermer le logiciel), mise à jour en un clic, travail depuis un autre PC.
+- **Le confort** : seulement les pages qui te servent dans le menu, glisser-déposer avec l'Explorateur et ton logiciel de musique (dans les deux sens), sombre ou clair, couleur d'accent, raccourcis modifiables, l'icône près de l'horloge (Ouvrir, Vérifier une mise à jour, Fermer le logiciel), mise à jour en un clic, travail depuis un autre PC.
 
 ## Installer en 2 minutes
 

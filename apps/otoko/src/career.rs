@@ -63,6 +63,7 @@ pub fn fill(app: &AppWindow, st: &mut State) {
         return;
     }
     app.set_career_vault(otoko_library::vault::default_dir().is_some());
+    crate::pages::push(app, st);
     st.pages_lues = [false; 8];
     page(app, st, app.get_career_tab());
 }

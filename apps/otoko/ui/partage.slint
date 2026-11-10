@@ -1,4 +1,5 @@
-// Mobile et partage › les liens d'écoute : ceux qui existent, leur activité, et le dialogue « Nouveau lien ».
+// Mobile et partage › les liens d'écoute : ceux qui existent, leur activité, le dialogue « Nouveau lien » et les retours
+// de la personne qui écoute (« j'aime », commentaires, jusqu'où elle a écouté).
 // Global `Part` (partage.rs).
 import { Theme } from "theme.slint";
 import { Btn, H2, Hit } from "components.slint";
@@ -15,6 +16,17 @@ export struct ShareUi {
     url: string,
     locked: bool,
     revoked: bool,
+    answers: string,  // le bilan des retours ; vide s'il n'y en a pas
+}
+
+// Une ligne des retours d'un lien : un morceau (son bilan), puis ses commentaires.
+export struct AnswerUi {
+    head: bool,
+    title: string,
+    text: string,
+    track: int,
+    time: float,
+    timed: bool,
 }
 
 export struct ShareItemUi {
@@ -39,6 +51,7 @@ export global Part {
     in-out property <bool> download;
     in-out property <int> quality;   // 0 original, 1 sans perte, 2 haute qualité
     in-out property <string> password;
+    in-out property <bool> feedback: true;
     in-out property <string> error;
     in property <bool> busy;
     callback new-link();
@@ -50,6 +63,15 @@ export global Part {
     callback open(int);
     callback revoke(int);
     callback remove(int);
+    // Les retours d'un lien.
+    in-out property <bool> answers-open;
+    in property <int> answers-id;
+    in property <string> answers-title;
+    in property <bool> answers-on;
+    in property <[AnswerUi]> answers;
+    callback show-answers(int);
+    callback answer-play(int, float);
+    callback set-feedback(int, bool);
 }
 
 component Field inherits Rectangle {
@@ -118,7 +140,7 @@ export component ShareSection inherits VerticalLayout {
         Text { x: 18px; width: parent.width - 36px; height: parent.height; text: "Aucun lien pour l'instant. Un lien privé permet de faire écouter un morceau, une sortie ou ta discographie à quelqu'un, sans rien lui faire installer."; color: Theme.text3; font-size: 12.5px; wrap: word-wrap; vertical-alignment: center; }
     }
     for s[i] in Part.shares: Rectangle {
-        height: 74px;
+        height: s.answers == "" ? 74px : 92px;
         border-radius: 12px;
         background: Theme.ink2;
         HorizontalLayout {
@@ -135,6 +157,7 @@ export component ShareSection inherits VerticalLayout {
                 }
                 Text { text: s.what + " · " + s.when + (s.locked ? " · mot de passe" : ""); color: Theme.text3; font-size: 11.5px; overflow: elide; }
                 Text { text: s.activity; color: Theme.text2; font-size: 11.5px; overflow: elide; }
+                if s.answers != "": Text { text: s.answers; color: Theme.ember; font-size: 11.5px; font-weight: 600; overflow: elide; }
             }
             VerticalLayout {
                 alignment: center;
@@ -146,6 +169,7 @@ export component ShareSection inherits VerticalLayout {
                     pt := Text { text: s.state; color: s.tone == 0 ? Theme.lagoon : Theme.text3; font-size: 11px; font-weight: 700; }
                 }
             }
+            VerticalLayout { alignment: center; Btn { text: "Retours"; height: 30px; ghost: s.answers == ""; clicked => { Part.show-answers(s.id); } } }
             VerticalLayout { alignment: center; Btn { text: "Copier le lien"; height: 30px; clicked => { Part.copy(s.id); } } }
             VerticalLayout { alignment: center; Btn { text: "Ouvrir"; height: 30px; ghost: true; clicked => { Part.open(s.id); } } }
             VerticalLayout { alignment: center; Btn { text: s.revoked ? "Réactiver" : "Révoquer"; height: 30px; ghost: true; clicked => { Part.revoke(s.id); } } }
@@ -270,12 +294,110 @@ export component ShareDialog inherits Rectangle {
                     for q[qi] in ["Original", "Sans perte", "Haute qualité"]: Choice { text: q; on: Part.download && Part.quality == qi; clicked => { Part.download = true; Part.quality = qi; } }
                 }
             }
+            VerticalLayout {
+                spacing: 4px;
+                vertical-stretch: 0;
+                alignment: start;
+                FormLabel { text: "Retours de la personne"; }
+                HorizontalLayout {
+                    spacing: 5px;
+                    alignment: start;
+                    Choice { text: "Oui : aimer et commenter"; on: Part.feedback; clicked => { Part.feedback = true; } }
+                    Choice { text: "Non"; on: !Part.feedback; clicked => { Part.feedback = false; } }
+                }
+            }
             if Part.error != "": Text { text: Part.error; color: Theme.danger; font-size: 12px; wrap: word-wrap; }
             HorizontalLayout {
                 alignment: end;
                 spacing: 8px;
                 Btn { text: "Annuler"; ghost: true; clicked => { Part.creating = false; } }
                 Btn { text: Part.busy ? "Création…" : "Créer le lien"; primary: true; clicked => { if (!Part.busy) { Part.create(); } } }
+            }
+        }
+    }
+}
+
+// Les retours d'un lien : par morceau, le bilan puis les commentaires (ceux posés à un instant se lancent d'un clic).
+export component AnswersDialog inherits Rectangle {
+    background: #00000099;
+    TouchArea { clicked => { Part.answers-open = false; } }
+    Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: min(parent.width - 60px, 680px);
+        height: min(parent.height - 40px, 600px);
+        border-radius: 16px;
+        background: Theme.ink1;
+        border-width: 1px;
+        border-color: Theme.line2;
+        TouchArea { }
+        VerticalLayout {
+            padding: 22px;
+            spacing: 10px;
+            Text { text: "Retours · " + Part.answers-title; color: Theme.text; font-size: 19px; font-weight: 800; font-family: Theme.display-font; overflow: elide; }
+            Text {
+                text: Part.answers-on
+                    ? "La personne peut aimer un morceau et laisser un avis depuis la page du lien. Un avis posé à un instant arrive aussi en repère sur la forme d'onde."
+                    : "Ce lien ne prend plus de retours : la page n'affiche ni « J'aime » ni « Laisser un avis ».";
+                color: Theme.text3;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+            Rectangle {
+                vertical-stretch: 1;
+                border-radius: 10px;
+                background: Theme.ink2;
+                if Part.answers.length == 0: Text {
+                    x: 16px;
+                    width: parent.width - 32px;
+                    height: parent.height;
+                    text: "Pas encore de retour sur ce lien.";
+                    color: Theme.text3;
+                    font-size: 12.5px;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+                ListView {
+                    for a[i] in Part.answers: Rectangle {
+                        height: a.head ? 50px : 40px;
+                        background: a.timed && aa.has-hover ? Theme.ink3 : transparent;
+                        if a.head: Rectangle { x: 0; y: 0; width: parent.width; height: 1px; background: i == 0 ? transparent : Theme.line2; }
+                        Text {
+                            x: a.head ? 14px : 30px;
+                            y: a.head ? 8px : 4px;
+                            width: parent.width - self.x - 14px;
+                            text: a.title;
+                            color: a.head ? Theme.text : (a.timed ? Theme.ember : Theme.text2);
+                            font-size: a.head ? 13.5px : 11.5px;
+                            font-weight: 700;
+                            overflow: elide;
+                        }
+                        Text {
+                            x: a.head ? 14px : 30px;
+                            y: a.head ? 28px : 20px;
+                            width: parent.width - self.x - 14px;
+                            text: a.text;
+                            color: a.head ? Theme.text3 : Theme.text;
+                            font-size: 12px;
+                            overflow: elide;
+                        }
+                        aa := TouchArea {
+                            mouse-cursor: a.timed ? pointer : default;
+                            clicked => { if (a.timed) { Part.answer-play(a.track, a.time); } }
+                        }
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Btn {
+                    text: Part.answers-on ? "Ne plus prendre de retours" : "Reprendre les retours";
+                    ghost: true;
+                    height: 32px;
+                    clicked => { Part.set-feedback(Part.answers-id, !Part.answers-on); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Btn { text: "Fermer"; primary: true; height: 32px; clicked => { Part.answers-open = false; } }
             }
         }
     }

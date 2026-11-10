@@ -66,6 +66,15 @@ export struct VersionUi {
     sub: string,
 }
 
+// Une ligne de l'historique d'un morceau.
+export struct EditUi {
+    batch: string,
+    field: string,
+    text: string,
+    sub: string,
+    undone: bool,
+}
+
 export struct MarkUi {
     x: float,
     label: string,
@@ -134,8 +143,9 @@ export global Lib {
     in property <string> details-sub;
     // Édition en lot (Ctrl+E sur plusieurs morceaux) : leur nombre, sinon 0.
     in property <int> details-batch;
-    // 0 Infos, 1 Analyse, 2 Sortie, 3 Versions.
+    // 0 Infos, 1 Analyse, 2 Sortie, 3 Versions, 4 Historique.
     in-out property <int> details-tab;
+    in property <[EditUi]> history;
     in property <string> details-measures;
     // Tempo, tonalité ou ambiance corrigés à la main : l'analyse n'y touche plus.
     in property <bool> details-locked;
@@ -234,6 +244,10 @@ export global Lib {
     callback field-edited(string, string);
     callback tags-edited(string);
     callback version-clicked(int);
+    // Une ligne tirée hors de la liste : elle part comme un fichier (vers un logiciel de musique, l'Explorateur…).
+    callback drag-out(int);
+    // Remettre un champ comme avant une modification de l'historique : (lot, champ).
+    callback history-restore(string, string);
     callback close-details();
     callback details-tab-changed(int);
     // Correction rapide de l'analyse : tempo ×2 ou ÷2, tempo tapé, retour à l'analyse.
@@ -278,13 +292,15 @@ component DTab inherits Rectangle {
     callback clicked;
     height: 28px;
     horizontal-stretch: 1;
+    // Cinq onglets dans 340 px : chacun garde au moins la place de son nom.
+    min-width: dt.preferred-width + 10px;
     border-radius: 7px;
     background: root.on ? Theme.ink4 : (ta.has-hover ? Theme.ink3 : transparent);
-    Text { text: root.text; color: root.on ? Theme.text : Theme.text2; font-size: 12px; font-weight: 700; }
+    dt := Text { text: root.text; color: root.on ? Theme.text : Theme.text2; font-size: 12px; font-weight: 700; }
     ta := Hit { ring-radius: 7px; clicked => { root.clicked(); } }
 }
 
-// Le panneau de détails d'un morceau (ou d'une sélection), en quatre onglets.
+// Le panneau de détails d'un morceau (ou d'une sélection), en cinq onglets.
 component DetailsPanel inherits Rectangle {
     property <string> menu-field;
     property <[string]> menu-choices;
@@ -330,7 +346,7 @@ component DetailsPanel inherits Rectangle {
                 HorizontalLayout {
                     padding: 2px;
                     spacing: 2px;
-                    for t[ti] in ["Infos", "Analyse", "Sortie", "Versions"]: DTab { text: t; on: Lib.details-tab == ti; clicked => { Lib.details-tab-changed(ti); } }
+                    for t[ti] in ["Infos", "Analyse", "Sortie", "Versions", "Historique"]: DTab { text: t; on: Lib.details-tab == ti; clicked => { Lib.details-tab-changed(ti); } }
                 }
             }
             if Lib.details-error != "": Text { text: Lib.details-error; color: Theme.danger; font-size: 11.5px; wrap: word-wrap; }
@@ -473,6 +489,38 @@ component DetailsPanel inherits Rectangle {
                 spacing: 6px;
                 Btn { text: "Rattacher à un morceau…"; height: 28px; ghost: true; clicked => { Lib.action("attach"); } }
                 if Lib.details-attached: Btn { text: "Détacher"; height: 28px; ghost: true; clicked => { Lib.action("detach"); } }
+            }
+
+            // ---------- Historique
+            if Lib.details-batch == 0 && Lib.details-tab == 4 && Lib.history.length == 0: Text {
+                text: "Aucune modification notée pour ce morceau. Chaque changement de sa fiche s'inscrira ici (depuis le PC, le téléphone ou les statuts automatiques), et Ctrl+Z annule le dernier fait sur ce PC.";
+                color: Theme.text3;
+                font-size: 11.5px;
+                wrap: word-wrap;
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 4: VerticalLayout {
+                spacing: 2px;
+                for h in Lib.history: Rectangle {
+                    height: max(42px, ht.preferred-height + hs.preferred-height + 12px);
+                    border-radius: 7px;
+                    background: Theme.ink1;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 6px;
+                        spacing: 6px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            ht := Text { text: h.text; color: h.undone ? Theme.text3 : Theme.text; font-size: 12px; wrap: word-wrap; }
+                            hs := Text { text: h.sub + (h.undone ? " · annulé" : ""); color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                        }
+                        if !h.undone: VerticalLayout {
+                            alignment: center;
+                            Btn { text: "Remettre"; height: 24px; ghost: true; clicked => { Lib.history-restore(h.batch, h.field); } }
+                        }
+                    }
+                }
             }
 
             // ---------- Édition en lot
@@ -901,15 +949,30 @@ export component LibraryView inherits Rectangle {
                             border-color: r.selected ? Theme.ember : Theme.line2;
                             opacity: r.missing ? 0.5 : 1;
                             cta := TouchArea {
+                                // Un clic sur une ligne déjà choisie attend le relâché : on peut tirer toute la sélection.
+                                property <bool> pending;
+                                property <bool> dragged;
                                 pointer-event(e) => {
                                     if (e.kind == PointerEventKind.down) {
                                         rows-scope.focus();
+                                        self.dragged = false;
                                         if (e.button == PointerEventButton.left) {
-                                            Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                                            self.pending = r.selected && !e.modifiers.control && !e.modifiers.shift;
+                                            if (!self.pending) { Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift); }
                                         } else if (e.button == PointerEventButton.right) {
                                             if (!r.selected) { Lib.row-clicked(i, false, false); }
                                             menu.show();
                                         }
+                                    } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                                        if (self.pending && !self.dragged) { Lib.row-clicked(i, false, false); }
+                                        self.pending = false;
+                                    }
+                                }
+                                // Tirer hors de l'appli : le morceau (ou la sélection) part comme un fichier.
+                                moved => {
+                                    if (self.pressed && !self.dragged && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px)) {
+                                        self.dragged = true;
+                                        Lib.drag-out(i);
                                     }
                                 }
                                 double-clicked => { Lib.row-double(i); }
@@ -950,15 +1013,30 @@ export component LibraryView inherits Rectangle {
                             background: r.selected ? Theme.ember-soft : (rta.has-hover ? Theme.ink3 : transparent);
                             opacity: r.missing ? 0.5 : 1;
                             rta := TouchArea {
+                                // Un clic sur une ligne déjà choisie attend le relâché : on peut tirer toute la sélection.
+                                property <bool> pending;
+                                property <bool> dragged;
                                 pointer-event(e) => {
                                     if (e.kind == PointerEventKind.down) {
                                         rows-scope.focus();
+                                        self.dragged = false;
                                         if (e.button == PointerEventButton.left) {
-                                            Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                                            self.pending = r.selected && !e.modifiers.control && !e.modifiers.shift;
+                                            if (!self.pending) { Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift); }
                                         } else if (e.button == PointerEventButton.right) {
                                             if (!r.selected) { Lib.row-clicked(i, false, false); }
                                             menu.show();
                                         }
+                                    } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                                        if (self.pending && !self.dragged) { Lib.row-clicked(i, false, false); }
+                                        self.pending = false;
+                                    }
+                                }
+                                // Tirer hors de l'appli : le morceau (ou la sélection) part comme un fichier.
+                                moved => {
+                                    if (self.pressed && !self.dragged && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px)) {
+                                        self.dragged = true;
+                                        Lib.drag-out(i);
                                     }
                                 }
                                 double-clicked => { Lib.row-double(i); }

@@ -51,7 +51,8 @@ pub enum Done {
     /// Des mini formes d'onde sont prêtes ; vrai au dernier paquet.
     Waves(bool),
     /// Une nouvelle version : (numéro, installateur s'il est sur ce PC).
-    Update(Option<(String, crate::majs::Source)>),
+    /// (la version trouvée, GitHub a-t-il répondu : rien si on ne lui a pas demandé).
+    Update(Option<(String, crate::majs::Source)>, Option<bool>),
     /// L'installateur est téléchargé (ou l'erreur).
     UpdateFetched(Result<PathBuf, String>),
     /// Le tour du lien avec le PC principal : (état du PC principal, faut-il reprendre sa base).
@@ -104,6 +105,10 @@ pub struct State {
     /// Une nouvelle version prête, et d'où vient son installateur.
     pub update_ready: Option<String>,
     pub update_source: Option<crate::majs::Source>,
+    /// Les fichiers déposés depuis l'Explorateur, traités ensemble (voir `glisser`).
+    pub dropped: Vec<std::path::PathBuf>,
+    /// La dernière recherche : l'heure, et si GitHub a répondu (rien : pas demandé, le dossier ou le PC principal a suffi).
+    pub update_checked: Option<(String, Option<bool>)>,
     /// Ce PC travaille sur une copie de la base du PC principal.
     pub distant: Option<crate::distant::Distant>,
 }
@@ -163,7 +168,7 @@ pub fn collect(app: &AppWindow, st: &mut State, rx: &mpsc::Receiver<Done>) {
             Done::Links(r) => crate::fond::linked(app, st, r),
             Done::Copies(r) => crate::fond::copies_done(app, st, r),
             Done::Waves(last) => crate::fond::waves_landed(app, st, last),
-            Done::Update(r) => crate::majs::found(app, st, r),
+            Done::Update(r, github) => crate::majs::found(app, st, r, github),
             Done::UpdateFetched(r) => crate::majs::fetched(app, r),
             Done::Say(text) => app.set_message(text.into()),
             Done::AddonsDone(r) => crate::mobile::addons_done(app, st, r),

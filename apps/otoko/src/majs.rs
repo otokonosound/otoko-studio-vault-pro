@@ -99,23 +99,26 @@ pub fn check(st: &mut State) {
     let remote = st.distant.as_ref().map(|d| d.url.clone());
     st.spawn(move || {
         let current = parse(env!("CARGO_PKG_VERSION"));
+        let mut github = None;
         let found = match remote {
             Some(url) => crate::fond::fetch_json(&format!("{url}/api/maj"))
                 .ok()
                 .and_then(|v| Some((v["pc"].as_str()?.to_string(), v["pc_sha256"].as_str().and_then(sha256_in))))
                 .filter(|(v, _)| parse(v) > current)
                 .map(|(v, sha)| (v, Source::MainPc(sha))),
-            None => folder()
-                .and_then(|d| otoko_mobile::newest_in(&d))
-                .filter(|(v, _)| parse(v) > current)
-                .map(|(v, p)| (v, Source::Folder(p)))
-                .or_else(|| crate::fond::fetch_json(RELEASES).ok().and_then(|v| read_release(&v)).filter(|(v, _)| parse(v) > current).map(|(v, u)| (v, Source::Web(u)))),
+            None => folder().and_then(|d| otoko_mobile::newest_in(&d)).filter(|(v, _)| parse(v) > current).map(|(v, p)| (v, Source::Folder(p))).or_else(|| {
+                let answer = crate::fond::fetch_json(RELEASES).ok();
+                github = Some(answer.is_some());
+                answer.and_then(|v| read_release(&v)).filter(|(v, _)| parse(v) > current).map(|(v, u)| (v, Source::Web(u)))
+            }),
         };
-        Done::Update(found)
+        Done::Update(found, github)
     });
 }
 
-pub fn found(app: &AppWindow, st: &mut State, r: Option<(String, Source)>) {
+pub fn found(app: &AppWindow, st: &mut State, r: Option<(String, Source)>, github: Option<bool>) {
+    let clock = st.career.as_ref().and_then(|c| c.conn().query_row("SELECT strftime('%H:%M', 'now', 'localtime')", [], |r| r.get::<_, String>(0)).ok());
+    st.update_checked = Some((clock.unwrap_or_default(), github));
     match r {
         Some((v, p)) => {
             st.update_ready = Some(v);
@@ -139,10 +142,15 @@ pub fn push(app: &AppWindow, st: &State) {
     g.set_update_dir(folder().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default().into());
     g.set_update_ready(st.update_ready.is_some());
     g.set_update_text(
-        match st.update_ready.as_ref() {
-            Some(v) => format!("La version {v} est prête. Le logiciel se ferme, s'installe et se relance."),
-            None if st.distant.is_some() => "Les mises à jour viennent du PC principal.".to_string(),
-            None => format!("Tu as la dernière version ({}).", env!("CARGO_PKG_VERSION")),
+        match (st.update_ready.as_ref(), &st.update_checked) {
+            (Some(v), _) => format!("La version {v} est prête. Le logiciel se ferme, s'installe et se relance."),
+            (None, _) if st.distant.is_some() => "Les mises à jour viennent du PC principal.".to_string(),
+            (None, Some((at, Some(true)))) => format!("Tu as la dernière version ({}) : vérifié sur GitHub à {at}.", env!("CARGO_PKG_VERSION")),
+            (None, Some((_, Some(false)))) => {
+                format!("Tu as la version {}. GitHub n'a pas répondu (pas d'Internet ?) : « Chercher » réessaie.", env!("CARGO_PKG_VERSION"))
+            }
+            (None, Some((at, None))) => format!("Tu as la dernière version ({}) : vérifié à {at}.", env!("CARGO_PKG_VERSION")),
+            (None, None) => format!("Tu as la version {}. La recherche d'une nouvelle version se fait sur GitHub au démarrage.", env!("CARGO_PKG_VERSION")),
         }
         .into(),
     );

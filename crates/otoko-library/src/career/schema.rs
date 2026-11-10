@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     parent_id     INTEGER,
     project_id    INTEGER,
     version_label TEXT,
+    isrc          TEXT DEFAULT '',
     notes         TEXT,
     daw_project   TEXT,
     fingerprint   TEXT,
@@ -195,7 +196,8 @@ CREATE TABLE IF NOT EXISTS releases (
     sc_link      TEXT DEFAULT '',
     notes        TEXT DEFAULT '',
     steps        TEXT DEFAULT '{}',
-    created_at   TEXT DEFAULT (datetime('now'))
+    created_at   TEXT DEFAULT (datetime('now')),
+    extra        TEXT DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS release_tracks (
     release_id INTEGER NOT NULL,
@@ -256,6 +258,26 @@ CREATE TABLE IF NOT EXISTS text_models (
     body       TEXT NOT NULL DEFAULT '',
     created_at TEXT DEFAULT (datetime('now'))
 );
+";
+
+/// L'historique des fiches (voir `journal`) : une ligne par champ changé, avec sa valeur d'avant et d'après (sans type :
+/// texte, nombre ou rien, tels quels).
+pub const JOURNAL: &str = "
+CREATE TABLE IF NOT EXISTS main.edit_log (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id  TEXT NOT NULL,
+    label     TEXT NOT NULL,
+    source    TEXT NOT NULL DEFAULT 'pc',
+    grp       TEXT NOT NULL DEFAULT '',
+    track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    field     TEXT NOT NULL,
+    old_value,
+    new_value,
+    at        TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    undone    INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS main.idx_edit_log_track ON edit_log(track_id, id);
+CREATE INDEX IF NOT EXISTS main.idx_edit_log_batch ON edit_log(batch_id);
 ";
 
 /// Statuts d'un morceau, dans l'ordre de la production.
@@ -323,13 +345,66 @@ pub fn nature_short(n: &str) -> String {
 /// Rôles des morceaux « principaux » (les stems, démos et générations Suno sont rattachés).
 pub const MAIN_ROLES: [&str; 2] = ["mixdown", "render"];
 
-/// Étapes d'une sortie (clés du JSON `steps`), dans l'ordre.
-pub const STEPS: [(&str, &str); 7] = [
+/// Toutes les étapes possibles d'une sortie (clés du JSON `steps`), dans l'ordre. Une sortie n'a que celles de ses
+/// plateformes (`steps_for`).
+pub const ALL_STEPS: [(&str, &str); 10] = [
     ("master", "Master"),
     ("pochette", "Pochette"),
     ("infos", "Infos"),
     ("controle", "Contrôle"),
+    ("distrib", "Distributeur"),
     ("soundcloud", "SoundCloud"),
+    ("bandcamp", "Bandcamp"),
+    ("youtube", "YouTube"),
     ("textes", "Textes"),
     ("promo", "Promo"),
 ];
+
+/// Où une sortie peut sortir : (clé, nom court, explication). « streaming » passe par un distributeur (DistroKid,
+/// TuneCore, CD Baby, Believe…), qui l'envoie à Spotify, Apple Music, Deezer, Tidal, Amazon Music, YouTube Music…
+pub const PLATFORMS: [(&str, &str, &str); 4] = [
+    ("streaming", "Streaming", "Spotify, Apple Music, Deezer… par un distributeur"),
+    ("soundcloud", "SoundCloud", "mis en ligne par toi"),
+    ("bandcamp", "Bandcamp", "mis en ligne par toi"),
+    ("youtube", "YouTube", "la vidéo, mise en ligne par toi"),
+];
+
+/// Les étapes d'une sortie qui sort sur ces plateformes.
+pub fn steps_for(platforms: &[String]) -> Vec<(&'static str, &'static str)> {
+    let on = |k: &str| platforms.iter().any(|p| p == k);
+    ALL_STEPS
+        .iter()
+        .copied()
+        .filter(|(k, _)| match *k {
+            "distrib" => on("streaming"),
+            "soundcloud" | "bandcamp" | "youtube" => on(k),
+            _ => true,
+        })
+        .collect()
+}
+
+/// Les plateformes écrites dans le JSON `extra` d'une sortie. Une sortie d'avant (sans ce choix) sort sur SoundCloud,
+/// comme avant.
+pub fn platforms_of(extra: &serde_json::Value) -> Vec<String> {
+    match extra["platforms"].as_array() {
+        Some(a) => PLATFORMS.iter().map(|p| p.0).filter(|k| a.iter().any(|x| x == k)).map(String::from).collect(),
+        None => vec!["soundcloud".to_string()],
+    }
+}
+
+/// Le nom lisible des plateformes : « Streaming et SoundCloud ».
+pub fn platforms_label(platforms: &[String]) -> String {
+    let names: Vec<&str> = PLATFORMS.iter().filter(|p| platforms.iter().any(|x| x == p.0)).map(|p| p.1).collect();
+    match names.as_slice() {
+        [] => "aucune plateforme".to_string(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} et {last}", rest.join(", ")),
+    }
+}
+
+/// (étapes faites, étapes en tout) d'une sortie, d'après ses colonnes `steps` et `extra`.
+pub fn steps_count(steps: &str, extra: &str) -> (usize, usize) {
+    let done = super::nature::load_meta(steps);
+    let list = steps_for(&platforms_of(&super::nature::load_meta(extra)));
+    (list.iter().filter(|(k, _)| done[*k].as_bool().unwrap_or(false)).count(), list.len())
+}

@@ -710,7 +710,7 @@ fn ours(req: &Request, c: &mut Conn) -> std::io::Result<bool> {
 }
 
 /// Une connexion qui écrit dans la Carrière (les lectures, elles, restent en lecture seule).
-fn writer(st: &State) -> rusqlite::Result<Connection> {
+pub(crate) fn writer(st: &State) -> rusqlite::Result<Connection> {
     let con = Connection::open(&st.cfg.db)?;
     con.busy_timeout(Duration::from_secs(5))?;
     con.execute_batch("PRAGMA foreign_keys = ON;")?;
@@ -1004,8 +1004,24 @@ fn shares_api(st: &State, req: &Request, c: &mut Conn, rest: &[&str]) -> Out {
                 (201, share_out(st, sh))
             }
             ("GET", [s, "events"]) if digits(s).is_some() => (200, Json::Array(store.events(id))),
+            ("GET", [s, "feedback"]) if digits(s).is_some() => {
+                let con = st.con().map_err(|e| ShareError(e.to_string()))?;
+                let title = |t: i64| {
+                    con.query_row("SELECT IFNULL(NULLIF(title, ''), filename) FROM tracks WHERE id = ?1", [t], |r| r.get::<_, String>(0)).unwrap_or_else(|_| "Morceau retiré".into())
+                };
+                let list: Vec<Json> = store
+                    .feedback(id)
+                    .iter()
+                    .map(|f| {
+                        let mut v = f.to_json();
+                        v["title"] = json!(title(f.track_id));
+                        v
+                    })
+                    .collect();
+                (200, Json::Array(list))
+            }
             ("POST", [s]) if digits(s).is_some() => {
-                let allowed = ["label", "message", "can_download", "download_quality", "expires_days", "password", "max_downloads", "revoked"];
+                let allowed = ["label", "message", "can_download", "download_quality", "expires_days", "password", "max_downloads", "revoked", "feedback"];
                 let b = body(req)?;
                 let f: serde_json::Map<String, Json> = b.as_object().into_iter().flatten().filter(|(k, _)| allowed.contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
                 st.public.forget(id);

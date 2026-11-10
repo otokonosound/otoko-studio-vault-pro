@@ -578,7 +578,7 @@ pub fn tick(app: &AppWindow, st: &mut State) {
 pub fn notes_edited(app: &AppWindow, st: &mut State, text: &str) {
     let Some(id) = st.player.id.filter(|id| *id != OUTSIDE) else { return };
     let Some(c) = st.career.as_ref() else { return };
-    if let Err(e) = lib::update(c.conn(), id, "notes", text) {
+    if let Err(e) = otoko_library::career::journal::record(c.conn(), "Modification : Notes", &format!("field:{id}:notes"), || lib::update(c.conn(), id, "notes", text)) {
         app.set_message(format!("Notes non enregistrées : {e}").into());
     }
 }

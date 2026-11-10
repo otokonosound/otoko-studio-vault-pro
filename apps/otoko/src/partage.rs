@@ -1,19 +1,22 @@
 //! Mobile et partage › les liens d'écoute. Studio Vault ne les gérait que depuis le téléphone : ici ils se créent et se
 //! suivent aussi depuis le PC. Le serveur mobile, s'il tourne, fait le travail (il prépare les versions d'écoute et oublie
 //! ce qu'il a en mémoire) ; sinon la base `partages.db` est écrite directement.
+//!
+//! Chaque lien montre aussi ses retours : les « j'aime », les commentaires (ceux posés à un instant sont aussi des repères
+//! sur la forme d'onde) et jusqu'où la personne a écouté chaque morceau.
 
 use std::cell::RefCell;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::rc::Rc;
 
 use otoko_library::career::library as lib;
-use otoko_mobile::shares::{DOWNLOAD_QUALITIES, KINDS, Share, ShareStore};
+use otoko_mobile::shares::{DOWNLOAD_QUALITIES, Echo, FINISHED, Feedback, KINDS, Share, ShareStore};
 use serde_json::{Value as Json, json};
 use slint::{ComponentHandle, ModelRc, VecModel};
 
 use crate::state::{Done, State};
-use crate::{AppWindow, Part, ShareItemUi, ShareUi};
+use crate::{AnswerUi, AppWindow, Part, ShareItemUi, ShareUi};
 
 /// Les validités proposées, en jours (0 : sans limite).
 const EXPIRIES: [i64; 4] = [7, 30, 90, 0];
@@ -26,6 +29,8 @@ pub struct View {
     pub base: Option<String>,
     pub funnel: bool,
     pub list: Vec<Share>,
+    /// Le bilan des retours de chaque lien.
+    pub echo: HashMap<i64, Echo>,
     /// Dans le formulaire : ce qui est choisi (le type et le reste sont dans le global `Part`).
     pub picked: BTreeSet<i64>,
 }
@@ -48,8 +53,10 @@ fn port(st: &State) -> u16 {
 
 /// Relit les liens, et demande au serveur où ils sont publiés.
 pub fn fill(app: &AppWindow, st: &mut State) {
-    let mut list = store(st).map(|s| s.all()).unwrap_or_default();
+    let store = store(st);
+    let mut list = store.as_ref().map(|s| s.all()).unwrap_or_default();
     list.sort_by(|a, b| a.revoked.cmp(&b.revoked).then(b.created_at.cmp(&a.created_at)).then(b.id.cmp(&a.id)));
+    st.partage.echo = store.as_ref().map(|s| list.iter().map(|l| (l.id, s.echo(l.id))).collect()).unwrap_or_default();
     st.partage.list = list;
     push(app, st);
     if st.selftest {
@@ -92,6 +99,23 @@ fn title(st: &State, s: &Share) -> String {
     }
 }
 
+/// « 2 j'aime · 3 avis · écouté en entier 1 fois » ; vide sans retour.
+fn answers_text(e: &Echo) -> String {
+    let mut parts = Vec::new();
+    if e.likes > 0 {
+        parts.push(format!("{} j'aime", e.likes));
+    }
+    if e.comments > 0 {
+        parts.push(plural(e.comments, "avis").replace("aviss", "avis"));
+    }
+    if e.finished > 0 {
+        parts.push(format!("écouté en entier {} fois", e.finished));
+    } else if e.listeners > 0 {
+        parts.push(format!("{} à l'écoute", plural(e.listeners, "personne")));
+    }
+    parts.join(" · ")
+}
+
 fn row(st: &State, s: &Share) -> ShareUi {
     let state = ShareStore::state(s);
     let what = match s.kind.as_str() {
@@ -132,7 +156,138 @@ fn row(st: &State, s: &Share) -> ShareUi {
         url: st.partage.base.as_ref().map(|b| format!("{b}/s/{}", s.token)).unwrap_or_default().into(),
         locked: s.pw_hash.is_some(),
         revoked: s.revoked,
+        answers: st.partage.echo.get(&s.id).map(answers_text).unwrap_or_default().into(),
     }
+}
+
+/// « 1:32 » ou « 1:02:03 ».
+fn clock(t: f64) -> String {
+    let t = t.max(0.0).round() as i64;
+    if t >= 3600 { format!("{}:{:02}:{:02}", t / 3600, t % 3600 / 60, t % 60) } else { format!("{}:{:02}", t / 60, t % 60) }
+}
+
+/// Les retours d'un lien, morceau par morceau : le bilan (écoutes, « j'aime », jusqu'où), puis les commentaires.
+fn answer_lines(feedback: &[Feedback], plays: &HashMap<i64, i64>, title: impl Fn(i64) -> String, order: &[i64]) -> Vec<AnswerUi> {
+    let mut tracks: Vec<i64> = order.iter().copied().filter(|t| plays.contains_key(t) || feedback.iter().any(|f| f.track_id == *t)).collect();
+    for t in feedback.iter().map(|f| f.track_id).chain(plays.keys().copied()) {
+        if !tracks.contains(&t) {
+            tracks.push(t);
+        }
+    }
+    let mut out = Vec::new();
+    for t in tracks {
+        let on: Vec<&Feedback> = feedback.iter().filter(|f| f.track_id == t).collect();
+        let likes: Vec<&Feedback> = on.iter().copied().filter(|f| f.kind == "like").collect();
+        let reach: Vec<f64> = on.iter().filter(|f| f.kind == "reach").filter_map(|f| f.value).collect();
+        let mut sum = Vec::new();
+        if let Some(n) = plays.get(&t) {
+            sum.push(format!("lancé {n} fois"));
+        }
+        if !likes.is_empty() {
+            let names: Vec<&str> = likes.iter().map(|f| f.name.as_str()).filter(|n| !n.is_empty()).collect();
+            sum.push(if names.is_empty() { format!("{} j'aime", likes.len()) } else { format!("{} j'aime ({})", likes.len(), names.join(", ")) });
+        }
+        if !reach.is_empty() {
+            let whole = reach.iter().filter(|v| **v >= FINISHED).count();
+            let best = reach.iter().copied().fold(0.0, f64::max);
+            sum.push(if whole == reach.len() {
+                if whole == 1 { "écouté en entier".to_string() } else { format!("écouté en entier par {whole} personnes") }
+            } else if whole > 0 {
+                format!("en entier par {whole} personne{} sur {}", if whole > 1 { "s" } else { "" }, reach.len())
+            } else {
+                format!("écouté jusqu'à {} %", (best * 100.0).round() as i64)
+            });
+        }
+        out.push(AnswerUi { head: true, title: title(t).into(), text: sum.join(" · ").into(), track: t as i32, time: 0.0, timed: false });
+        for f in on.iter().filter(|f| f.kind == "comment") {
+            let who = if f.name.is_empty() { "Quelqu'un".to_string() } else { f.name.clone() };
+            let when = crate::career::fr_date(&f.at);
+            let head = match f.time {
+                Some(at) => format!("▶ {} · {who} · le {when}", clock(at)),
+                None => format!("{who} · le {when}"),
+            };
+            out.push(AnswerUi { head: false, title: head.into(), text: f.text.as_str().into(), track: t as i32, time: f.time.unwrap_or(0.0) as f32, timed: f.time.is_some() });
+        }
+    }
+    out
+}
+
+/// Ouvre (ou relit) les retours d'un lien.
+fn show_answers(app: &AppWindow, st: &mut State, id: i64) {
+    let Some(sh) = st.partage.list.iter().find(|s| s.id == id).cloned() else { return };
+    let (feedback, plays) = store(st).map(|s| (s.feedback(id), s.plays_by_track(id))).unwrap_or_default();
+    let name = |t: i64| st.career.as_ref().and_then(|c| c.song(t).ok().flatten()).map(|s| s.title).unwrap_or_else(|| "Morceau retiré".into());
+    let order = if sh.kind == "tracks" { sh.items.clone() } else { Vec::new() };
+    let lines = answer_lines(&feedback, &plays, name, &order);
+    let g = app.global::<Part>();
+    g.set_answers_id(id as i32);
+    g.set_answers_title(title(st, &sh).into());
+    g.set_answers_on(sh.feedback);
+    g.set_answers(model(lines));
+    g.set_answers_open(true);
+}
+
+/// Un lien où ce morceau a été écouté, dit comme une ligne de « Versions envoyées et retours » (fiche d'une prod).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Sent {
+    pub date: String,
+    pub label: String,
+    pub note: String,
+}
+
+/// Les liens qui contiennent ce morceau ou l'ont fait écouter, avec ce qu'ils ont rapporté.
+pub fn sent_versions(st: &State, track: i64) -> Vec<Sent> {
+    let Some(store) = store(st) else { return Vec::new() };
+    let heard = store.shares_heard(track);
+    let mut list: Vec<Share> = store.all().into_iter().filter(|s| heard.contains(&s.id) || (s.kind == "tracks" && s.items.contains(&track))).collect();
+    list.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
+    list.iter()
+        .map(|sh| {
+            let feedback: Vec<Feedback> = store.feedback(sh.id).into_iter().filter(|f| f.track_id == track).collect();
+            let plays = store.plays_by_track(sh.id).get(&track).copied().unwrap_or(0);
+            Sent { date: otoko_library::career::releases::fr_date(&sh.created_at), label: format!("Lien « {} »", title(st, sh)), note: sent_note(plays, &feedback) }
+        })
+        .collect()
+}
+
+/// « écouté 3 fois · 1 j'aime · Paul à 1:32 : kick trop fort ; Léa : beau ».
+fn sent_note(plays: i64, feedback: &[Feedback]) -> String {
+    let mut parts = Vec::new();
+    parts.push(if plays == 0 { "pas encore écouté".to_string() } else { format!("écouté {plays} fois") });
+    let likes = feedback.iter().filter(|f| f.kind == "like").count();
+    if likes > 0 {
+        parts.push(format!("{likes} j'aime"));
+    }
+    if feedback.iter().any(|f| f.kind == "reach" && f.value.is_some_and(|v| v >= FINISHED)) {
+        parts.push("écouté en entier".into());
+    }
+    let comments: Vec<String> = feedback
+        .iter()
+        .filter(|f| f.kind == "comment")
+        .map(|f| {
+            let who = if f.name.is_empty() { "Quelqu'un".to_string() } else { f.name.clone() };
+            match f.time {
+                Some(t) => format!("{who} à {} : {}", clock(t), f.text),
+                None => format!("{who} : {}", f.text),
+            }
+        })
+        .collect();
+    let mut note = parts.join(" · ");
+    if !comments.is_empty() {
+        note = format!("{note} · {}", comments.join(" ; "));
+    }
+    note
+}
+
+/// Ce que dit le PC quand une réponse arrive par un lien (le dernier « j'aime » ou commentaire).
+pub fn arrived(st: &State) -> Option<String> {
+    let f = store(st)?.latest()?;
+    let song = st.career.as_ref()?.song(f.track_id).ok().flatten()?.title;
+    let who = if f.name.is_empty() { "Quelqu'un".to_string() } else { f.name.clone() };
+    Some(match f.kind.as_str() {
+        "like" => format!("{who} aime « {song} » (lien de partage)."),
+        _ => format!("{who} sur « {song} » : {}", f.text),
+    })
 }
 
 fn push(app: &AppWindow, st: &State) {
@@ -157,6 +312,7 @@ pub fn new_link(app: &AppWindow, st: &mut State, kind: i32, picked: &[i64]) {
     g.set_label("".into());
     g.set_note("".into());
     g.set_password("".into());
+    g.set_feedback(true);
     g.set_expiry(0);
     g.set_download(false);
     g.set_quality(0);
@@ -218,6 +374,7 @@ fn create(app: &AppWindow, st: &mut State) {
         "can_download": g.get_download(),
         "download_quality": DOWNLOAD_QUALITIES[g.get_quality().clamp(0, 2) as usize],
         "password": g.get_password().as_str(),
+        "feedback": g.get_feedback(),
     });
     if st.selftest && st.career_path == crate::career::default_path() {
         return;
@@ -241,6 +398,9 @@ pub fn done(app: &AppWindow, st: &mut State, result: Result<String, String>) {
             g.set_creating(false);
             app.set_message(text.into());
             fill(app, st);
+            if g.get_answers_open() {
+                show_answers(app, st, g.get_answers_id() as i64);
+            }
         }
         Err(e) if g.get_creating() => g.set_error(e.into()),
         Err(e) => app.set_message(format!("Lien non modifié : {e}").into()),
@@ -255,6 +415,15 @@ fn set_revoked(st: &mut State, id: i64) {
         let body = json!({ "revoked": revoked });
         let r = apply(port, path, "POST", format!("/api/shares/{id}"), body, |s, b| s.update(id, b).map(|_| ()).map_err(|e| e.0));
         Done::Partage(r.map(|_| if revoked { "Lien révoqué : il ne marche plus.".to_string() } else { "Lien réactivé.".to_string() }))
+    });
+}
+
+fn set_feedback(st: &mut State, id: i64, on: bool) {
+    let (port, path) = (if st.selftest { 0 } else { port(st) }, crate::career::shares_path(&st.career_path));
+    st.spawn(move || {
+        let body = json!({ "feedback": on });
+        let r = apply(port, path, "POST", format!("/api/shares/{id}"), body, |s, b| s.update(id, b).map(|_| ()).map_err(|e| e.0));
+        Done::Partage(r.map(|_| if on { "Le lien reprend les retours.".to_string() } else { "Le lien ne prend plus de retours.".to_string() }))
     });
 }
 
@@ -329,4 +498,47 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     });
     part_on!(app, state, on_revoke, |_app, st, id| { set_revoked(st, id as i64); });
     part_on!(app, state, on_remove, |_app, st, id| { remove(st, id as i64); });
+    part_on!(app, state, on_show_answers, |app, st, id| { show_answers(&app, st, id as i64); });
+    part_on!(app, state, on_set_feedback, |_app, st, id, on| { set_feedback(st, id as i64, on); });
+    part_on!(app, state, on_answer_play, |app, st, track, time| {
+        app.global::<Part>().set_answers_open(false);
+        crate::lecteur::play_id(&app, st, track as i64, time as f64);
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fb(track: i64, kind: &str, name: &str, time: Option<f64>, text: &str, value: Option<f64>) -> Feedback {
+        Feedback { share_id: 1, track_id: track, visitor: "v".into(), name: name.into(), kind: kind.into(), time, text: text.into(), value, at: "2026-11-10T09:00:00Z".into() }
+    }
+
+    #[test]
+    fn the_answers_read_track_by_track() {
+        let all = vec![
+            fb(2, "like", "Paul", None, "", None),
+            fb(2, "comment", "Paul", Some(92.4), "kick trop fort", None),
+            fb(2, "reach", "", None, "", Some(0.95)),
+            fb(1, "reach", "", None, "", Some(0.5)),
+            fb(1, "comment", "", None, "beau", None),
+        ];
+        let plays = HashMap::from([(1, 3), (2, 1)]);
+        let lines = answer_lines(&all, &plays, |t| format!("Morceau {t}"), &[1, 2]);
+        let text: Vec<(bool, String, String)> = lines.iter().map(|l| (l.head, l.title.to_string(), l.text.to_string())).collect();
+        assert_eq!(
+            text,
+            vec![
+                (true, "Morceau 1".into(), "lancé 3 fois · écouté jusqu'à 50 %".into()),
+                (false, "Quelqu'un · le 10 novembre 2026".into(), "beau".into()),
+                (true, "Morceau 2".into(), "lancé 1 fois · 1 j'aime (Paul) · écouté en entier".into()),
+                (false, "▶ 1:32 · Paul · le 10 novembre 2026".into(), "kick trop fort".into()),
+            ]
+        );
+        assert!(lines[3].timed && !lines[1].timed);
+        assert_eq!(answers_text(&Echo { likes: 2, comments: 1, listeners: 3, finished: 0 }), "2 j'aime · 1 avis · 3 personnes à l'écoute");
+        assert_eq!(answers_text(&Echo::default()), "");
+        assert_eq!(sent_note(2, &all.iter().filter(|f| f.track_id == 2).cloned().collect::<Vec<_>>()), "écouté 2 fois · 1 j'aime · écouté en entier · Paul à 1:32 : kick trop fort");
+        assert_eq!(sent_note(0, &[]), "pas encore écouté");
+    }
 }

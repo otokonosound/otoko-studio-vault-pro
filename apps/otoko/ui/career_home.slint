@@ -3,7 +3,8 @@
 // (accueil.rs).
 import { Theme } from "theme.slint";
 import { Btn, Hit } from "components.slint";
-import { CPrefs, PInput } from "prefs_career.slint";
+import { CPrefs, PInput, PCheck } from "prefs_career.slint";
+import { PlatformUi } from "releases.slint";
 import { ScrollView } from "std-widgets.slint";
 
 export struct HLinkUi {
@@ -92,6 +93,11 @@ export global Home {
     in property <string> hello: "Bonjour";
     in property <string> date-text;
     in property <bool> empty;
+    // La question « ce qui te sert » (une seule fois) et les pages du menu.
+    in property <bool> pages-ask;
+    in property <[PlatformUi]> pages;
+    callback page-toggle(string);
+    callback pages-done();
     // Aujourd'hui : les trois actions, puis ce qui vient ensuite.
     in property <[TodayUi]> today;
     in property <[HLinkUi]> next-up;
@@ -364,6 +370,16 @@ export component HomeView inherits ScrollView {
             HorizontalLayout {
                 alignment: start;
                 Btn { text: "Voir Mobile et partage"; ghost: true; height: 30px; clicked => { root.open-mobile(); } }
+            }
+        }
+        if Home.pages-ask: Card {
+            title: Home.empty ? "4.  Ce qui te sert" : "Garde seulement ce qui te sert";
+            Text { text: "Décoche les pages dont tu n'as pas besoin : elles quittent le menu. Rien n'est effacé, et tout revient dans Réglages › Général."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+            for p in Home.pages: PCheck { text: p.label + " : " + p.hint; on: p.on; clicked => { Home.page-toggle(p.key); } }
+            HorizontalLayout {
+                alignment: start;
+                padding-top: 4px;
+                Btn { text: "C'est bon"; primary: true; height: 30px; clicked => { Home.pages-done(); } }
             }
         }
         // Aujourd'hui : ce qu'il y a de plus utile à faire, calculé d'après la base.

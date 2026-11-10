@@ -193,6 +193,11 @@ data class Share(
     /** active, expired ou revoked */
     val state: String,
     val url: String,
+    /** Les retours de la personne qui écoute : « j'aime », avis, personnes à l'écoute, morceaux écoutés en entier */
+    val likes: Int = 0,
+    val comments: Int = 0,
+    val listeners: Int = 0,
+    val finished: Int = 0,
 ) {
     companion object {
         fun fromJson(o: JSONObject): Share {
@@ -214,6 +219,10 @@ data class Share(
                 hasPassword = o.optBoolean("has_password", false),
                 state = o.optStr("state") ?: "active",
                 url = o.optStr("url") ?: "",
+                likes = o.optInt("likes", 0),
+                comments = o.optInt("comments", 0),
+                listeners = o.optInt("listeners", 0),
+                finished = o.optInt("finished", 0),
             )
         }
     }

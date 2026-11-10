@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use otoko_library::career::files::{self, DupRow, Move, Suggestion, TagValues};
 use otoko_library::career::folders;
+use otoko_library::career::journal;
 use otoko_library::career::library as lib;
 use otoko_library::career::releases::{self, SyncAction};
 use otoko_library::career::{nature, nature_short, prefs, statuts};
@@ -873,7 +874,7 @@ pub fn button(app: &AppWindow, st: &mut State, id: &str) {
         }
         (Dlg::Complete { items, checked, write }, "apply") => {
             let chosen: Vec<Suggestion> = checked.iter().filter_map(|&i| items.get(i).cloned()).collect();
-            let n = files::apply_suggestions(conn, &chosen);
+            let n = journal::record(conn, "Genres et artistes complétés", "", || files::apply_suggestions(conn, &chosen));
             let _ = c.set_setting("brand_name", pattern.trim());
             let mut written = (0, 0);
             if *write && !st.selftest {
@@ -891,13 +892,15 @@ pub fn button(app: &AppWindow, st: &mut State, id: &str) {
             )
         }
         (Dlg::Batches { list, checked, .. }, "apply") => {
-            let n: usize = checked.iter().filter_map(|i| list.get(*i)).map(|b| files::apply_genre(conn, &b.ids, &b.genre)).sum();
+            let n: usize = journal::record(conn, "Genres par lots", "", || checked.iter().filter_map(|i| list.get(*i)).map(|b| files::apply_genre(conn, &b.ids, &b.genre)).sum());
             format!("Genre donné à {n} morceau{}.", if n > 1 { "x" } else { "" })
         }
         (Dlg::Statuses { list, checked }, "apply") => {
-            for c in checked.iter().filter_map(|i| list.get(*i)) {
-                let _ = otoko_library::career::board::set_status(conn, c.id, c.to);
-            }
+            journal::record(conn, "Statuts automatiques", "", || {
+                for c in checked.iter().filter_map(|i| list.get(*i)) {
+                    let _ = otoko_library::career::board::set_status(conn, c.id, c.to);
+                }
+            });
             // Ce qui a été décoché reste où il est, pour de bon.
             for (i, c) in list.iter().enumerate() {
                 if !checked.contains(&i) {
@@ -913,13 +916,13 @@ pub fn button(app: &AppWindow, st: &mut State, id: &str) {
                 app.set_message("Choisis le morceau principal dans la liste.".into());
                 return;
             };
-            let _ = files::attach(conn, *id, *parent, *stem);
+            let _ = journal::record(conn, "Rattachement", "", || files::attach(conn, *id, *parent, *stem));
             st.lib.details = Some(*id);
             format!("Rattaché comme {}.", if *stem { "piste séparée" } else { "version" })
         }
         (Dlg::Nature { found, checked }, "apply") => {
             let chosen: Vec<(i64, String, &str)> = found.iter().filter(|f| checked.contains(&f.0)).map(|f| (f.0, f.1.clone(), f.2)).collect();
-            match nature::apply_suggestions(conn, &chosen) {
+            match journal::record(conn, "Remix, edits et mashups classés", "", || nature::apply_suggestions(conn, &chosen)) {
                 Ok(n) => format!("Nature appliquée à {n} morceau(x)."),
                 Err(e) => format!("Écriture impossible : {e}"),
             }
@@ -934,7 +937,7 @@ pub fn button(app: &AppWindow, st: &mut State, id: &str) {
         (Dlg::Genre { ids, moods, replace, write, .. }, "apply") => {
             let genre = pattern.trim().to_string();
             let chosen: Vec<&str> = moods.iter().copied().collect();
-            let n = lib::apply_genre_mood(conn, ids, (!genre.is_empty()).then_some(genre.as_str()), &chosen, *replace).unwrap_or(0);
+            let n = journal::record(conn, "Genre et ambiance", "", || lib::apply_genre_mood(conn, ids, (!genre.is_empty()).then_some(genre.as_str()), &chosen, *replace).unwrap_or(0));
             let mut errors = 0;
             if *write && !genre.is_empty() && !st.selftest {
                 for r in files::file_rows(conn, ids) {
@@ -1076,19 +1079,59 @@ fn list_button(app: &AppWindow, st: &mut State, id: &str) {
     push(app, st);
 }
 
-/// Annule le dernier renommage ou la dernière réorganisation.
+/// Ce que Ctrl+Z défait : le plus récent du dernier déplacement de fichiers et de la dernière modification de fiches faite
+/// sur ce PC.
+pub enum Undoable {
+    Files { batch: String, label: String, n: i64 },
+    Edits(journal::Last),
+}
+
+pub fn next_undo(c: &otoko_library::career::Career) -> Option<Undoable> {
+    let conn = c.conn();
+    let files = files::last_batch(conn).map(|(batch, label, n)| {
+        let at: String = conn.query_row("SELECT IFNULL(MAX(created_at), '') FROM file_ops WHERE batch_id = ?1", [&batch], |r| r.get(0)).unwrap_or_default();
+        (at, Undoable::Files { batch, label, n })
+    });
+    let edits = journal::last(conn, journal::PC).map(|l| (l.at.clone(), Undoable::Edits(l)));
+    match (files, edits) {
+        (Some(f), Some(e)) => Some(if f.0 > e.0 { f.1 } else { e.1 }),
+        (f, e) => f.or(e).map(|x| x.1),
+    }
+}
+
+/// Le libellé du menu Annuler (vide : rien à annuler).
+pub fn undo_label(c: &otoko_library::career::Career) -> String {
+    let plural = |n: i64, one: &str, many: &str| format!("{n} {}", if n > 1 { many } else { one });
+    match next_undo(c) {
+        Some(Undoable::Files { label, n, .. }) => format!("{label} ({})", plural(n, "fichier", "fichiers")),
+        Some(Undoable::Edits(l)) => format!("{} ({})", l.label, plural(l.tracks, "morceau", "morceaux")),
+        None => String::new(),
+    }
+}
+
+/// Annule le dernier renommage, la dernière réorganisation ou la dernière modification de fiches.
 pub fn undo(app: &AppWindow, st: &mut State) {
     let Some(c) = st.career.as_ref() else { return };
-    let Some((batch, label, n)) = files::last_batch(c.conn()) else {
-        app.set_message("Rien à annuler dans la bibliothèque.".into());
+    let Some(next) = next_undo(c) else {
+        app.set_message("Rien à annuler.".into());
         return;
     };
-    if st.selftest {
-        return;
-    }
-    let (ok, err) = files::undo(c.conn(), &batch);
-    app.set_message(format!("{label} annulé : {ok} fichier(s) sur {n} remis en place{}.", if err > 0 { format!(", {err} impossible(s)") } else { String::new() }).into());
+    let msg = match next {
+        // L'autotest ne déplace pas de vrais fichiers.
+        Undoable::Files { .. } if st.selftest => return,
+        Undoable::Files { batch, label, n } => {
+            let (ok, err) = files::undo(c.conn(), &batch);
+            format!("{label} annulé : {ok} fichier(s) sur {n} remis en place{}.", if err > 0 { format!(", {err} impossible(s)") } else { String::new() })
+        }
+        Undoable::Edits(l) => match journal::undo(c.conn(), &l.batch) {
+            Ok((_, 0)) => format!("Annulé : {}.", l.label),
+            Ok((_, kept)) => format!("Annulé : {}. {kept} champ(s) modifié(s) depuis ont été laissés tels quels.", l.label),
+            Err(e) => format!("Annulation impossible : {e}"),
+        },
+    };
+    app.set_message(msg.into());
     crate::bibliotheque::fill(app, st);
+    crate::bibliotheque::details(app, st);
 }
 
 /// Écrit dans les fichiers sélectionnés ce que la Carrière sait d'eux.
@@ -1140,7 +1183,7 @@ pub fn forget(app: &AppWindow, st: &mut State) {
 pub fn detach(app: &AppWindow, st: &mut State) {
     let Some(id) = st.lib.details.or_else(|| selection(st).first().copied()) else { return };
     if let Some(c) = st.career.as_ref() {
-        let _ = files::detach(c.conn(), id);
+        let _ = journal::record(c.conn(), "Détachement", "", || files::detach(c.conn(), id));
     }
     app.set_message("Détaché : c'est de nouveau un morceau principal.".into());
     crate::bibliotheque::fill(app, st);

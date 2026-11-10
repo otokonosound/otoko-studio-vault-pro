@@ -22,20 +22,20 @@ import { MasteringView } from "mastering.slint";
 import { PaletteView, Pal } from "palette.slint";
 import { CareerPrefs } from "prefs_career.slint";
 import { ProjectSheet, ClientsBook, SetBuilder, Proj } from "projects.slint";
-import { ShareSection, ShareDialog, Part } from "partage.slint";
+import { ShareSection, ShareDialog, AnswersDialog, Part } from "partage.slint";
 
 export { Theme } from "theme.slint";
 export { Nav } from "components.slint";
-export { Lib, NavUi, ColUi, LibRowUi, LibFieldUi, VersionUi, DlgItemUi, DlgBtnUi, MarkUi, WheelUi } from "library.slint";
+export { Lib, NavUi, ColUi, LibRowUi, LibFieldUi, VersionUi, EditUi, DlgItemUi, DlgBtnUi, MarkUi, WheelUi } from "library.slint";
 export { Mast, MJobUi, MParamUi, MTileUi, MMeasureUi } from "mastering.slint";
 export { Pal, PalItemUi } from "palette.slint";
 export { CPrefs, KeyUi } from "prefs_career.slint";
 export { SunoUi, SPromptUi, SlotUi, ChipGroupUi, IssueUi, SPresetUi, ImportFileUi } from "suno.slint";
 export { Pub, PubTrackUi, PubCheckUi, HistUi, BrandFieldUi } from "publishing.slint";
 export { Proj, SrcUi, EntryUi, DelivUi, VersionRowUi, PickUi, ClientUi, SbRowUi } from "projects.slint";
-export { Rel, RelTileUi, RelTrackUi, RelStepUi, QcCellUi, QcRowUi, DayUi, PlanRelUi } from "releases.slint";
+export { Rel, RelTileUi, RelTrackUi, RelStepUi, QcCellUi, QcRowUi, DayUi, PlanRelUi, PlatformUi, IsrcUi } from "releases.slint";
 export { Home, HLinkUi, HBarUi, TileUi, TodayUi, ChipUi, CardUi, BoardColUi, SliceUi, ChartUi } from "career_home.slint";
-export { Part, ShareUi, ShareItemUi } from "partage.slint";
+export { Part, ShareUi, ShareItemUi, AnswerUi } from "partage.slint";
 
 // Une entrée de la barre latérale. Repliée (fenêtre étroite), il ne reste que l'icône.
 component NavItem inherits Rectangle {
@@ -94,6 +94,13 @@ export component AppWindow inherits Window {
     in property <string> career-text;
     in property <bool> career-vault;
     in property <string> stats-facts;
+    // Les pages gardées dans le menu (Réglages › Général) : l'Accueil et la Bibliothèque y sont toujours.
+    in property <bool> page-production: true;
+    in property <bool> page-suno: true;
+    in property <bool> page-mastering: true;
+    in property <bool> page-sorties: true;
+    in property <bool> page-stats: true;
+    in property <bool> page-mobile: true;
     callback goto(int, int);
     callback career-import();
     // La palette de commandes (Ctrl+K) ; une touche tapée (vrai si un raccourci l'a prise).
@@ -116,6 +123,8 @@ export component AppWindow inherits Window {
     in-out property <bool> toast-on;
     callback toasted();
     changed message => { if (root.message != "") { root.toasted(); } }
+    // Des fichiers tirés depuis Windows au-dessus de la fenêtre : ce que deviendrait le dépôt (vide sinon).
+    in-out property <string> drop-text;
     // ---------- Mobile et partage : le serveur d'Otoko Vault et les scripts du PC principal.
     in-out property <string> mobile-text;
     // Ce PC relié au PC principal : l'état du lien, dans la barre du bas.
@@ -214,14 +223,16 @@ export component AppWindow inherits Window {
                     Rectangle { height: 12px; }
                     NavItem { icon: @image-url("icons/home.svg"); label: "Accueil"; folded: root.folded; on: root.here(0); clicked => { root.goto(4, 0); keys.focus(); } }
                     NavItem { icon: @image-url("icons/sounds.svg"); label: "Bibliothèque"; folded: root.folded; on: root.here(1); clicked => { root.goto(4, 1); keys.focus(); } }
-                    NavItem { icon: @image-url("icons/board.svg"); label: "Production"; folded: root.folded; on: root.here(6) || (root.folded && root.here(4)); clicked => { root.goto(4, 6); keys.focus(); } }
-                    if !root.folded && (root.here(6) || root.here(4)): NavItem { sub: true; label: "Atelier Suno"; on: root.here(4); clicked => { root.goto(4, 4); keys.focus(); } }
-                    NavItem { icon: @image-url("icons/wand.svg"); label: "Mastering"; folded: root.folded; on: root.here(7); clicked => { root.goto(4, 7); keys.focus(); } }
-                    NavItem { icon: @image-url("icons/disc.svg"); label: "Sorties"; folded: root.folded; on: root.here(2) || (root.folded && root.here(3)); clicked => { root.goto(4, 2); keys.focus(); } }
-                    if !root.folded && (root.here(2) || root.here(3)): NavItem { sub: true; label: "Publier"; on: root.here(3); clicked => { root.goto(4, 3); keys.focus(); } }
-                    NavItem { icon: @image-url("icons/chart.svg"); label: "Statistiques"; folded: root.folded; on: root.here(5); clicked => { root.goto(4, 5); keys.focus(); } }
+                    if root.page-production: NavItem { icon: @image-url("icons/board.svg"); label: "Production"; folded: root.folded; on: root.here(6) || (root.folded && root.here(4) && root.page-suno); clicked => { root.goto(4, 6); keys.focus(); } }
+                    if root.page-production && root.page-suno && !root.folded && (root.here(6) || root.here(4)): NavItem { sub: true; label: "Atelier Suno"; on: root.here(4); clicked => { root.goto(4, 4); keys.focus(); } }
+                    // Sans la Production, l'Atelier Suno a sa propre entrée.
+                    if !root.page-production && root.page-suno: NavItem { icon: @image-url("icons/spark.svg"); label: "Atelier Suno"; folded: root.folded; on: root.here(4); clicked => { root.goto(4, 4); keys.focus(); } }
+                    if root.page-mastering: NavItem { icon: @image-url("icons/wand.svg"); label: "Mastering"; folded: root.folded; on: root.here(7); clicked => { root.goto(4, 7); keys.focus(); } }
+                    if root.page-sorties: NavItem { icon: @image-url("icons/disc.svg"); label: "Sorties"; folded: root.folded; on: root.here(2) || (root.folded && root.here(3)); clicked => { root.goto(4, 2); keys.focus(); } }
+                    if root.page-sorties && !root.folded && (root.here(2) || root.here(3)): NavItem { sub: true; label: "Publier"; on: root.here(3); clicked => { root.goto(4, 3); keys.focus(); } }
+                    if root.page-stats: NavItem { icon: @image-url("icons/chart.svg"); label: "Statistiques"; folded: root.folded; on: root.here(5); clicked => { root.goto(4, 5); keys.focus(); } }
                     Rectangle { vertical-stretch: 1; }
-                    NavItem { icon: @image-url("icons/link.svg"); label: "Mobile et partage"; folded: root.folded; on: root.space == 7; clicked => { root.goto(7, 0); keys.focus(); } }
+                    if root.page-mobile: NavItem { icon: @image-url("icons/link.svg"); label: "Mobile et partage"; folded: root.folded; on: root.space == 7; clicked => { root.goto(7, 0); keys.focus(); } }
                     NavItem { icon: @image-url("icons/settings.svg"); label: "Réglages"; folded: root.folded; on: root.space == 6; clicked => { root.goto(6, 0); keys.focus(); } }
                 }
 
@@ -423,6 +434,7 @@ export component AppWindow inherits Window {
                             }
                         }
                         if Part.creating: ShareDialog { }
+                        if Part.answers-open: AnswersDialog { }
                     }
 
                     // ---------- Réglages
@@ -495,7 +507,7 @@ export component AppWindow inherits Window {
                                             H2 { text: "Otoko Studio Vault Pro " + root.version; }
                                             Text { text: "Logiciel gratuit. Le détail des licences est dans LICENCES.txt, à côté du programme."; color: Theme.text2; font-size: 12.5px; wrap: word-wrap; }
                                             Text {
-                                                text: "Made with Slint. Polices Bricolage Grotesque, Instrument Sans et JetBrains Mono (SIL Open Font License). Crates Rust : cpal, symphonia, hound, rusqlite (SQLite, domaine public), rfd, serde, image, lofty, RustCrypto (licences MIT ou Apache 2.0). App Android Otoko Vault : Kotlin, AndroidX, Media3, Coil (Apache 2.0).";
+                                                text: "Made with Slint. Polices Bricolage Grotesque, Instrument Sans et JetBrains Mono (SIL Open Font License). Crates Rust : cpal, symphonia, hound, rusqlite (SQLite, domaine public), rfd, drag, serde, image, lofty, RustCrypto (licences MIT ou Apache 2.0). App Android Otoko Vault : Kotlin, AndroidX, Media3, Coil (Apache 2.0).";
                                                 color: Theme.text3;
                                                 font-size: 11.5px;
                                                 wrap: word-wrap;
@@ -539,6 +551,32 @@ export component AppWindow inherits Window {
             drop-shadow-color: #00000080;
             tst := Text { x: 18px; width: parent.width - 36px; text: root.message; color: Theme.text; font-size: 12.5px; font-weight: 600; vertical-alignment: center; height: parent.height; overflow: elide; }
             TouchArea { clicked => { root.toast-on = false; } }
+        }
+
+        // ---------- des fichiers au-dessus de la fenêtre : où ils iront
+        if root.drop-text != "": Rectangle {
+            background: #000000c0;
+            Rectangle {
+                x: 24px;
+                y: 24px;
+                width: parent.width - 48px;
+                height: parent.height - 48px;
+                border-radius: 16px;
+                border-width: 2px;
+                border-color: Theme.ember;
+                background: Theme.ember.with-alpha(0.08);
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 10px;
+                    padding: 30px;
+                    HorizontalLayout {
+                        alignment: center;
+                        Icon { source: @image-url("icons/plus.svg"); width: 40px; height: 40px; tint: Theme.ember; }
+                    }
+                    Text { text: root.drop-text; color: Theme.text; font-size: 17px; font-weight: 700; horizontal-alignment: center; wrap: word-wrap; }
+                    Text { text: "Échap ou sors de la fenêtre pour annuler"; color: Theme.text3; font-size: 12px; horizontal-alignment: center; }
+                }
+            }
         }
 
         // ---------- la palette de commandes (Ctrl+K), par-dessus tout

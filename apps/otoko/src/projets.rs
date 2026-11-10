@@ -147,6 +147,26 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
         });
         push(&app, st, false);
     });
+    proj_on!(app, state, on_sent_add, |app, st| {
+        let Some(id) = st.proj.project.as_ref().map(|p| p.id) else { return };
+        let sent = crate::partage::sent_versions(st, id);
+        let mut added = 0;
+        meta_mut(st, |m| {
+            let v = versions_mut(m);
+            for s in sent {
+                // Déjà reporté (même date, même lien) : la note est mise à jour, la ligne n'est pas doublée.
+                match v.iter_mut().find(|x| text(&x["date"]) == s.date && text(&x["label"]) == s.label) {
+                    Some(x) => x["note"] = json!(s.note),
+                    None => {
+                        v.push(json!({ "date": s.date, "label": s.label, "note": s.note }));
+                        added += 1;
+                    }
+                }
+            }
+        });
+        push(&app, st, false);
+        app.global::<Proj>().set_msg(if added == 0 { "Versions à jour (pense à enregistrer).".into() } else { format!("{added} ligne{} ajoutée{} (pense à enregistrer).", if added > 1 { "s" } else { "" }, if added > 1 { "s" } else { "" }).into() });
+    });
     proj_on!(app, state, on_pick_dir, |app, st| {
         let Some(p) = st.proj.project.as_ref() else { return };
         let start = p.meta["stems_dir"].as_str().filter(|s| !s.is_empty()).map(std::path::PathBuf::from).or_else(|| std::path::Path::new(&p.path).parent().map(|d| d.to_path_buf()));
@@ -445,6 +465,8 @@ fn push(app: &AppWindow, st: &State, full: bool) {
     g.set_versions(model(
         m["versions"].as_array().into_iter().flatten().map(|v| VersionRowUi { date: text(&v["date"]).into(), label: text(&v["label"]).into(), note: text(&v["note"]).into() }).collect(),
     ));
+    let sent = if p.nature == "prod" { crate::partage::sent_versions(st, p.id) } else { Vec::new() };
+    g.set_sent(model(sent.into_iter().map(|s| VersionRowUi { date: s.date.into(), label: s.label.into(), note: s.note.into() }).collect()));
 }
 
 fn field(app: &AppWindow, st: &mut State, key: &str, value: &str) {
@@ -633,7 +655,7 @@ fn remix_title(app: &AppWindow, st: &mut State) {
     let new = projects::remix_title(&base, &artist(st), &p.nature);
     let id = p.id;
     if let Some(c) = st.career.as_ref() {
-        let _ = projects::set_title(c.conn(), id, &new);
+        let _ = otoko_library::career::journal::record(c.conn(), "Titre du remix", "", || projects::set_title(c.conn(), id, &new));
     }
     if let Some(p) = st.proj.project.as_mut() {
         p.raw_title = new.clone();
@@ -646,7 +668,7 @@ fn remix_title(app: &AppWindow, st: &mut State) {
 
 fn save(app: &AppWindow, st: &mut State) {
     let Some(p) = st.proj.project.take() else { return };
-    let r = st.career.as_ref().map(|c| projects::save(c.conn(), &p));
+    let r = st.career.as_ref().map(|c| otoko_library::career::journal::record(c.conn(), "Fiche projet", "", || projects::save(c.conn(), &p)));
     app.global::<Proj>().set_open(false);
     match r {
         Some(Ok(())) => app.set_message(format!("Fiche projet de « {} » enregistrée.", p.title).into()),
@@ -788,7 +810,7 @@ fn sb_save_to(app: &AppWindow, st: &mut State, i: i32) {
     let Some(mut p) = st.career.as_ref().and_then(|c| projects::load(c.conn(), sid)) else { return };
     p.nature = "set".into();
     p.entries = sb_entries(&st.proj.sb_order, overlap(app));
-    let r = st.career.as_ref().map(|c| projects::save(c.conn(), &p));
+    let r = st.career.as_ref().map(|c| otoko_library::career::journal::record(c.conn(), "Liste du set", "", || projects::save(c.conn(), &p)));
     g.set_sb_summary(match r {
         Some(Ok(())) => format!("Liste enregistrée dans « {label} ». Ajuste les minutages dans sa fiche projet.").into(),
         Some(Err(e)) => format!("Enregistrement impossible : {e}").into(),

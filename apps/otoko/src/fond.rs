@@ -121,7 +121,7 @@ pub fn auto_status(app: &AppWindow, st: &mut State) {
         }
         return;
     }
-    let moved = statuts::apply(c.conn());
+    let moved = otoko_library::career::journal::record_as(c.conn(), "Statuts automatiques", otoko_library::career::journal::AUTO, "", || statuts::apply(c.conn()));
     tell(app, st, &moved);
 }
 
@@ -284,7 +284,7 @@ pub fn link(app: &AppWindow, st: &mut State, only: Option<i64>) {
                     }
                 }
             };
-            match liens::link_release(c.conn(), id, feed) {
+            match otoko_library::career::journal::record_as(c.conn(), "Liens SoundCloud reliés", otoko_library::career::journal::AUTO, "", || liens::link_release(c.conn(), id, feed)) {
                 Ok(r) => {
                     linked += r.linked;
                     unknown.extend(r.unknown);

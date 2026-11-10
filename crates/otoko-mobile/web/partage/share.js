@@ -8,6 +8,9 @@ const ICON = {
   pause: '<svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
   dl: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>',
   lock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
+  hearton: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>',
+  talk: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M5 5h14v10H10l-5 4z"/></svg>',
 };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = s => { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -18,6 +21,32 @@ const bg = (url, color) => `background-color:${/^#[0-9a-f]{3,8}$/i.test(color ||
 const opusOk = () => !!audio.canPlayType('audio/ogg; codecs=opus');
 
 let data = null, all = [], queue = [], qi = -1, cur = null;
+
+/* Les réponses de la personne : un identifiant tiré au hasard et gardé dans ce navigateur (rien d'autre), son prénom
+   si elle le donne, et les morceaux qu'elle aime. */
+const TOKEN = BASE.split('/').pop();
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+};
+const visitor = store.get('sv-visitor', null) || (() => {
+  const b = new Uint8Array(16); crypto.getRandomValues(b);
+  const v = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  store.set('sv-visitor', v); return v;
+})();
+let liked = new Set(store.get('sv-likes-' + TOKEN, []));
+const STEPS = [0.1, 0.25, 0.5, 0.75, 0.9];
+let heard = 0, lastAt = 0, sent = 0;
+
+async function answer(t, body) {
+  const r = await fetch(`${BASE}/t/${t.id}/feedback`, {
+    method: 'POST', credentials: 'same-origin', keepalive: true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ visitor, name: store.get('sv-name', '') }, body)),
+  });
+  if (r.status === 403) { data.feedback = false; render(); }
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Pas envoyé, réessaie un peu plus tard.');
+}
 
 function message(title, text) {
   document.body.classList.add('msg');
@@ -69,8 +98,31 @@ function trackRow(t, i, n) {
       <span class="mid"><span class="ti">${esc(t.title)}</span><span class="su">${esc(sub)}</span></span>
       <span class="dur">${t.duration ? fmt(t.duration) : ''}</span>
     </button>
+    ${data.feedback ? likeButton(t) : ''}
     ${data.can_download ? `<a class="dl" href="${t.download}" download aria-label="Télécharger ${esc(t.title)}">${ICON.dl}</a>` : ''}
   </div>`;
+}
+
+function likeButton(t) {
+  const on = liked.has(t.id);
+  return `<button class="like" data-like="${t.id}" aria-pressed="${on}" aria-label="${on ? 'Je n\'aime plus' : 'J\'aime'} ${esc(t.title)}">${on ? ICON.hearton : ICON.heart}</button>`;
+}
+
+async function toggleLike(t) {
+  const on = !liked.has(t.id);
+  on ? liked.add(t.id) : liked.delete(t.id);
+  store.set('sv-likes-' + TOKEN, [...liked]);
+  paintLikes();
+  try { await answer(t, { kind: 'like', on }); }
+  catch (e) { on ? liked.delete(t.id) : liked.add(t.id); store.set('sv-likes-' + TOKEN, [...liked]); paintLikes(); }
+}
+
+function paintLikes() {
+  document.querySelectorAll('[data-like]').forEach(b => { const t = all.find(x => x.id === +b.dataset.like); if (t) b.outerHTML = likeButton(t); });
+  const pl = $('#plike'); if (!cur) return;
+  const on = liked.has(cur.id);
+  pl.setAttribute('aria-pressed', on);
+  pl.innerHTML = (on ? ICON.hearton : ICON.heart) + (on ? 'Aimé' : 'J\'aime');
 }
 
 function render() {
@@ -104,6 +156,7 @@ function render() {
           <div class="meta2">${esc([single && single.date ? (single.upcoming ? 'Sort le ' : 'Sortie le ') + fmtDate(single.date) : '', plural(all.length, 'titre'), total ? fmtLong(total) : ''].filter(Boolean).join(' · '))}</div>
           ${data.message ? `<p class="desc">${esc(data.message)}</p>` : single && single.description ? `<p class="desc">${esc(single.description)}</p>` : ''}
           <div class="meta2" style="margin-top:14px">${rights}${esc(left)}</div>
+          ${data.feedback && all.length ? `<p class="invite">Tu peux aimer un morceau ou laisser un avis, à un instant précis si tu veux : ${esc(data.artist || 'l\'artiste')} le verra.</p>` : ''}
           <div class="actions">
             ${all.length ? `<button class="btn pri" id="playall">${ICON.play}Tout écouter</button>` : ''}
             ${data.can_download && all.length > 1 ? `<button class="btn sec" id="dlall">${ICON.dl}Tout télécharger</button>` : ''}
@@ -114,6 +167,8 @@ function render() {
     <div class="wrap" id="list">${body || '<p class="desc">Rien à écouter dans ce partage pour le moment.</p>'}</div>
     <p class="foot">${data.expires_at ? 'Lien valable jusqu\'au ' + esc(fmtDate(data.expires_at)) + '. ' : ''}Partage privé : merci de ne pas le diffuser.</p>`;
   $('#list').addEventListener('click', e => {
+    const l = e.target.closest('[data-like]');
+    if (l) { const t = all.find(x => x.id === +l.dataset.like); if (t) toggleLike(t); return; }
     const b = e.target.closest('button.play'); if (!b) return;
     const i = +b.dataset.i;
     if (cur && all[i].id === cur.id) return toggle();
@@ -121,6 +176,8 @@ function render() {
   });
   const pa = $('#playall'); if (pa) pa.onclick = () => { queue = all; qi = 0; play(); };
   const da = $('#dlall'); if (da) da.onclick = downloadAll;
+  $('#fbrow').hidden = !data.feedback;
+  if (!data.feedback) closeFeedback();
   mark();
 }
 
@@ -135,6 +192,9 @@ async function downloadAll() {
 
 function play() {
   cur = queue[qi]; if (!cur) return;
+  heard = 0; lastAt = 0; sent = 0;
+  closeFeedback();
+  $('#pcom').innerHTML = ICON.talk + 'Laisser un avis';
   audio.src = `${BASE}/t/${cur.id}/stream${opusOk() ? '' : '?f=aac'}`;
   audio.play().catch(() => {});
   $('#player').hidden = false;
@@ -142,6 +202,7 @@ function play() {
   $('#pti').textContent = cur.title;
   $('#psu').textContent = 'Préparation…';
   if (cur.color) document.documentElement.style.setProperty('--accent', cur.color);
+  paintLikes();
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: cur.title, artist: cur.artist || 'Otoko', album: cur.release || data.label || '', artwork: [{ src: location.origin + cur.cover + '?size=600', sizes: '600x600', type: 'image/jpeg' }] });
   }
@@ -162,9 +223,47 @@ audio.addEventListener('ended', () => { if (qi < queue.length - 1) step(1); else
 audio.addEventListener('error', () => { if (cur) $('#psu').textContent = 'Lecture impossible pour le moment.'; });
 audio.addEventListener('timeupdate', () => {
   const d = audio.duration || (cur && cur.duration) || 0;
+  // Ce qui a vraiment été écouté (un saut en avant ne compte pas), envoyé par paliers.
+  const step = audio.currentTime - lastAt; lastAt = audio.currentTime;
+  if (!audio.paused && step > 0 && step < 2) heard += step;
+  if (cur && d && data.feedback) {
+    const part = Math.min(1, heard / d);
+    while (sent < STEPS.length && part >= STEPS[sent]) { answer(cur, { kind: 'reach', value: STEPS[sent] }).catch(() => {}); sent++; }
+  }
+  if (cur && $('#fb').hidden) $('#pcom').innerHTML = ICON.talk + 'Avis à ' + fmt(audio.currentTime);
   $('#pos').textContent = fmt(audio.currentTime); $('#dur').textContent = fmt(d);
   const pct = d ? audio.currentTime / d * 100 : 0;
   $('#fill').style.width = pct + '%'; $('#bar').setAttribute('aria-valuenow', Math.round(pct));
+});
+/* Un avis sur le morceau en cours : l'instant est pris à l'ouverture, la musique continue pendant qu'on écrit. */
+let commentAt = 0;
+function openFeedback() {
+  if (!cur || !data.feedback) return;
+  commentAt = audio.currentTime || 0;
+  $('#fbt').textContent = 'Ton avis sur « ' + cur.title + ' »';
+  $('#fbatt').textContent = 'À ' + fmt(commentAt) + ' dans le morceau';
+  $('#fbat').checked = commentAt > 1;
+  $('#fbname').value = store.get('sv-name', '');
+  $('#fberr').textContent = '';
+  $('#fbsend').disabled = false;
+  $('#fb').hidden = false;
+  $('#fbtext').focus();
+}
+function closeFeedback() { const f = $('#fb'); if (f.hidden) return; f.hidden = true; $('#fbtext').value = ''; $('#pcom').focus(); }
+$('#pcom').onclick = openFeedback;
+$('#plike').onclick = () => cur && toggleLike(cur);
+$('#fbno').onclick = closeFeedback;
+$('#fb').addEventListener('keydown', e => { if (e.key === 'Escape') closeFeedback(); });
+$('#fb').addEventListener('submit', async e => {
+  e.preventDefault();
+  const text = $('#fbtext').value.trim(); if (!text || !cur) return;
+  store.set('sv-name', $('#fbname').value.trim().slice(0, 40));
+  $('#fbsend').disabled = true;
+  try {
+    await answer(cur, { kind: 'comment', text, time: $('#fbat').checked ? Math.round(commentAt * 10) / 10 : null });
+    $('#fberr').textContent = 'Merci, c\'est envoyé.';
+    setTimeout(closeFeedback, 1200);
+  } catch (err) { $('#fberr').textContent = err.message; $('#fbsend').disabled = false; }
 });
 $('#play').onclick = toggle;
 $('#prev').onclick = () => audio.currentTime > 3 ? (audio.currentTime = 0) : step(-1);

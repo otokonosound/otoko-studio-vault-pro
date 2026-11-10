@@ -5,7 +5,7 @@
 use rusqlite::Connection;
 
 use super::library::{TO_PUBLISH_SQL, recent_where};
-use super::{STATUSES, STEPS, board, nature, release_label, status_label};
+use super::{STATUSES, board, nature, release_label, status_label, steps_count};
 
 const MOIS: [&str; 12] = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
@@ -212,15 +212,14 @@ pub fn home(conn: &Connection) -> Home {
     // Bandeau des sorties : à venir d'abord, puis sans date, puis passées.
     h.releases = conn
         .prepare(
-            "SELECT id, title, IFNULL(rtype, ''), IFNULL(release_date, ''), IFNULL(steps, '{}'), IFNULL(cover_path, '') FROM releases ORDER BY
+            "SELECT id, title, IFNULL(rtype, ''), IFNULL(release_date, ''), IFNULL(steps, '{}'), IFNULL(cover_path, ''), IFNULL(extra, '{}') FROM releases ORDER BY
              CASE WHEN release_date >= date('now', 'localtime') THEN 0 WHEN release_date = '' THEN 1 ELSE 2 END,
              CASE WHEN release_date >= date('now', 'localtime') THEN release_date END ASC, release_date DESC LIMIT 5",
         )
         .and_then(|mut s| {
             s.query_map([], |r| {
                 let date: String = r.get(3)?;
-                let steps = nature::load_meta(&r.get::<_, String>(4)?);
-                let done = STEPS.iter().filter(|(k, _)| steps[*k].as_bool().unwrap_or(false)).count();
+                let (done, total) = steps_count(&r.get::<_, String>(4)?, &r.get::<_, String>(6)?);
                 let (when, soon) = match board::days_until(&date) {
                     Some(d) if d > 0 => (format!("J-{d}"), true),
                     Some(0) => ("Aujourd'hui".into(), true),
@@ -228,7 +227,7 @@ pub fn home(conn: &Connection) -> Home {
                     None => ("Date à fixer".into(), false),
                 };
                 let rtype: String = r.get(2)?;
-                Ok(Tile { id: r.get(0)?, title: r.get(1)?, kind: release_label(&rtype), rtype, when, soon, done, total: STEPS.len(), cover: r.get(5)? })
+                Ok(Tile { id: r.get(0)?, title: r.get(1)?, kind: release_label(&rtype), rtype, when, soon, done, total, cover: r.get(5)? })
             })?
             .collect()
         })

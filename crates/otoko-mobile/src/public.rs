@@ -3,6 +3,9 @@
 //! adresses /s/<jeton>/… : pas de liste de la bibliothèque, pas de recherche, pas de chemins de
 //! fichiers. Sans jeton valide, on ne voit rien. Les essais de mot de passe et de jetons au
 //! hasard sont limités par adresse.
+//!
+//! Une seule écriture : la personne qui écoute peut répondre (aimer, commenter, et la part écoutée de chaque
+//! morceau), si le lien le permet. Un commentaire posé à un instant devient aussi un repère sur la forme d'onde.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -212,6 +215,10 @@ pub(crate) fn handle(st: &State, req: &Request, c: &mut Conn) -> std::io::Result
         "GET" | "HEAD" => public_get(st, req, c),
         "POST" => match req.parts.as_slice() {
             [s, tok, a] if s == "s" && a == "auth" => auth(st, req, c, tok),
+            [s, tok, t, tid, a] if s == "s" && t == "t" && a == "feedback" => match digits(tid) {
+                Some(tid) => answer(st, req, c, tok, tid),
+                None => Ok(c.error(404, "Adresse inconnue.")?),
+            },
             _ => Ok(c.error(404, "Adresse inconnue.")?),
         },
         _ => {
@@ -304,6 +311,7 @@ fn public_get(st: &State, req: &Request, c: &mut Conn) -> Out {
             o.insert("can_download".into(), json!(ShareStore::can_download(&sh)));
             o.insert("download_quality".into(), json!(if sh.can_download { quality_label(&sh.download_quality) } else { "" }));
             o.insert("downloads_left".into(), json!(sh.max_downloads.map(|m| (m - sh.downloads).max(0))));
+            o.insert("feedback".into(), json!(sh.feedback));
         }
         return Ok(c.json(200, &v)?);
     }
@@ -406,6 +414,80 @@ fn track_public(st: &State, req: &Request, c: &mut Conn, sh: &Share, tid: i64, w
         }
         _ => Ok(c.error(404, "Adresse inconnue.")?),
     }
+}
+
+/// La réponse de la personne qui écoute : `{"visitor", "name", "kind": "like", "on"}`,
+/// `{"kind": "comment", "text", "time"}` (instant facultatif) ou `{"kind": "reach", "value"}`.
+fn answer(st: &State, req: &Request, c: &mut Conn, token: &str, tid: i64) -> Out {
+    // Du JSON seulement : un autre site ne peut pas en envoyer ici sans que le navigateur demande la permission (refusée).
+    if !req.header("Content-Type").unwrap_or("").to_ascii_lowercase().starts_with("application/json") {
+        return Ok(c.error(415, "Requête refusée.")?);
+    }
+    let ip = ip(req);
+    let Some(sh) = share(st, req, c, token)? else { return Ok(()) };
+    if !unlocked(st, req, &sh) {
+        return Ok(c.error(401, "Mot de passe requis.")?);
+    }
+    if !sh.feedback {
+        return Ok(c.error(403, "Ce lien ne prend pas de réponses.")?);
+    }
+    if !allowed_tracks(&content(st, &sh)?).contains(&tid) {
+        return Ok(c.error(404, "Introuvable.")?);
+    }
+    let Ok(b) = serde_json::from_slice::<Json>(&req.body) else { return Ok(c.error(400, "Requête invalide.")?) };
+    let visitor = b["visitor"].as_str().unwrap_or("");
+    if !crate::shares::visitor_ok(visitor) {
+        return Ok(c.error(400, "Requête invalide.")?);
+    }
+    let name = b["name"].as_str().unwrap_or("");
+    let kind = b["kind"].as_str().unwrap_or("");
+    let lim = &st.public.limiter;
+    // Les commentaires, plus rares, ont leur propre limite.
+    let (key, limit, window) = if kind == "comment" { (format!("cm:{ip}"), 12, 600) } else { (format!("fb:{ip}"), 240, 600) };
+    if lim.blocked(&key, limit, window) || lim.blocked(&format!("fbs:{}", sh.id), 600, 3600) {
+        return Ok(c.error(429, "Trop de réponses d'un coup. Réessaie dans quelques minutes.")?);
+    }
+    lim.add(&key);
+    lim.add(&format!("fbs:{}", sh.id));
+    let store = st.shares.as_ref().expect("partages");
+    let r = match kind {
+        "like" => store.like(sh.id, tid, visitor, name, b["on"].as_bool().unwrap_or(true)).map(|new| {
+            if new {
+                feedback_landed(st, tid, None);
+            }
+        }),
+        "comment" => {
+            let time = match &b["time"] {
+                Json::Null => None,
+                v => Some(v.as_f64().unwrap_or(f64::NAN)),
+            };
+            store.comment(sh.id, tid, visitor, name, b["text"].as_str().unwrap_or(""), time).map(|text| {
+                let who = crate::shares::one_line(name, crate::shares::NAME_MAX);
+                let who = if !who.is_empty() { who } else if !sh.label.is_empty() { sh.label.clone() } else { "Retour d'écoute".into() };
+                feedback_landed(st, tid, time.map(|t| (t, format!("{who} : {text}"))));
+            })
+        }
+        "reach" => store.reach(sh.id, tid, visitor, b["value"].as_f64().unwrap_or(-1.0)),
+        _ => return Ok(c.error(400, "Requête invalide.")?),
+    };
+    match r {
+        Ok(()) => Ok(c.json(200, &json!({ "ok": true }))?),
+        Err(crate::shares::ShareError(m)) => Ok(c.error(400, &m)?),
+    }
+}
+
+/// Prévient le logiciel du PC qu'une réponse est arrivée ; un commentaire posé à un instant y devient un repère.
+fn feedback_landed(st: &State, tid: i64, marker: Option<(f64, String)>) {
+    let con = match crate::server::writer(st) {
+        Ok(con) => con,
+        Err(e) => return log(st, &format!("[public] réponse gardée, mais la Carrière n'est pas accessible : {e}")),
+    };
+    if let Some((time, label)) = marker {
+        if let Err(e) = crate::edits::add_note(&con, tid, &json!({ "time": time, "label": label })) {
+            log(st, &format!("[public] repère non posé : {e}"));
+        }
+    }
+    crate::edits::stamp_as(&con, crate::edits::FEEDBACK_STAMP, tid);
 }
 
 fn auth(st: &State, req: &Request, c: &mut Conn, token: &str) -> Out {

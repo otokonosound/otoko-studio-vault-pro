@@ -31,7 +31,7 @@ pub const ACTIONS: &[Action] = &[
     a("export_csv", "Exporter la vue en CSV…", "", ""),
     a("backup", "Sauvegarder la base maintenant", "", ""),
     a("preferences", "Préférences…", "Ctrl+,", ""),
-    a("undo", "Annuler la dernière opération", "Ctrl+Z", "Remet en place les fichiers du dernier renommage ou de la dernière réorganisation"),
+    a("undo", "Annuler la dernière opération", "Ctrl+Z", "Défait la dernière modification de fiches faite sur ce PC (un champ, une édition en lot, un genre, un statut…) ou remet en place les fichiers du dernier renommage ou de la dernière réorganisation"),
     a("edit_tags", "Éditer les tags…", "Ctrl+E", ""),
     a("genre", "Genre et ambiance…", "Ctrl+G", ""),
     a("rename", "Renommer en lot…", "Ctrl+R", ""),
