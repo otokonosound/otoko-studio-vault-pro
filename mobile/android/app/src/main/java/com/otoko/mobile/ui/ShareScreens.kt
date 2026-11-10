@@ -180,6 +180,14 @@ fun SharesScreen(ui: UiState, vm: MainViewModel, accent: Color, onMessage: (Stri
     }
 }
 
+/** « 2 j'aime · 3 avis · écouté en entier 1 fois » ; vide sans retour (le détail est sur le PC). */
+private fun answersText(s: Share): String = buildList {
+    if (s.likes > 0) add("${s.likes} j'aime")
+    if (s.comments > 0) add("${s.comments} avis")
+    if (s.finished > 0) add("écouté en entier ${s.finished} fois")
+    else if (s.listeners > 0) add(plural(s.listeners, "personne") + " à l'écoute")
+}.joinToString(" · ")
+
 @Composable
 private fun ShareCard(s: Share, ui: UiState, onSend: () -> Unit, onCopy: () -> Unit, onAction: (String) -> Unit) {
     val what = when (s.kind) {
@@ -221,6 +229,8 @@ private fun ShareCard(s: Share, ui: UiState, onSend: () -> Unit, onCopy: () -> U
         }
         Text("${plural(s.views, "visite")} · ${plural(s.plays, "écoute")} · ${plural(s.downloads, "téléchargement")}$last",
             fontFamily = Body, fontSize = 13.sp, color = Palette.Dim)
+        val answers = answersText(s)
+        if (answers.isNotEmpty()) Text(answers, fontFamily = Body, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Palette.White)
         Row(
             Modifier.padding(top = 10.dp).horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),

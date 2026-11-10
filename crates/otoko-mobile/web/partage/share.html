@@ -23,7 +23,22 @@
   </div>
   <div class="bar" id="bar" role="slider" tabindex="0" aria-label="Position dans le morceau" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="fill"></i></div>
   <div class="meta"><span id="pos">0:00</span><span id="dur">0:00</span></div>
+  <div class="fbrow" id="fbrow" hidden>
+    <button class="chip" id="plike" aria-pressed="false"></button>
+    <button class="chip" id="pcom"></button>
+  </div>
 </div>
+<form id="fb" class="sheet" role="dialog" aria-modal="true" aria-labelledby="fbt" autocomplete="off" hidden>
+  <h2 id="fbt">Ton avis</h2>
+  <textarea id="fbtext" maxlength="300" rows="3" required placeholder="Ce que tu en penses : le refrain, le mix, un passage…"></textarea>
+  <label class="tick" id="fbatl"><input type="checkbox" id="fbat" checked> <span id="fbatt">À cet instant</span></label>
+  <input id="fbname" maxlength="40" placeholder="Ton prénom (facultatif)" aria-label="Ton prénom (facultatif)">
+  <div class="btns">
+    <button type="button" class="btn sec" id="fbno">Annuler</button>
+    <button type="submit" class="btn pri" id="fbsend">Envoyer</button>
+  </div>
+  <span class="err" id="fberr" role="status"></span>
+</form>
 <audio id="audio" preload="auto"></audio>
 <script src="/p/share.js"></script>
 </body>

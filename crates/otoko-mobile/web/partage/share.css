@@ -6,7 +6,7 @@ button{cursor:pointer}
 a{color:inherit}
 :focus-visible{outline:2px solid #fff;outline-offset:2px}
 [hidden]{display:none!important}
-main{min-height:100vh;padding-bottom:150px}
+main{min-height:100vh;padding-bottom:200px}
 .hero{padding:calc(env(safe-area-inset-top) + 40px) 20px 28px;background:linear-gradient(180deg,var(--accent) 0%,rgba(0,0,0,0) 100%);transition:background .7s}
 .hero.loading{min-height:340px}
 .kicker{font-size:13px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:rgba(255,255,255,.85)}
@@ -52,5 +52,18 @@ form.pw .err{color:#ff9b9b;min-height:20px;font-size:15px}
 body.msg main{display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
 body.msg h1{font-size:40px}
 body.msg p{color:#a6a6a6}
+.like{flex:none;width:40px;height:40px;border-radius:20px;border:0;display:flex;align-items:center;justify-content:center;background:none;color:#a6a6a6}
+.like svg,.chip svg{width:20px;height:20px}
+.like[aria-pressed=true],.chip[aria-pressed=true]{color:#ff7a90}
+.fbrow{display:flex;gap:8px;margin-top:6px}
+.chip{height:34px;padding:0 14px;border-radius:17px;border:0;background:rgba(0,0,0,.28);font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.sheet{position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom) + 12px);max-width:720px;margin:0 auto;z-index:6;background:#141414;border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 40px rgba(0,0,0,.7)}
+.sheet h2{margin:0;font-size:20px}
+.sheet textarea,.sheet input:not([type]){border-radius:12px;border:0;background:rgba(255,255,255,.1);padding:12px 14px;font:inherit;font-size:16px;color:#fff;outline:0;resize:vertical}
+.sheet .tick{display:flex;align-items:center;gap:8px;font-size:15px}
+.sheet .tick input{width:20px;height:20px;accent-color:#fff}
+.sheet .btns{display:flex;gap:10px;justify-content:flex-end}
+.sheet .err{min-height:20px;font-size:15px;color:rgba(255,255,255,.85)}
+.invite{color:rgba(255,255,255,.7);font-size:14px;margin-top:12px}
 @media (min-width:900px){.hero,.wrap{padding-left:48px;padding-right:48px}.hero .in{display:flex;gap:32px;align-items:flex-end}.hero .big{width:260px;flex:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}

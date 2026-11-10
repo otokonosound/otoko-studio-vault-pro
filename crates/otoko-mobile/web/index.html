@@ -153,6 +153,8 @@ select.chip{appearance:none;padding-right:14px}
 .sh .sht{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
 .sh .su{white-space:normal}
 .sh .actions{margin-top:12px}
+.sh .avis{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.sh .avis span{display:block;color:rgba(255,255,255,.85);margin-top:2px}
 .warn{background:#3a2a0d;border-radius:12px;padding:12px 14px;margin:14px 0;font-size:14px;color:#ffd99a;line-height:1.4}
 dialog#sdlg{background:#141414;color:#fff;border:0;border-radius:18px;width:min(560px,calc(100% - 24px));max-height:calc(100vh - 24px);padding:22px;overflow:auto}
 dialog#sdlg::backdrop{background:rgba(0,0,0,.7)}
@@ -502,7 +504,10 @@ async function viewShares() {
       <span class="su">${esc(KIND_LABEL[s.kind])} · ${esc(what)}</span>
       <span class="su">${esc(rights)} · ${esc(exp)}${s.has_password ? ' · 🔒 mot de passe' : ''}</span>
       <span class="su">${plural(s.views, 'visite')} · ${plural(s.plays, 'écoute')} · ${plural(s.downloads, 'téléchargement')}${s.last_access ? ' · dernière visite le ' + esc(new Date(s.last_access).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })) : ''}</span>
+      ${answersText(s) ? `<span class="su" style="color:#fff">${esc(answersText(s))}</span>` : ''}
+      <ul class="avis" hidden></ul>
       <div class="actions">
+        ${s.likes || s.comments ? '<button class="btn sec sm" data-a="avis">Voir les avis</button>' : ''}
         ${s.state === 'active' ? `<button class="btn sec sm" data-a="send">${SHARE_ICON}Envoyer</button><button class="btn sec sm" data-a="copy">Copier le lien</button>` : ''}
         ${s.state === 'revoked' ? '<button class="btn sec sm" data-a="on">Réactiver</button>' : s.state === 'active' ? '<button class="btn sec sm" data-a="off">Désactiver</button>' : '<button class="btn sec sm" data-a="extend">Prolonger 30 jours</button>'}
         <button class="btn sec sm" data-a="del">Supprimer</button>
@@ -512,6 +517,7 @@ async function viewShares() {
     const b = e.target.closest('button[data-a]'); if (!b) return;
     const s = d.shares.find(x => x.id === +b.closest('.sh').dataset.id);
     try {
+      if (b.dataset.a === 'avis') return await showAnswers(s, b.closest('.sh').querySelector('.avis'));
       if (b.dataset.a === 'copy') { if (await copyText(s.url)) toast('Lien copié'); return; }
       if (b.dataset.a === 'send') return sendLink(s.url, s.label || 'Écoute privée');
       if (b.dataset.a === 'off') await apiSend('/api/shares/' + s.id, 'POST', { revoked: true });
@@ -521,6 +527,24 @@ async function viewShares() {
       viewShares();
     } catch (err) { toast(err.message); }
   };
+}
+
+/* Les retours d'un lien : « j'aime », avis (à un instant ou non), jusqu'où la personne a écouté. */
+function answersText(s) {
+  const p = [];
+  if (s.likes) p.push(s.likes + ' j\'aime');
+  if (s.comments) p.push(plural(s.comments, 'avis').replace('aviss', 'avis'));
+  if (s.finished) p.push('écouté en entier ' + s.finished + ' fois');
+  else if (s.listeners) p.push(plural(s.listeners, 'personne') + ' à l\'écoute');
+  return p.join(' · ');
+}
+async function showAnswers(s, ul) {
+  if (!ul.hidden) { ul.hidden = true; return; }
+  const list = await api('/api/shares/' + s.id + '/feedback');
+  const clock = t => Math.floor(t / 60) + ':' + String(Math.round(t % 60)).padStart(2, '0');
+  ul.innerHTML = list.filter(f => f.kind !== 'reach').reverse().map(f => `<li><b>${esc(f.title)}</b> · ${esc(f.name || 'Quelqu\'un')}${f.time != null ? ' à ' + clock(f.time) : ''}
+    <span>${f.kind === 'like' ? 'aime ce morceau' : esc(f.text)}</span></li>`).join('') || '<li>Pas encore d\'avis.</li>';
+  ul.hidden = false;
 }
 
 /* fenêtre « Partager » : ce qui est partagé, droits, validité, mot de passe */

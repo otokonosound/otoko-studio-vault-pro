@@ -98,6 +98,8 @@ export global Proj {
     in property <bool> private;
     in property <[DelivUi]> deliverables;
     in property <[VersionRowUi]> versions;
+    // Les liens de partage où ce morceau a été écouté, avec leurs retours (lecture seule).
+    in property <[VersionRowUi]> sent;
     // Choisir un morceau de la bibliothèque (source d'un mashup, titre d'un set).
     in property <bool> picker-open;
     in property <[PickUi]> picker;
@@ -119,6 +121,7 @@ export global Proj {
     callback version-add();
     callback version-edited(int, int, string);
     callback version-remove(int);
+    callback sent-add();
     callback pick-dir();
     callback open-dir();
     callback remix-title();
@@ -507,6 +510,17 @@ export component ProjectSheet inherits Panel {
                         Small { text: "×"; clicked => { Proj.version-remove(r); } }
                     }
                     HorizontalLayout { alignment: start; Btn { text: "+ Version envoyée aujourd'hui"; height: 28px; clicked => { Proj.version-add(); } } }
+                    if Proj.sent.length > 0: VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Par les liens de partage :"; color: Theme.text3; font-size: 11.5px; font-weight: 600; }
+                        for v in Proj.sent: HorizontalLayout {
+                            spacing: 6px;
+                            Text { width: 100px; text: v.date; color: Theme.text3; font-size: 11.5px; }
+                            Text { width: 170px; text: v.label; color: Theme.text2; font-size: 11.5px; overflow: elide; }
+                            Text { horizontal-stretch: 1; text: v.note; color: Theme.text; font-size: 11.5px; wrap: word-wrap; }
+                        }
+                        HorizontalLayout { alignment: start; Btn { text: "Reporter dans les versions"; height: 28px; ghost: true; clicked => { Proj.sent-add(); } } }
+                    }
                 }
             }
         }

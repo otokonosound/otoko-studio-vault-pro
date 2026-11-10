@@ -22,7 +22,7 @@ import { MasteringView } from "mastering.slint";
 import { PaletteView, Pal } from "palette.slint";
 import { CareerPrefs } from "prefs_career.slint";
 import { ProjectSheet, ClientsBook, SetBuilder, Proj } from "projects.slint";
-import { ShareSection, ShareDialog, Part } from "partage.slint";
+import { ShareSection, ShareDialog, AnswersDialog, Part } from "partage.slint";
 
 export { Theme } from "theme.slint";
 export { Nav } from "components.slint";
@@ -35,7 +35,7 @@ export { Pub, PubTrackUi, PubCheckUi, HistUi, BrandFieldUi } from "publishing.sl
 export { Proj, SrcUi, EntryUi, DelivUi, VersionRowUi, PickUi, ClientUi, SbRowUi } from "projects.slint";
 export { Rel, RelTileUi, RelTrackUi, RelStepUi, QcCellUi, QcRowUi, DayUi, PlanRelUi } from "releases.slint";
 export { Home, HLinkUi, HBarUi, TileUi, TodayUi, ChipUi, CardUi, BoardColUi, SliceUi, ChartUi } from "career_home.slint";
-export { Part, ShareUi, ShareItemUi } from "partage.slint";
+export { Part, ShareUi, ShareItemUi, AnswerUi } from "partage.slint";
 
 // Une entrée de la barre latérale. Repliée (fenêtre étroite), il ne reste que l'icône.
 component NavItem inherits Rectangle {
@@ -423,6 +423,7 @@ export component AppWindow inherits Window {
                             }
                         }
                         if Part.creating: ShareDialog { }
+                        if Part.answers-open: AnswersDialog { }
                     }
 
                     // ---------- Réglages

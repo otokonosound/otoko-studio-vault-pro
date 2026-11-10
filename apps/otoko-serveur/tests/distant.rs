@@ -247,3 +247,61 @@ fn the_phone_writes_what_it_hears() {
     server.stop();
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+#[test]
+fn the_listener_answers_through_the_link() {
+    let tmp = std::env::temp_dir().join(format!("otoko-essai-avis-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    {
+        let c = Career::open(&tmp.join("carriere.db")).unwrap();
+        c.conn().execute("INSERT INTO tracks (id, path, filename, title, status, duration_s) VALUES (1, 'Z:\\a\\Nuit.wav', 'Nuit.wav', 'Nuit', 'wip', 180)", []).unwrap();
+        c.conn().execute("INSERT INTO tracks (id, path, filename, title, status, duration_s) VALUES (2, 'Z:\\a\\Jour.wav', 'Jour.wav', 'Jour', 'wip', 200)", []).unwrap();
+    }
+    let mut cfg = otoko_mobile::Config::new(&tmp, "essai");
+    cfg.port = 0;
+    cfg.public_port = Some(0);
+    cfg.warm = false;
+    let server = otoko_mobile::start(cfg).unwrap();
+    let (p, pp) = (server.port(), server.public_port().unwrap());
+    let app = "X-Studio-Vault: 1\r\nContent-Type: application/json\r\n";
+    let sh = json_of(&call(p, "POST", "/api/shares", app, Some(&json!({ "kind": "tracks", "items": [1], "label": "Maquette label" }))));
+    let (sid, tok) = (sh["id"].as_i64().unwrap(), sh["url"].as_str().unwrap().rsplit("/s/").next().unwrap().to_string());
+    assert_eq!(json_of(&call(pp, "GET", &format!("/s/{tok}/api"), "", None))["feedback"], true);
+
+    let js = "Content-Type: application/json\r\n";
+    let say = |track: i64, body: Json| call(pp, "POST", &format!("/s/{tok}/t/{track}/feedback"), js, Some(&body));
+    let me = "a1b2c3d4e5f6a7b8";
+    assert_eq!(say(1, json!({ "visitor": me, "name": "Paul", "kind": "like", "on": true })).status, 200);
+    let r = say(1, json!({ "visitor": me, "name": "Paul", "kind": "comment", "text": "kick trop fort", "time": 61.27 }));
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    assert_eq!(say(1, json!({ "visitor": me, "kind": "comment", "text": "très beau break", "time": null })).status, 200);
+    assert_eq!(say(1, json!({ "visitor": me, "kind": "reach", "value": 0.9 })).status, 200);
+
+    // Le commentaire à un instant est un repère sur la forme d'onde ; l'autre reste dans les retours du lien.
+    assert_eq!(json_of(&call(p, "GET", "/api/tracks/1", "", None))["markers"], json!([{ "time": 61.3, "label": "Paul : kick trop fort" }]));
+    let list = json_of(&call(p, "GET", "/api/shares", app, None));
+    let s = &list["shares"][0];
+    assert_eq!((s["likes"].as_i64(), s["comments"].as_i64(), s["listeners"].as_i64(), s["finished"].as_i64()), (Some(1), Some(2), Some(1), Some(1)));
+    let fb = json_of(&call(p, "GET", &format!("/api/shares/{sid}/feedback"), app, None));
+    assert_eq!(fb.as_array().map(Vec::len), Some(4));
+    assert!(fb[0].get("visitor").is_none(), "l'identifiant de la personne reste sur le serveur");
+
+    // Refusé : pas du JSON (un formulaire d'un autre site), un morceau hors du lien, un identifiant bizarre, un mauvais jeton.
+    assert_eq!(call(pp, "POST", &format!("/s/{tok}/t/1/feedback"), "Content-Type: text/plain\r\n", Some(&json!({ "visitor": me, "kind": "like" }))).status, 415);
+    assert_eq!(say(2, json!({ "visitor": me, "kind": "like" })).status, 404);
+    assert_eq!(say(1, json!({ "visitor": "x", "kind": "like" })).status, 400);
+    assert_eq!(say(1, json!({ "visitor": me, "kind": "comment", "text": "   " })).status, 400);
+    assert_eq!(call(pp, "POST", "/s/jeton-bidon/t/1/feedback", js, Some(&json!({ "visitor": me, "kind": "like" }))).status, 404);
+
+    // Le logiciel du PC est prévenu du « j'aime » et des deux commentaires (pas de la part écoutée).
+    let c = Career::open(&tmp.join("carriere.db")).unwrap();
+    assert_eq!(c.setting(otoko_mobile::edits::FEEDBACK_STAMP).as_deref(), Some("1:3"));
+    drop(c);
+
+    // Le lien peut ne plus rien prendre.
+    assert_eq!(call(p, "POST", &format!("/api/shares/{sid}"), app, Some(&json!({ "feedback": false }))).status, 200);
+    assert_eq!(say(1, json!({ "visitor": me, "kind": "like" })).status, 403);
+    server.stop();
+    let _ = std::fs::remove_dir_all(&tmp);
+}

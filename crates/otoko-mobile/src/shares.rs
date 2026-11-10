@@ -5,6 +5,9 @@
 //! morceaux ou à toute la discographie déjà parue. Droits : écoute seule ou écoute et
 //! téléchargement (qualité choisie), expiration, mot de passe, nombre maximal de téléchargements,
 //! révocation à tout moment.
+//!
+//! La personne qui écoute peut aussi répondre (si le lien le permet) : aimer un morceau, laisser un commentaire, à un
+//! instant précis ou non. Ce qu'elle a écouté de chaque morceau est noté aussi. Tout ça reste dans `share_feedback`.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -48,6 +51,19 @@ CREATE TABLE IF NOT EXISTS share_events (
     track_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_share_events ON share_events(share_id, at);
+CREATE TABLE IF NOT EXISTS share_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    share_id INTEGER NOT NULL,
+    track_id INTEGER NOT NULL,
+    visitor TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    time_s REAL,
+    text TEXT NOT NULL DEFAULT '',
+    value REAL,
+    at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_share_feedback ON share_feedback(share_id, track_id);
 CREATE TABLE IF NOT EXISTS secrets (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 ";
 
@@ -85,7 +101,77 @@ pub struct Share {
     pub last_access: Option<String>,
     pub created_at: String,
     pub revoked: bool,
+    /// La personne peut aimer et commenter.
+    pub feedback: bool,
 }
+
+/// Une réponse de la personne qui écoute : `like`, `comment` (avec ou sans instant) ou `reach` (la part du morceau
+/// écoutée, de 0 à 1).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Feedback {
+    pub share_id: i64,
+    pub track_id: i64,
+    pub visitor: String,
+    pub name: String,
+    pub kind: String,
+    pub time: Option<f64>,
+    pub text: String,
+    pub value: Option<f64>,
+    pub at: String,
+}
+
+/// Le bilan des réponses d'un lien.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Echo {
+    pub likes: i64,
+    pub comments: i64,
+    /// Les personnes qui ont écouté au moins un morceau un moment.
+    pub listeners: i64,
+    /// Les morceaux écoutés presque en entier (90 %), toutes personnes comptées.
+    pub finished: i64,
+}
+
+/// Au-delà, un morceau compte comme écouté en entier.
+pub const FINISHED: f64 = 0.9;
+/// La longueur maximale d'un commentaire et d'un prénom.
+pub const COMMENT_MAX: usize = 300;
+pub const NAME_MAX: usize = 40;
+/// Une borne par lien, pour qu'un lien diffusé trop largement ne remplisse pas le disque.
+const FEEDBACK_MAX: i64 = 3000;
+
+/// Un texte sur une ligne, sans espaces en trop, coupé à `max` caractères.
+pub fn one_line(text: &str, max: usize) -> String {
+    let t = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    t.chars().filter(|c| !c.is_control()).take(max).collect()
+}
+
+/// L'identifiant que la page donne à la personne (au hasard, gardé dans son navigateur).
+pub fn visitor_ok(v: &str) -> bool {
+    (8..=64).contains(&v.len()) && v.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+impl Feedback {
+    /// Pour l'app et la page du téléphone (l'identifiant de la personne reste ici).
+    pub fn to_json(&self) -> Json {
+        json!({ "track_id": self.track_id, "name": self.name, "kind": self.kind, "time": self.time, "text": self.text, "value": self.value, "at": self.at })
+    }
+}
+
+fn feedback_row(r: &rusqlite::Row) -> rusqlite::Result<Feedback> {
+    Ok(Feedback {
+        share_id: r.get(0)?,
+        track_id: r.get(1)?,
+        visitor: r.get(2)?,
+        name: r.get(3)?,
+        kind: r.get(4)?,
+        time: r.get(5)?,
+        text: r.get(6)?,
+        value: r.get(7)?,
+        at: r.get(8)?,
+    })
+}
+
+const FEEDBACK_COLS: &str = "share_id, track_id, visitor, name, kind, time_s, text, value, at";
 
 pub fn now_iso() -> String {
     iso(std::time::SystemTime::now())
@@ -150,6 +236,8 @@ fn row(r: &rusqlite::Row) -> rusqlite::Result<Share> {
         last_access: r.get("last_access")?,
         created_at: r.get("created_at")?,
         revoked: r.get::<_, i64>("revoked")? != 0,
+        // Une base Studio Vault n'a pas cette colonne : les retours y sont permis.
+        feedback: r.get::<_, i64>("feedback").map(|v| v != 0).unwrap_or(true),
     })
 }
 
@@ -182,6 +270,10 @@ impl ShareStore {
         con.busy_timeout(std::time::Duration::from_secs(5))?;
         let _ = con.pragma_update(None, "journal_mode", "WAL");
         con.execute_batch(SCHEMA)?;
+        let has_feedback = con.prepare("SELECT feedback FROM shares LIMIT 0").is_ok();
+        if !has_feedback {
+            con.execute_batch("ALTER TABLE shares ADD COLUMN feedback INTEGER NOT NULL DEFAULT 1")?;
+        }
         let secret = match con.query_row("SELECT v FROM secrets WHERE k = 'cookie'", [], |r| r.get::<_, String>(0)).optional()? {
             Some(h) => unhex(&h),
             None => {
@@ -255,12 +347,13 @@ impl ShareStore {
         let exp = expiry(b.get("expires_days").unwrap_or(&json!(7)))?;
         let label: String = b["label"].as_str().unwrap_or("").trim().chars().take(120).collect();
         let message: String = b["message"].as_str().unwrap_or("").trim().chars().take(1000).collect();
+        let feedback = b["feedback"].as_bool().unwrap_or(true) as i64;
         let id = {
             let c = self.con();
             c.execute(
-                "INSERT INTO shares (token, label, message, kind, items, can_download, download_quality, expires_at, pw_salt, pw_hash, max_downloads, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                params![token, label, message, kind, serde_json::to_string(&ids).unwrap_or_default(), dl, quality, exp, salt, hash, maxd, now_iso()],
+                "INSERT INTO shares (token, label, message, kind, items, can_download, download_quality, expires_at, pw_salt, pw_hash, max_downloads, created_at, feedback)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                params![token, label, message, kind, serde_json::to_string(&ids).unwrap_or_default(), dl, quality, exp, salt, hash, maxd, now_iso(), feedback],
             )
             .map_err(|e| ShareError(e.to_string()))?;
             c.last_insert_rowid()
@@ -269,7 +362,7 @@ impl ShareStore {
     }
 
     /// Champs modifiables : label, message, can_download, download_quality, expires_days,
-    /// password ("" = l'enlever), max_downloads, revoked.
+    /// password ("" = l'enlever), max_downloads, revoked, feedback.
     pub fn update(&self, id: i64, f: &Json) -> Result<Option<Json>, ShareError> {
         let Some(cur) = self.row(id) else { return Ok(None) };
         let mut sets: Vec<(&str, rusqlite::types::Value)> = Vec::new();
@@ -311,6 +404,9 @@ impl ShareStore {
         if has("revoked") {
             sets.push(("revoked", V::Integer(f["revoked"].as_bool().unwrap_or(false) as i64)));
         }
+        if has("feedback") {
+            sets.push(("feedback", V::Integer(f["feedback"].as_bool().unwrap_or(true) as i64)));
+        }
         if !sets.is_empty() {
             let sql = format!("UPDATE shares SET {} WHERE id = ?", sets.iter().map(|(k, _)| format!("{k} = ?")).collect::<Vec<_>>().join(", "));
             let mut vals: Vec<V> = sets.into_iter().map(|(_, v)| v).collect();
@@ -324,6 +420,7 @@ impl ShareStore {
         let c = self.con();
         let n = c.execute("DELETE FROM shares WHERE id = ?1", [id]).unwrap_or(0);
         let _ = c.execute("DELETE FROM share_events WHERE share_id = ?1", [id]);
+        let _ = c.execute("DELETE FROM share_feedback WHERE share_id = ?1", [id]);
         n > 0
     }
 
@@ -332,7 +429,7 @@ impl ShareStore {
         let c = self.con();
         let _ = std::fs::remove_file(copy);
         c.execute("VACUUM INTO ?1", [copy.to_string_lossy()]).map_err(|e| e.to_string())?;
-        c.execute_batch("DELETE FROM shares; DELETE FROM share_events;").map_err(|e| e.to_string())
+        c.execute_batch("DELETE FROM shares; DELETE FROM share_events; DELETE FROM share_feedback;").map_err(|e| e.to_string())
     }
 
     /// event : view, play, download.
@@ -366,13 +463,166 @@ impl ShareStore {
     }
 
     pub fn get(&self, id: i64) -> Option<Json> {
-        self.row(id).map(|s| Self::public_view(&s))
+        self.row(id).map(|s| self.view(&s))
     }
 
     pub fn list(&self) -> Vec<Json> {
+        let all: Vec<Share> = {
+            let c = self.con();
+            let Ok(mut st) = c.prepare("SELECT * FROM shares ORDER BY revoked, created_at DESC, id DESC") else { return Vec::new() };
+            st.query_map([], row).map(|r| r.flatten().collect()).unwrap_or_default()
+        };
+        all.iter().map(|s| self.view(s)).collect()
+    }
+
+    /// `public_view`, avec le bilan des réponses.
+    fn view(&self, s: &Share) -> Json {
+        let mut v = Self::public_view(s);
+        let e = self.echo(s.id);
+        if let Some(o) = v.as_object_mut() {
+            o.insert("likes".into(), json!(e.likes));
+            o.insert("comments".into(), json!(e.comments));
+            o.insert("listeners".into(), json!(e.listeners));
+            o.insert("finished".into(), json!(e.finished));
+        }
+        v
+    }
+
+    // ------------------------------------------------------------------ réponses de la personne qui écoute
+
+    /// Combien de réponses ce lien a déjà reçues (borne contre un lien trop diffusé).
+    fn feedback_count(c: &Connection, share: i64) -> i64 {
+        c.query_row("SELECT COUNT(*) FROM share_feedback WHERE share_id = ?1", [share], |r| r.get(0)).unwrap_or(0)
+    }
+
+    /// Aime (ou n'aime plus) un morceau. Rend vrai si c'est un nouveau « j'aime ».
+    pub fn like(&self, share: i64, track: i64, visitor: &str, name: &str, on: bool) -> Result<bool, ShareError> {
         let c = self.con();
-        let Ok(mut st) = c.prepare("SELECT * FROM shares ORDER BY revoked, created_at DESC, id DESC") else { return Vec::new() };
-        st.query_map([], row).map(|r| r.flatten().map(|s| Self::public_view(&s)).collect()).unwrap_or_default()
+        let had = c
+            .query_row("SELECT 1 FROM share_feedback WHERE share_id = ?1 AND track_id = ?2 AND visitor = ?3 AND kind = 'like'", params![share, track, visitor], |_| Ok(()))
+            .optional()
+            .map_err(|e| ShareError(e.to_string()))?
+            .is_some();
+        match (on, had) {
+            (true, false) => {
+                if Self::feedback_count(&c, share) >= FEEDBACK_MAX {
+                    return err("Ce lien a reçu trop de réponses.");
+                }
+                c.execute(
+                    "INSERT INTO share_feedback (share_id, track_id, visitor, name, kind, at) VALUES (?1, ?2, ?3, ?4, 'like', ?5)",
+                    params![share, track, visitor, one_line(name, NAME_MAX), now_iso()],
+                )
+                .map_err(|e| ShareError(e.to_string()))?;
+                Ok(true)
+            }
+            (false, true) => {
+                c.execute("DELETE FROM share_feedback WHERE share_id = ?1 AND track_id = ?2 AND visitor = ?3 AND kind = 'like'", params![share, track, visitor])
+                    .map_err(|e| ShareError(e.to_string()))?;
+                Ok(false)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Un commentaire, à un instant du morceau ou sur tout le morceau. Rend le texte gardé.
+    pub fn comment(&self, share: i64, track: i64, visitor: &str, name: &str, text: &str, time: Option<f64>) -> Result<String, ShareError> {
+        let text = one_line(text, COMMENT_MAX);
+        if text.is_empty() {
+            return err("Le commentaire est vide.");
+        }
+        let time = match time {
+            Some(t) if t.is_finite() && t >= 0.0 => Some((t * 10.0).round() / 10.0),
+            Some(_) => return err("Instant invalide."),
+            None => None,
+        };
+        let c = self.con();
+        if Self::feedback_count(&c, share) >= FEEDBACK_MAX {
+            return err("Ce lien a reçu trop de réponses.");
+        }
+        c.execute(
+            "INSERT INTO share_feedback (share_id, track_id, visitor, name, kind, time_s, text, at) VALUES (?1, ?2, ?3, ?4, 'comment', ?5, ?6, ?7)",
+            params![share, track, visitor, one_line(name, NAME_MAX), time, text, now_iso()],
+        )
+        .map_err(|e| ShareError(e.to_string()))?;
+        Ok(text)
+    }
+
+    /// Jusqu'où la personne a écouté un morceau (de 0 à 1) : seule la plus grande valeur est gardée.
+    pub fn reach(&self, share: i64, track: i64, visitor: &str, value: f64) -> Result<(), ShareError> {
+        if !(0.0..=1.0).contains(&value) {
+            return err("Valeur invalide.");
+        }
+        let value = (value * 100.0).round() / 100.0;
+        let c = self.con();
+        let n = c
+            .execute(
+                "UPDATE share_feedback SET value = MAX(IFNULL(value, 0), ?4), at = ?5 WHERE share_id = ?1 AND track_id = ?2 AND visitor = ?3 AND kind = 'reach'",
+                params![share, track, visitor, value, now_iso()],
+            )
+            .map_err(|e| ShareError(e.to_string()))?;
+        if n == 0 {
+            if Self::feedback_count(&c, share) >= FEEDBACK_MAX {
+                return err("Ce lien a reçu trop de réponses.");
+            }
+            c.execute(
+                "INSERT INTO share_feedback (share_id, track_id, visitor, kind, value, at) VALUES (?1, ?2, ?3, 'reach', ?4, ?5)",
+                params![share, track, visitor, value, now_iso()],
+            )
+            .map_err(|e| ShareError(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Toutes les réponses d'un lien, les plus anciennes d'abord.
+    pub fn feedback(&self, share: i64) -> Vec<Feedback> {
+        let c = self.con();
+        let Ok(mut st) = c.prepare(&format!("SELECT {FEEDBACK_COLS} FROM share_feedback WHERE share_id = ?1 ORDER BY id")) else { return Vec::new() };
+        st.query_map([share], feedback_row).map(|r| r.flatten().collect()).unwrap_or_default()
+    }
+
+    /// Toutes les réponses sur un morceau, tous liens confondus.
+    pub fn feedback_on(&self, track: i64) -> Vec<Feedback> {
+        let c = self.con();
+        let Ok(mut st) = c.prepare(&format!("SELECT {FEEDBACK_COLS} FROM share_feedback WHERE track_id = ?1 ORDER BY id")) else { return Vec::new() };
+        st.query_map([track], feedback_row).map(|r| r.flatten().collect()).unwrap_or_default()
+    }
+
+    /// La dernière réponse qui mérite d'être signalée (un « j'aime » ou un commentaire).
+    pub fn latest(&self) -> Option<Feedback> {
+        let c = self.con();
+        c.query_row(&format!("SELECT {FEEDBACK_COLS} FROM share_feedback WHERE kind IN ('like', 'comment') ORDER BY id DESC LIMIT 1"), [], feedback_row).ok()
+    }
+
+    /// Combien de fois chaque morceau a été lancé depuis ce lien.
+    pub fn plays_by_track(&self, share: i64) -> std::collections::HashMap<i64, i64> {
+        let c = self.con();
+        let Ok(mut st) = c.prepare("SELECT track_id, COUNT(*) FROM share_events WHERE share_id = ?1 AND event = 'play' AND track_id IS NOT NULL GROUP BY track_id") else {
+            return Default::default();
+        };
+        st.query_map([share], |r| Ok((r.get(0)?, r.get(1)?))).map(|r| r.flatten().collect()).unwrap_or_default()
+    }
+
+    /// Les liens où ce morceau a été écouté ou a reçu une réponse.
+    pub fn shares_heard(&self, track: i64) -> Vec<i64> {
+        let c = self.con();
+        let Ok(mut st) = c.prepare(
+            "SELECT share_id FROM share_events WHERE track_id = ?1 AND event = 'play' UNION SELECT share_id FROM share_feedback WHERE track_id = ?1",
+        ) else {
+            return Vec::new();
+        };
+        st.query_map([track], |r| r.get(0)).map(|r| r.flatten().collect()).unwrap_or_default()
+    }
+
+    pub fn echo(&self, share: i64) -> Echo {
+        let c = self.con();
+        c.query_row(
+            "SELECT COUNT(CASE WHEN kind = 'like' THEN 1 END), COUNT(CASE WHEN kind = 'comment' THEN 1 END),
+                    COUNT(DISTINCT CASE WHEN kind = 'reach' THEN visitor END), COUNT(CASE WHEN kind = 'reach' AND value >= ?2 THEN 1 END)
+             FROM share_feedback WHERE share_id = ?1",
+            params![share, FINISHED],
+            |r| Ok(Echo { likes: r.get(0)?, comments: r.get(1)?, listeners: r.get(2)?, finished: r.get(3)? }),
+        )
+        .unwrap_or_default()
     }
 
     pub fn all(&self) -> Vec<Share> {
@@ -407,7 +657,7 @@ impl ShareStore {
             "can_download": s.can_download, "download_quality": s.download_quality, "expires_at": s.expires_at,
             "max_downloads": s.max_downloads, "downloads": s.downloads, "views": s.views, "plays": s.plays,
             "last_access": s.last_access, "created_at": s.created_at, "revoked": s.revoked,
-            "has_password": s.pw_hash.is_some(), "state": Self::state(s),
+            "has_password": s.pw_hash.is_some(), "state": Self::state(s), "feedback": s.feedback,
             "downloads_left": s.max_downloads.map(|m| (m - s.downloads).max(0)),
         })
     }
@@ -531,6 +781,58 @@ mod tests {
         assert_eq!(u["state"], "revoked");
         assert_eq!(s.events(sh.id).len(), 2);
         assert!(s.delete(sh.id));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn the_listener_answers_and_it_adds_up() {
+        let p = std::env::temp_dir().join(format!("otoko-partages-avis-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        let s = ShareStore::open(&p).unwrap();
+        let v = s.create(&json!({ "kind": "tracks", "items": [1, 2] })).unwrap();
+        let id = v["id"].as_i64().unwrap();
+        assert_eq!(v["feedback"], true, "permis par défaut");
+        // Un « j'aime » par personne et par morceau ; le retirer le retire.
+        assert!(s.like(id, 1, "visiteur-a", "Paul", true).unwrap());
+        assert!(!s.like(id, 1, "visiteur-a", "Paul", true).unwrap());
+        assert!(s.like(id, 2, "visiteur-b", "", true).unwrap());
+        s.like(id, 2, "visiteur-b", "", false).unwrap();
+        // Un commentaire tient sur une ligne ; vide, il est refusé.
+        assert_eq!(s.comment(id, 1, "visiteur-a", "  Paul ", " le kick\n est  fort ", Some(92.43)).unwrap(), "le kick est fort");
+        assert!(s.comment(id, 1, "visiteur-a", "", "   ", None).is_err());
+        assert!(s.comment(id, 1, "visiteur-a", "", "x", Some(f64::NAN)).is_err());
+        // Seule la plus grande part écoutée compte.
+        s.reach(id, 1, "visiteur-a", 0.5).unwrap();
+        s.reach(id, 1, "visiteur-a", 0.95).unwrap();
+        s.reach(id, 1, "visiteur-a", 0.3).unwrap();
+        s.reach(id, 2, "visiteur-b", 0.25).unwrap();
+        assert!(s.reach(id, 2, "visiteur-b", 1.5).is_err());
+        assert_eq!(s.echo(id), Echo { likes: 1, comments: 1, listeners: 2, finished: 1 });
+        let all = s.feedback(id);
+        let c = all.iter().find(|f| f.kind == "comment").unwrap();
+        assert_eq!((c.name.as_str(), c.time), ("Paul", Some(92.4)));
+        assert_eq!(s.feedback_on(1).len(), 3);
+        assert_eq!(s.latest().map(|f| f.kind), Some("comment".into()));
+        assert_eq!(s.get(id).unwrap()["likes"], 1);
+        assert_eq!(s.update(id, &json!({ "feedback": false })).unwrap().unwrap()["feedback"], false);
+        assert!(visitor_ok("abcDEF12-_") && !visitor_ok("court") && !visitor_ok("pas d'espace ici"));
+        s.delete(id);
+        assert!(s.feedback(id).is_empty());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn an_older_base_gets_the_feedback_switch() {
+        let p = std::env::temp_dir().join(format!("otoko-partages-vieux-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&p);
+        {
+            let c = Connection::open(&p).unwrap();
+            // Le schéma d'avant : la table des liens sans la colonne `feedback` (ajoutée à l'ouverture).
+            c.execute_batch(SCHEMA).unwrap();
+            c.execute("INSERT INTO shares (token, kind, items, created_at) VALUES ('t0k3n', 'tracks', '[1]', '2026-01-01T00:00:00Z')", []).unwrap();
+        }
+        let s = ShareStore::open(&p).unwrap();
+        assert!(s.by_token("t0k3n").unwrap().feedback);
         let _ = std::fs::remove_file(&p);
     }
 

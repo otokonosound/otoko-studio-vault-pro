@@ -361,23 +361,27 @@ pub fn push_rows(app: &AppWindow, st: &mut State) {
 fn watch_phone(app: &AppWindow, state: &Rc<RefCell<State>>) {
     let weak = app.as_weak();
     let s = state.clone();
-    let last = std::cell::RefCell::new(None::<String>);
+    // La dernière trace vue : du téléphone, puis d'un lien de partage.
+    let last = std::cell::RefCell::new([None::<String>, None::<String>]);
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(3), move || {
         let Some(app) = weak.upgrade() else { return };
         let Ok(mut st) = s.try_borrow_mut() else { return };
-        let Some(now) = st.career.as_ref().map(|c| c.setting(otoko_mobile::edits::STAMP).unwrap_or_default()) else { return };
-        let before = last.borrow_mut().replace(now.clone());
-        if before.is_none_or(|b| b == now) {
-            return;
+        for (k, key) in [otoko_mobile::edits::STAMP, otoko_mobile::edits::FEEDBACK_STAMP].into_iter().enumerate() {
+            let Some(now) = st.career.as_ref().map(|c| c.setting(key).unwrap_or_default()) else { return };
+            let before = last.borrow_mut()[k].replace(now.clone());
+            if before.is_none_or(|b| b == now) {
+                continue;
+            }
+            let Some(id) = now.split(':').next().and_then(|i| i.parse::<i64>().ok()) else { continue };
+            phone_changed(&app, &mut st, id, k == 1);
         }
-        let Some(id) = now.split(':').next().and_then(|i| i.parse::<i64>().ok()) else { return };
-        phone_changed(&app, &mut st, id);
     });
     state.borrow_mut().lib.phone_watch = Some(timer);
 }
 
-fn phone_changed(app: &AppWindow, st: &mut State, id: i64) {
+/// Un morceau vient de changer depuis le téléphone, ou une réponse est arrivée par un lien (`shared`).
+fn phone_changed(app: &AppWindow, st: &mut State, id: i64, shared: bool) {
     st.pages_lues = [false; 8];
     update_row(app, st, id);
     if st.lib.details == Some(id) {
@@ -388,6 +392,13 @@ fn phone_changed(app: &AppWindow, st: &mut State, id: i64) {
             st.player.markers = lib::markers(c.conn(), id);
         }
         crate::lecteur::push(app, st);
+    }
+    if shared {
+        crate::partage::fill(app, st);
+        if let Some(text) = crate::partage::arrived(st) {
+            app.set_message(text.into());
+        }
+        return;
     }
     let title = st.career.as_ref().and_then(|c| lib::row_by_id(c.conn(), id).ok().flatten()).map(|r| r.title).unwrap_or_default();
     if !title.is_empty() {
