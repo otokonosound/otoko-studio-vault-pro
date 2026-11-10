@@ -18,6 +18,7 @@ mod career;
 mod distant;
 mod donnees;
 mod fond;
+mod glisser;
 mod images;
 mod lecteur;
 mod loudness;
@@ -26,6 +27,7 @@ mod mastrage;
 mod measure;
 mod mobile;
 mod outils;
+mod pages;
 mod palette;
 mod partage;
 mod preferences;
@@ -174,6 +176,8 @@ fn main() {
         arrival_timer: None,
         update_ready: None,
         update_source: None,
+        update_checked: None,
+        dropped: Vec::new(),
         distant: lien,
     }));
     // Préférences (couleur d'accent, tableau) ; la sauvegarde du jour de la base (celle du PC principal se fait sur le PC principal).

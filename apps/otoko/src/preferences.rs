@@ -397,6 +397,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
                     set(st, backup::EXTRA_SETTING, "");
                 }
             }
+            k if k.starts_with("page:") => crate::pages::toggle(&app, st, &k["page:".len()..]),
             k if k.starts_with("platform:") => {
                 let Some(c) = st.career.as_ref() else { return };
                 let key = &k["platform:".len()..];
@@ -467,6 +468,11 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
         }
         let Some(d) = rfd::FileDialog::new().set_title("Dossier des installateurs").pick_folder() else { return };
         crate::majs::set_folder(Some(&d));
+        crate::majs::check(st);
+        crate::majs::push(&app, st);
+    });
+    cp_on!(app, state, on_update_clear, |app, st| {
+        crate::majs::set_folder(None);
         crate::majs::check(st);
         crate::majs::push(&app, st);
     });

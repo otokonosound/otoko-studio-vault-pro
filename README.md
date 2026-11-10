@@ -22,7 +22,7 @@ Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 - **Écouter partout** : ta bibliothèque sur ton téléphone et dans Android Auto, avec des morceaux gardés hors ligne. En écoutant, tu gardes, rejettes, changes le statut et poses une note à l'instant précis : elle t'attend sur la forme d'onde du PC.
 - **Partager** : un lien privé pour faire écouter un morceau ou une sortie, avec mot de passe et date de fin si tu veux. La personne n'a rien à installer. Elle peut aimer un morceau et laisser un avis à un instant précis, qui arrive en repère sur ta forme d'onde, et tu vois jusqu'où elle a écouté.
 - **Rester tranquille** : ta musique reste chez toi. Rien ne part dans le cloud. Ta base est sauvegardée chaque jour, tu peux revenir à une date ou repartir de zéro.
-- **Le confort** : sombre ou clair, couleur d'accent, raccourcis modifiables, l'icône près de l'horloge (Ouvrir, Vérifier une mise à jour, Fermer le logiciel), mise à jour en un clic, travail depuis un autre PC.
+- **Le confort** : seulement les pages qui te servent dans le menu, glisser-déposer avec l'Explorateur et ton logiciel de musique (dans les deux sens), sombre ou clair, couleur d'accent, raccourcis modifiables, l'icône près de l'horloge (Ouvrir, Vérifier une mise à jour, Fermer le logiciel), mise à jour en un clic, travail depuis un autre PC.
 
 ## Installer en 2 minutes
 

@@ -42,6 +42,8 @@ export global CPrefs {
     in property <bool> auto-status;
     // Où sortent les nouvelles sorties (chacune se règle ensuite dans sa fiche).
     in property <[PlatformUi]> platforms;
+    // Les pages du menu (clé, nom, à quoi elle sert, gardée).
+    in property <[PlatformUi]> pages;
     // Contrôle des copies.
     in property <[string]> copies-roots;
     in property <string> copies-text;
@@ -58,6 +60,7 @@ export global CPrefs {
     in property <string> update-text;
     in property <bool> update-ready;
     callback update-choose();
+    callback update-clear();
     callback update-check();
     callback update-install();
     // Ce PC relié au PC principal.
@@ -97,7 +100,7 @@ export global CPrefs {
     callback keys-reset();
 }
 
-component PCheck inherits Rectangle {
+export component PCheck inherits Rectangle {
     in property <string> text;
     in property <bool> on;
     callback clicked;
@@ -188,6 +191,13 @@ export component CareerPrefs inherits VerticalLayout {
             if CPrefs.arrival-dir != "": Btn { text: "Retirer"; height: 28px; ghost: true; clicked => { CPrefs.arrival-clear(); } }
         }
     }
+    // ---------- pages du menu
+    if CPrefs.ready && root.part == "general": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Pages du menu"; }
+        Text { text: "L'Accueil et la Bibliothèque sont toujours là. Une page retirée garde tout ce qu'elle contient et revient en la recochant."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        for p in CPrefs.pages: PCheck { text: p.label + " : " + p.hint; on: p.on; clicked => { CPrefs.toggle("page:" + p.key); } }
+    }
     // ---------- sorties
     if CPrefs.ready && root.part == "general": VerticalLayout {
         spacing: 10px;
@@ -237,10 +247,20 @@ export component CareerPrefs inherits VerticalLayout {
         Text { text: CPrefs.update-text; color: CPrefs.update-ready ? Theme.ember2 : Theme.text2; font-size: 12.5px; wrap: word-wrap; }
         HorizontalLayout {
             spacing: 8px;
-            Text { horizontal-stretch: 1; text: CPrefs.update-dir == "" ? "Aucun dossier choisi" : CPrefs.update-dir; color: Theme.text3; font-size: 12px; vertical-alignment: center; overflow: elide; }
-            Btn { text: "Choisir le dossier…"; height: 28px; ghost: true; clicked => { CPrefs.update-choose(); } }
+            alignment: start;
             Btn { text: "Chercher"; height: 28px; clicked => { CPrefs.update-check(); } }
             if CPrefs.update-ready: Btn { text: "Installer"; primary: true; height: 28px; clicked => { CPrefs.update-install(); } }
+        }
+        // Un dossier d'installateurs (un PC qui construit le logiciel, ou qui en garde pour les autres) : passe avant GitHub.
+        if CPrefs.update-dir != "": HorizontalLayout {
+            spacing: 8px;
+            Text { horizontal-stretch: 1; text: "Regardé avant GitHub : " + CPrefs.update-dir; color: Theme.text3; font-size: 12px; vertical-alignment: center; overflow: elide; }
+            Btn { text: "Changer…"; height: 26px; ghost: true; clicked => { CPrefs.update-choose(); } }
+            Btn { text: "Retirer"; height: 26px; ghost: true; clicked => { CPrefs.update-clear(); } }
+        }
+        if CPrefs.update-dir == "": HorizontalLayout {
+            alignment: start;
+            Btn { text: "Prendre les installateurs dans un dossier…"; height: 26px; ghost: true; clicked => { CPrefs.update-choose(); } }
         }
     }
     // ---------- lecture

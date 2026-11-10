@@ -244,6 +244,8 @@ export global Lib {
     callback field-edited(string, string);
     callback tags-edited(string);
     callback version-clicked(int);
+    // Une ligne tirée hors de la liste : elle part comme un fichier (vers un logiciel de musique, l'Explorateur…).
+    callback drag-out(int);
     // Remettre un champ comme avant une modification de l'historique : (lot, champ).
     callback history-restore(string, string);
     callback close-details();
@@ -947,15 +949,30 @@ export component LibraryView inherits Rectangle {
                             border-color: r.selected ? Theme.ember : Theme.line2;
                             opacity: r.missing ? 0.5 : 1;
                             cta := TouchArea {
+                                // Un clic sur une ligne déjà choisie attend le relâché : on peut tirer toute la sélection.
+                                property <bool> pending;
+                                property <bool> dragged;
                                 pointer-event(e) => {
                                     if (e.kind == PointerEventKind.down) {
                                         rows-scope.focus();
+                                        self.dragged = false;
                                         if (e.button == PointerEventButton.left) {
-                                            Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                                            self.pending = r.selected && !e.modifiers.control && !e.modifiers.shift;
+                                            if (!self.pending) { Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift); }
                                         } else if (e.button == PointerEventButton.right) {
                                             if (!r.selected) { Lib.row-clicked(i, false, false); }
                                             menu.show();
                                         }
+                                    } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                                        if (self.pending && !self.dragged) { Lib.row-clicked(i, false, false); }
+                                        self.pending = false;
+                                    }
+                                }
+                                // Tirer hors de l'appli : le morceau (ou la sélection) part comme un fichier.
+                                moved => {
+                                    if (self.pressed && !self.dragged && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px)) {
+                                        self.dragged = true;
+                                        Lib.drag-out(i);
                                     }
                                 }
                                 double-clicked => { Lib.row-double(i); }
@@ -996,15 +1013,30 @@ export component LibraryView inherits Rectangle {
                             background: r.selected ? Theme.ember-soft : (rta.has-hover ? Theme.ink3 : transparent);
                             opacity: r.missing ? 0.5 : 1;
                             rta := TouchArea {
+                                // Un clic sur une ligne déjà choisie attend le relâché : on peut tirer toute la sélection.
+                                property <bool> pending;
+                                property <bool> dragged;
                                 pointer-event(e) => {
                                     if (e.kind == PointerEventKind.down) {
                                         rows-scope.focus();
+                                        self.dragged = false;
                                         if (e.button == PointerEventButton.left) {
-                                            Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift);
+                                            self.pending = r.selected && !e.modifiers.control && !e.modifiers.shift;
+                                            if (!self.pending) { Lib.row-clicked(i, e.modifiers.control, e.modifiers.shift); }
                                         } else if (e.button == PointerEventButton.right) {
                                             if (!r.selected) { Lib.row-clicked(i, false, false); }
                                             menu.show();
                                         }
+                                    } else if (e.kind == PointerEventKind.up && e.button == PointerEventButton.left) {
+                                        if (self.pending && !self.dragged) { Lib.row-clicked(i, false, false); }
+                                        self.pending = false;
+                                    }
+                                }
+                                // Tirer hors de l'appli : le morceau (ou la sélection) part comme un fichier.
+                                moved => {
+                                    if (self.pressed && !self.dragged && (abs(self.mouse-x - self.pressed-x) > 8px || abs(self.mouse-y - self.pressed-y) > 8px)) {
+                                        self.dragged = true;
+                                        Lib.drag-out(i);
                                     }
                                 }
                                 double-clicked => { Lib.row-double(i); }

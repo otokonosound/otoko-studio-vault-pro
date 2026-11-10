@@ -71,6 +71,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     lib_on!(app, state, on_field_edited, |app, st, key, value| { field_edited(&app, st, key.as_str(), value.as_str()); });
     lib_on!(app, state, on_tags_edited, |app, st, text| { tags_edited(&app, st, text.as_str()); });
     lib_on!(app, state, on_version_clicked, |app, st, id| { version_clicked(&app, st, id as i64); });
+    lib_on!(app, state, on_drag_out, |app, st, row| { crate::glisser::drag_out(&app, st, row.max(0) as usize); });
     lib_on!(app, state, on_history_restore, |app, st, batch, field| { history_restore(&app, st, batch.as_str(), field.as_str()); });
     lib_on!(app, state, on_close_details, |app, st| { close_details(&app, st); });
     lib_on!(app, state, on_details_tab_changed, |app, st, tab| {

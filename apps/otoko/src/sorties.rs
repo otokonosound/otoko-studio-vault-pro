@@ -572,6 +572,14 @@ fn edited(app: &AppWindow, st: &mut State, key: &str, value: &str) {
 
 fn pick_cover(app: &AppWindow, st: &mut State) {
     let Some(f) = rfd::FileDialog::new().set_title("Choisir la pochette").add_filter("Images", &["jpg", "jpeg", "png"]).pick_file() else { return };
+    set_cover(app, st, &f);
+}
+
+/// L'image devient la pochette de la sortie ouverte (choisie, ou déposée depuis l'Explorateur).
+pub fn set_cover(app: &AppWindow, st: &mut State, f: &Path) {
+    if st.rel.sheet.is_none() {
+        return;
+    }
     let id = st.rel.sheet.as_ref().map(|s| s.id).unwrap_or(0);
     change(app, st, |s| s.cover_path = f.to_string_lossy().into_owned());
     // La pochette de la galerie et de l'accueil est relue.

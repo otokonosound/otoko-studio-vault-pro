@@ -52,6 +52,8 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     crate::palette::wire(app, state);
     crate::preferences::wire(app, state);
     crate::partage::wire(app, state);
+    crate::pages::wire(app, state);
+    crate::glisser::wire(app, state);
     // ---------- Mobile et partage
     on!(app, state, on_mobile_toggle, |app, st| {
         crate::mobile::toggle(&app, st);
