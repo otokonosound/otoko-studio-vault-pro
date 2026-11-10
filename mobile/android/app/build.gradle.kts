@@ -14,8 +14,8 @@ android {
         applicationId = "com.otoko.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.1.5"
+        versionCode = 6
+        versionName = "1.1.6"
     }
 
     // Toujours la même clé (sauvegardée dans android/cle, à garder) : les mises à jour
