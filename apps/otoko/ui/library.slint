@@ -705,6 +705,7 @@ export component LibraryView inherits Rectangle {
             }
             if Lib.filtered: TBtn { icon: @image-url("icons/close.svg"); width: 28px; height: 28px; clicked => { Lib.reset(); } }
             Rectangle { horizontal-stretch: 1; }
+            if Lib.title == "Fichiers manquants" && Lib.rows.length > 0: Btn { text: "Tout retirer de la bibliothèque…"; height: 28px; clicked => { Lib.action("forget-missing"); } }
             if Lib.filtered: Btn { text: "Garder la vue…"; height: 28px; clicked => { root.view-name = ""; view-popup.show(); } }
             Btn { text: Lib.cards ? "Tableau" : "Cartes"; height: 28px; ghost: true; clicked => { Lib.cards-changed(!Lib.cards); } }
             Btn { text: "Outils"; height: 28px; ghost: true; clicked => { tools-popup.show(); } }
@@ -827,7 +828,8 @@ export component LibraryView inherits Rectangle {
                         MenuRow { text: "Dossiers surveillés et archives…"; clicked => { Lib.action("watch"); } }
                         MenuRow { text: "Changer l'emplacement de la bibliothèque…"; clicked => { Lib.action("relocate"); } }
                         MenuRow { text: "Exporter la vue en CSV…"; clicked => { Lib.action("export-csv"); } }
-                        MenuRow { text: "Retirer la sélection de la bibliothèque"; clicked => { Lib.action("forget"); } }
+                        MenuRow { text: "Retirer la sélection de la bibliothèque  (Suppr)"; clicked => { Lib.action("forget"); } }
+                        MenuRow { text: "Retirer les fichiers manquants…"; clicked => { Lib.action("forget-missing"); } }
                     }
                 }
             }
@@ -1121,6 +1123,7 @@ export component LibraryView inherits Rectangle {
                         MenuRow { text: "Renommer…  (F2)"; clicked => { Lib.action("rename"); } }
                         MenuRow { text: "Rattacher à un morceau…"; clicked => { Lib.action("attach"); } }
                         MenuRow { text: "Ouvrir le dossier"; clicked => { Lib.action("folder"); } }
+                        MenuRow { text: "Retirer de la bibliothèque  (Suppr)"; clicked => { Lib.action("forget"); } }
                     }
                 }
             }

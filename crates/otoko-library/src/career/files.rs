@@ -402,6 +402,25 @@ pub fn forget(conn: &Connection, ids: &[i64]) -> usize {
     ids.iter().map(|id| conn.execute("DELETE FROM tracks WHERE id = ?1", [id]).unwrap_or(0)).sum()
 }
 
+/// Les morceaux dont le fichier est introuvable (ceux de la vue « Fichiers manquants »).
+pub fn missing_ids(conn: &Connection) -> Vec<i64> {
+    conn.prepare("SELECT id FROM tracks WHERE missing = 1 ORDER BY id").and_then(|mut s| s.query_map([], |r| r.get(0))?.collect()).unwrap_or_default()
+}
+
+/// Ce qu'on perd en retirant ces morceaux, à dire avant de le faire : (rangés dans une sortie, avec des versions ou
+/// des stems rattachés, dont le fichier est encore sur le disque).
+pub fn forget_impact(conn: &Connection, ids: &[i64]) -> (usize, usize, usize) {
+    let mut out = (0, 0, 0);
+    for id in ids {
+        let has = |sql: &str| conn.query_row(sql, [id], |r| r.get::<_, i64>(0)).unwrap_or(0) > 0;
+        out.0 += has("SELECT COUNT(*) FROM release_tracks WHERE track_id = ?1") as usize;
+        out.1 += has("SELECT COUNT(*) FROM tracks WHERE parent_id = ?1") as usize;
+        let path: String = conn.query_row("SELECT path FROM tracks WHERE id = ?1", [id], |r| r.get(0)).unwrap_or_default();
+        out.2 += (!path.is_empty() && Path::new(&path).is_file()) as usize;
+    }
+    out
+}
+
 // ---------------------------------------------------------------------- tags dans les fichiers
 
 /// Ce qu'on écrit : `None` ne touche pas au champ, `Some("")` l'efface.
@@ -879,6 +898,30 @@ pub fn detach(conn: &Connection, id: i64) -> rusqlite::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_tracks_can_be_removed() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE tracks (id INTEGER PRIMARY KEY, path TEXT UNIQUE, missing INTEGER DEFAULT 0, parent_id INTEGER REFERENCES tracks(id) ON DELETE SET NULL);
+             CREATE TABLE release_tracks (release_id INTEGER, track_id INTEGER REFERENCES tracks(id) ON DELETE CASCADE);
+             INSERT INTO tracks (id, path, missing, parent_id) VALUES (1, 'Q:\\nulle part\\a.wav', 1, NULL), (2, 'Q:\\nulle part\\b.wav', 1, NULL),
+                (3, 'Q:\\nulle part\\c.wav', 0, NULL), (4, 'Q:\\nulle part\\a master.wav', 0, 1);
+             INSERT INTO release_tracks VALUES (7, 2);",
+        )
+        .unwrap();
+        let ids = missing_ids(&conn);
+        assert_eq!(ids, vec![1, 2]);
+        // Un dans une sortie, un avec une version rattachée, aucun fichier encore là.
+        assert_eq!(forget_impact(&conn, &ids), (1, 1, 0));
+        assert_eq!(forget(&conn, &ids), 2);
+        assert!(missing_ids(&conn).is_empty());
+        // Les autres morceaux restent ; la version rattachée redevient un morceau à part.
+        let left: Vec<(i64, Option<i64>)> = conn.prepare("SELECT id, parent_id FROM tracks ORDER BY id").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().flatten().collect();
+        assert_eq!(left, vec![(3, None), (4, None)]);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM release_tracks", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
 
     #[test]
     fn names_genres_artists() {
