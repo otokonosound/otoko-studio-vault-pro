@@ -6,7 +6,7 @@ Tu pointes ton dossier de musique. Il reconnaît et analyse tes morceaux, sans j
 
 Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 
-**[Regarder la vidéo de présentation](https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest/download/Otoko-Studio-Vault-Pro-presentation.mp4)** (2 min 25, tout ce qu'il sait faire).
+**[Regarder la vidéo de présentation](https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest/download/Otoko-Studio-Vault-Pro-presentation.mp4)** (2 min 43, tout ce qu'il sait faire).
 
 ## Ce qu'il fait
 
