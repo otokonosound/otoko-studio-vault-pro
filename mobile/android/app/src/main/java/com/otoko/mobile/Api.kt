@@ -30,6 +30,8 @@ data class Track(
     val color: Int?,
     /** vraie date de publication (AAAA-MM-JJ), vide si inconnue */
     val publishedDate: String = "",
+    /** 1 gardé, -1 rejeté, 0 rien */
+    val pick: Int = 0,
 ) {
     /** "Original, hypnotique" comme dans la maquette */
     val subtitle: String get() = listOfNotNull(natureLabel.ifBlank { null }, moods.firstOrNull()).joinToString(", ")
@@ -51,6 +53,7 @@ data class Track(
         put("size", size); put("release_title", release?.title ?: JSONObject.NULL)
         put("release", release?.toJson() ?: JSONObject.NULL)
         put("published_date", publishedDate)
+        put("pick", pick)
         put("color", color?.let { String.format("#%06X", it and 0xFFFFFF) } ?: JSONObject.NULL)
     }
 
@@ -80,6 +83,7 @@ data class Track(
                 release = release,
                 color = o.optStr("color")?.let { parseColor(it) },
                 publishedDate = o.optStr("published_date") ?: "",
+                pick = o.optInt("pick", 0),
             )
         }
     }
@@ -141,6 +145,32 @@ data class Release(
 }
 
 data class Waveform(val peaks: List<Float>, val duration: Double)
+
+/** Une note posée à un instant du morceau (un repère, le même que sur ton PC) */
+data class Note(val time: Double, val label: String) {
+    fun toJson(): JSONObject = JSONObject().put("time", time).put("label", label)
+}
+
+/** Ce que tu penses d'un morceau : gardé ou rejeté, son statut, tes notes */
+data class Mine(val trackId: Long, val pick: Int, val status: String, val notes: List<Note>) {
+    companion object {
+        fun fromJson(o: JSONObject): Mine {
+            val a = o.optJSONArray("markers") ?: JSONArray()
+            return Mine(
+                trackId = o.getLong("id"),
+                pick = o.optInt("pick", 0),
+                status = o.optStr("status") ?: "idea",
+                notes = List(a.length()) { a.getJSONObject(it).let { n -> Note(n.optDouble("time", 0.0), n.optString("label")) } },
+            )
+        }
+    }
+}
+
+/** Les statuts de ton PC, dans l'ordre du tableau de production */
+val STATUSES = listOf(
+    "idea" to "Idée", "draft" to "Brouillon", "wip" to "En cours", "to_mix" to "À mixer",
+    "to_master" to "À masteriser", "done" to "Terminé", "released" to "Publié",
+)
 
 /** Lien de partage public (écoute privée pour quelqu'un sans Tailscale) */
 data class Share(
@@ -242,6 +272,14 @@ class Api(
         val o = JSONObject(get("/api/releases/$id"))
         val arr = o.optJSONArray("track_list") ?: JSONArray()
         Release.fromJson(o) to List(arr.length()) { Track.fromJson(arr.getJSONObject(it)) }
+    }
+
+    /** Le morceau avec ses notes, son statut et ton choix (gardé, rejeté) */
+    suspend fun mine(id: Long): Mine = withContext(Dispatchers.IO) { Mine.fromJson(JSONObject(get("/api/tracks/$id"))) }
+
+    /** Une écriture sur ton PC (garder, statut, note, écoute) : voir Outbox, qui la garde si le réseau manque */
+    suspend fun post(path: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
+        JSONObject(request("POST", path, 15000, baseUrl(), body, mapOf("X-Studio-Vault" to "1")).ifBlank { "{}" })
     }
 
     suspend fun ping(): Boolean = pingInfo() != null

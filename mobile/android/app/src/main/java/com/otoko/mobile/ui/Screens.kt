@@ -158,7 +158,7 @@ fun OtokoApp(vm: MainViewModel) {
                 modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 72.dp),
             ) { MiniPlayer(ui, vm, accent) { castOpen = true } }
 
-            PlayerSheet(ui, vm, accent) { castOpen = true }
+            PlayerSheet(ui, vm, accent, onMessage = { toast = it }) { castOpen = true }
             CastSheet(castOpen, vm, onClose = { castOpen = false }) { toast = it }
             ShareSheet(ui, vm) { toast = it }
 
@@ -434,6 +434,22 @@ private fun OfflineScreen(ui: UiState, vm: MainViewModel, accent: Color, onMessa
         }
 
         Column {
+            val autoOffline by vm.settings.autoOffline.collectAsState()
+            Row(
+                Modifier.fillMaxWidth().clickable { vm.setAutoOffline(!autoOffline) }.padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Mes morceaux en cours, toujours là", fontFamily = Body, fontSize = 16.sp, color = Palette.White,
+                    modifier = Modifier.weight(1f))
+                Toggle(autoOffline, accent)
+            }
+            Text(
+                "En Wi-Fi, tes ${com.otoko.mobile.App.AUTO_OFFLINE_COUNT} derniers morceaux en cours (brouillon, en cours, " +
+                    "à mixer, à masteriser) se téléchargent tout seuls : tu les écoutes dans la voiture sans y penser.",
+                fontFamily = Body, fontSize = 14.sp, color = Palette.Muted, modifier = Modifier.padding(top = 4.dp))
+        }
+
+        Column {
             Row(
                 Modifier.fillMaxWidth().clickable { vm.settings.setSaveToMusic(!saveToMusic) }.padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -669,7 +685,7 @@ private fun BottomNav(screen: Screen, onPick: (Screen) -> Unit) {
 // ------------------------------------------------------------------ lecteur plein écran
 
 @Composable
-private fun PlayerSheet(ui: UiState, vm: MainViewModel, accent: Color, onCast: () -> Unit) {
+private fun PlayerSheet(ui: UiState, vm: MainViewModel, accent: Color, onMessage: (String) -> Unit, onCast: () -> Unit) {
     val t = ui.current
     BackHandler(ui.sheetOpen) { vm.openSheet(false) }
     AnimatedVisibility(
@@ -765,6 +781,8 @@ private fun PlayerSheet(ui: UiState, vm: MainViewModel, accent: Color, onCast: (
                 CamelotPill(t, withKey = true)
                 t.lufs?.let { InfoPill("%.1f LUFS".format(it)) }
             }
+
+            MineRow(ui, vm, onMessage)
 
             Column {
                 val f = if (ui.duration > 0) ui.position.toFloat() / ui.duration else 0f

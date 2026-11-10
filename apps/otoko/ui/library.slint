@@ -194,6 +194,11 @@ export global Lib {
     in property <bool> player-has-cover;
     in property <float> player-pos;
     in property <string> player-time;
+    // Le volume (0 à 1) et « Volume égal » (tous les morceaux au même niveau, d'après leur analyse).
+    in property <float> player-volume: 1;
+    in property <bool> player-equal;
+    callback player-volume-set(float);
+    callback player-equal-toggle();
     callback player-toggle();
     callback player-stop();
     callback player-seek(float);
@@ -1314,6 +1319,41 @@ component PlayerLoop inherits HorizontalLayout {
     if Lib.player-compare != "": Btn { text: "Écouter B"; height: 26px; primary: Lib.player-compare == "B"; ghost: Lib.player-compare != "B"; clicked => { if (Lib.player-compare != "B") { Lib.player-switch(); } } }
 }
 
+// Le volume : une réglette (clic, glisser ou molette) et « Volume égal ».
+component PlayerVolume inherits HorizontalLayout {
+    spacing: 6px;
+    alignment: end;
+    VerticalLayout {
+        alignment: center;
+        Rectangle {
+            width: 86px;
+            height: 22px;
+            Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: 2px; background: Theme.ink4; }
+            Rectangle { x: 0; y: (parent.height - 4px) / 2; height: 4px; width: parent.width * Lib.player-volume; border-radius: 2px; background: Theme.text2; }
+            Rectangle { x: parent.width * Lib.player-volume - 6px; y: (parent.height - 12px) / 2; width: 12px; height: 12px; border-radius: 6px; background: vta.has-hover || vta.pressed ? Theme.text : Theme.text2; }
+            vta := TouchArea {
+                mouse-cursor: pointer;
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) {
+                        Lib.player-volume-set(max(0, min(1, self.mouse-x / self.width)));
+                    }
+                }
+                moved => {
+                    if (self.pressed) { Lib.player-volume-set(max(0, min(1, self.mouse-x / self.width))); }
+                }
+                scroll-event(e) => {
+                    Lib.player-volume-set(max(0, min(1, Lib.player-volume + (e.delta-y > 0 ? 0.05 : -0.05))));
+                    return EventResult.accept;
+                }
+            }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        Btn { text: "Volume égal"; height: 26px; primary: Lib.player-equal; ghost: !Lib.player-equal; clicked => { Lib.player-equal-toggle(); } }
+    }
+}
+
 // Le lecteur, en bas de la fenêtre, quelle que soit la page : une barre fine qui ne prend pas la place du travail, qui
 // s'ouvre en grand au clic (pochette, onde, repères, notes, file).
 export component PlayerBar inherits Rectangle {
@@ -1348,6 +1388,7 @@ export component PlayerBar inherits Rectangle {
         PlayerWave { horizontal-stretch: 1; }
         VerticalLayout { alignment: center; Text { text: Lib.player-time; color: Theme.text2; font-size: 11.5px; font-family: Theme.mono-font; } }
         if Lib.player-compare != "": VerticalLayout { alignment: center; PlayerLoop { } }
+        PlayerVolume { }
         VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/chevron-up.svg"); width: 30px; height: 30px; clicked => { Lib.player-big = true; } } }
         VerticalLayout { alignment: center; TBtn { icon: @image-url("icons/close.svg"); width: 30px; height: 30px; clicked => { Lib.player-stop(); } } }
     }
@@ -1399,6 +1440,7 @@ export component PlayerBar inherits Rectangle {
                     ma := Hit { ring-radius: 7px; clicked => { Lib.player-seek(m.x); } }
                 }
                 Rectangle { horizontal-stretch: 1; }
+                PlayerVolume { }
             }
         }
         VerticalLayout {

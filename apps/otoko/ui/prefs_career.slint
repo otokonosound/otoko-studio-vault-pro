@@ -17,6 +17,7 @@ export global CPrefs {
     in property <[string]> aliases;
     // Lecture.
     in property <bool> continuous;
+    in property <bool> pick-advance;
     // Apparence : -1 la couleur du thème, 0 à 7 les pastilles, 8 une couleur choisie.
     in property <[color]> accents;
     in property <[string]> accent-names;
@@ -237,6 +238,7 @@ export component CareerPrefs inherits VerticalLayout {
         spacing: 10px;
         H2 { text: "Lecture"; }
         PCheck { text: "Enchaîner automatiquement sur le morceau suivant"; on: CPrefs.continuous; clicked => { CPrefs.toggle("continuous_play"); } }
+        PCheck { text: "Garder (P), Rejeter (X) ou Neutre (N) passent au morceau suivant"; on: CPrefs.pick-advance; clicked => { CPrefs.toggle("pick_advance"); } }
     }
     // ---------- apparence
     if CPrefs.ready && root.part == "apparence": VerticalLayout {

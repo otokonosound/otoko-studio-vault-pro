@@ -43,7 +43,12 @@ pub struct Player {
     pub peaks: Vec<f32>,
     pub markers: Vec<(f64, String)>,
     pub compare: Option<Compare>,
+    /// Gain du comparateur A/B (1 hors comparaison).
     pub gain: f32,
+    /// « Volume égal » : l'écart (dB) qui ramène ce morceau au niveau commun (0 s'il est coupé).
+    pub level_db: f32,
+    /// Le volume choisi (0 à 1), gardé d'une session à l'autre.
+    pub volume: f32,
     /// Position affichée (secondes).
     pub pos: f64,
     pub timer: Option<slint::Timer>,
@@ -152,6 +157,51 @@ fn decode(path: String, start: f64, rate: f64, mut ring: rtrb::Producer<f32>, st
     finished.store(true, Ordering::Relaxed);
 }
 
+/// Le niveau commun visé par « Volume égal » (celui des plateformes de streaming).
+pub const EQUAL_TARGET_LUFS: f64 = -14.0;
+
+/// L'écart (dB) qui amène un morceau mesuré à `lufs` au niveau commun : on baisse autant qu'il faut, on ne monte
+/// que de 6 dB au plus, et jamais au point que la crête réelle dépasse -1 dBTP (pas de saturation à l'écoute).
+pub fn equal_db(lufs: Option<f64>, true_peak: Option<f64>) -> f32 {
+    let Some(l) = lufs.filter(|l| l.is_finite() && *l < 0.0) else { return 0.0 };
+    let mut db = (EQUAL_TARGET_LUFS - l).clamp(-30.0, 6.0);
+    if db > 0.0 {
+        if let Some(tp) = true_peak.filter(|t| t.is_finite()) {
+            db = db.min((-1.0 - tp).max(0.0));
+        }
+    }
+    db as f32
+}
+
+/// Le gain envoyé à la carte : comparateur, volume égal, puis volume (courbe au carré, plus naturelle à l'oreille).
+fn out_gain(p: &Player) -> f32 {
+    p.gain * 10f32.powf(p.level_db / 20.0) * p.volume.clamp(0.0, 1.0).powi(2)
+}
+
+/// Le passage le plus chargé d'un morceau (début, en secondes), d'après sa mini forme d'onde : là où l'écouter
+/// pour juger vite. `window` secondes ; 0 si la forme d'onde manque ou si le morceau est court.
+pub fn hot_spot(peaks: &[u8], duration: f64, window: f64) -> f64 {
+    let n = peaks.len();
+    if n == 0 || duration <= window * 1.5 {
+        return 0.0;
+    }
+    let w = ((window / duration) * n as f64).round().max(1.0) as usize;
+    if w >= n {
+        return 0.0;
+    }
+    let mut sum: u32 = peaks[..w].iter().map(|&p| p as u32).sum();
+    let (mut best, mut at) = (sum, 0usize);
+    for i in w..n {
+        sum = sum + peaks[i] as u32 - peaks[i - w] as u32;
+        // À égalité, le plus tôt (le premier refrain plutôt que le dernier).
+        if sum > best {
+            best = sum;
+            at = i + 1 - w;
+        }
+    }
+    (at as f64 / n as f64 * duration).max(0.0)
+}
+
 /// Joue (ou reprend) le morceau à partir de `start` secondes. Rend faux si la carte son ne s'ouvre pas.
 fn start_stream(app: &AppWindow, st: &mut State, start: f64) -> bool {
     if let Some(s) = st.player.stop.take() {
@@ -172,7 +222,7 @@ fn start_stream(app: &AppWindow, st: &mut State, start: f64) -> bool {
     let path = st.player.path.clone();
     let _ = std::thread::Builder::new().name("lecteur".into()).spawn(move || decode(path, start.max(0.0), rate, prod, stop, finished));
     st.ecoute.lancer(cons, (start.max(0.0) * rate) as u64);
-    st.ecoute.gain(st.player.gain);
+    st.ecoute.gain(out_gain(&st.player));
     st.player.paused = false;
     st.player.pos = start;
     true
@@ -197,6 +247,16 @@ pub fn play_id(app: &AppWindow, st: &mut State, id: i64, at: f64) {
     }
     let Some(c) = st.career.as_ref() else { return };
     let _ = lib::played(c.conn(), id);
+    // Volume égal : hors comparaison (qui égalise déjà les deux morceaux).
+    let comparing = st.player.compare.as_ref().is_some_and(|cmp| cmp.a.0 == id || cmp.b.0 == id);
+    st.player.level_db = if !comparing && lib::flag(c.conn(), "equal_loudness", false) { equal_db(r.lufs, lib::field(c.conn(), id, "true_peak").parse().ok()) } else { 0.0 };
+    // Tri des idées : chaque morceau démarre sur son passage le plus chargé.
+    let at = if at == 0.0 && crate::bibliotheque::in_triage(st) {
+        let d = r.duration.unwrap_or(0.0);
+        st.lib.peaks.get(&id).map(|p| hot_spot(p, d, TRIAGE_WINDOW_S)).unwrap_or(0.0)
+    } else {
+        at
+    };
     st.player.id = Some(id);
     st.player.path = r.path.clone();
     st.player.title = r.title.clone();
@@ -225,6 +285,42 @@ pub fn play_id(app: &AppWindow, st: &mut State, id: i64, at: f64) {
     crate::bibliotheque::push_rows(app, st);
 }
 
+/// La durée du passage joué en tri des idées (repère pour choisir où commencer).
+pub const TRIAGE_WINDOW_S: f64 = 30.0;
+
+/// Le volume (0 à 1), appliqué tout de suite et gardé pour la prochaine fois.
+pub fn set_volume(app: &AppWindow, st: &mut State, v: f32) {
+    st.player.volume = v.clamp(0.0, 1.0);
+    st.ecoute.gain(out_gain(&st.player));
+    // Propre à ce PC (settings.json) : la carte son et les enceintes ne sont pas les mêmes ailleurs.
+    if !st.selftest {
+        crate::settings::set("player_volume", serde_json::json!(st.player.volume));
+    }
+    app.global::<Lib>().set_player_volume(st.player.volume);
+}
+
+/// « Volume égal » : tous les morceaux au même niveau (d'après leur analyse), pour juger le son et pas la force.
+pub fn toggle_equal(app: &AppWindow, st: &mut State) {
+    let Some(c) = st.career.as_ref() else { return };
+    let on = !lib::flag(c.conn(), "equal_loudness", false);
+    lib::set_flag(c.conn(), "equal_loudness", on);
+    let comparing = st.player.compare.is_some();
+    st.player.level_db = match st.player.id.filter(|id| *id != OUTSIDE) {
+        Some(id) if on && !comparing => equal_db(lib::field(c.conn(), id, "lufs").parse().ok(), lib::field(c.conn(), id, "true_peak").parse().ok()),
+        _ => 0.0,
+    };
+    st.ecoute.gain(out_gain(&st.player));
+    app.set_message(
+        if on {
+            format!("Volume égal : chaque morceau est ramené à {EQUAL_TARGET_LUFS:.0} LUFS (d'après son analyse). Les originaux ne changent pas.")
+        } else {
+            "Volume égal coupé : chaque morceau joue à son niveau réel.".to_string()
+        }
+        .into(),
+    );
+    app.global::<Lib>().set_player_equal(on);
+}
+
 /// Identifiant du lecteur pour un fichier hors de la bibliothèque (un master tout juste créé).
 pub const OUTSIDE: i64 = -1;
 
@@ -246,6 +342,7 @@ pub fn play_path(app: &AppWindow, st: &mut State, path: &Path, title: &str) {
     st.player.loop_a = None;
     st.player.loop_b = None;
     st.player.gain = 1.0;
+    st.player.level_db = 0.0;
     st.lib.playing = None;
     start_stream(app, st, 0.0);
     ensure_timer(app, st);
@@ -444,7 +541,14 @@ pub fn wire(app: &AppWindow, state: &std::rc::Rc<std::cell::RefCell<State>>) {
         }
     });
     timer.stop();
-    state.borrow_mut().player.timer = Some(timer);
+    let mut st = state.borrow_mut();
+    st.player.timer = Some(timer);
+    // Le volume de la dernière fois (plein volume la toute première).
+    let volume = crate::settings::get("player_volume").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32;
+    st.player.volume = volume.clamp(0.0, 1.0);
+    let equal = st.career.as_ref().is_some_and(|c| lib::flag(c.conn(), "equal_loudness", false));
+    app.global::<Lib>().set_player_volume(st.player.volume);
+    app.global::<Lib>().set_player_equal(equal);
 }
 
 /// Avance de la position (appelée toutes les 100 ms tant qu'un morceau est ouvert).
@@ -501,6 +605,7 @@ pub fn push(app: &AppWindow, st: &State) {
     g.set_player_loop_a(p.loop_a.map(|a| (a / d) as f32).unwrap_or(-1.0));
     g.set_player_loop_b(p.loop_b.map(|b| (b / d) as f32).unwrap_or(-1.0));
     g.set_player_queue(p.queue.len() as i32);
+    g.set_player_volume(p.volume);
     g.set_player_compare(match &p.compare {
         Some(c) => if c.on_b { "B".into() } else { "A".into() },
         None => "".into(),
@@ -516,6 +621,33 @@ pub fn push(app: &AppWindow, st: &State) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equal_loudness_lowers_loud_masters_and_lifts_quiet_ideas_without_clipping() {
+        // Un master à -8 LUFS est baissé de 6 dB ; une idée à -20 monte de 6 dB au plus.
+        assert_eq!(equal_db(Some(-8.0), Some(-0.2)), -6.0);
+        assert_eq!(equal_db(Some(-26.0), Some(-12.0)), 6.0);
+        // Une idée à -18 LUFS dont la crête est déjà à -2 dBTP ne monte que d'1 dB.
+        assert_eq!(equal_db(Some(-18.0), Some(-2.0)), 1.0);
+        // Crête au-dessus de -1 : on ne monte pas du tout.
+        assert_eq!(equal_db(Some(-18.0), Some(0.3)), 0.0);
+        // Pas analysé : rien ne change.
+        assert_eq!(equal_db(None, None), 0.0);
+    }
+
+    #[test]
+    fn the_hot_spot_is_the_loudest_window() {
+        // 100 points sur 200 s : calme, puis un refrain fort de 120 à 160 s.
+        let mut p = vec![20u8; 100];
+        for v in &mut p[60..80] {
+            *v = 200;
+        }
+        let at = hot_spot(&p, 200.0, 30.0);
+        assert!((120.0..=130.0).contains(&at), "{at}");
+        // Un morceau court ou sans forme d'onde se joue depuis le début.
+        assert_eq!(hot_spot(&p, 40.0, 30.0), 0.0);
+        assert_eq!(hot_spot(&[], 200.0, 30.0), 0.0);
+    }
 
     #[test]
     fn the_resampler_keeps_its_place_between_packets() {

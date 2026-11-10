@@ -203,3 +203,47 @@ fn the_other_pc_reads_and_writes_through_the_mini() {
     drop(mini);
     let _ = std::fs::remove_dir_all(&tmp);
 }
+
+/// Le téléphone garde, change le statut, pose une note et compte une écoute ; une page d'un autre site, elle, ne peut rien
+/// écrire (pas l'en-tête de l'app, ou une origine qui n'est pas ce PC).
+#[test]
+fn the_phone_writes_what_it_hears() {
+    let tmp = std::env::temp_dir().join(format!("otoko-essai-telephone-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    {
+        let c = Career::open(&tmp.join("carriere.db")).unwrap();
+        c.conn().execute("INSERT INTO tracks (id, path, filename, title, status, duration_s) VALUES (1, 'Z:\\a\\Nuit.wav', 'Nuit.wav', 'Nuit', 'idea', 180)", []).unwrap();
+    }
+    let mut cfg = otoko_mobile::Config::new(&tmp, "essai");
+    cfg.port = 0;
+    cfg.public_port = None;
+    cfg.warm = false;
+    let server = otoko_mobile::start(cfg).unwrap();
+    let p = server.port();
+    let app = "X-Studio-Vault: 1\r\n";
+
+    let r = call(p, "POST", "/api/tracks/1/edit", app, Some(&json!({ "pick": 1, "status": "wip" })));
+    assert_eq!(r.status, 200, "{}", String::from_utf8_lossy(&r.body));
+    let t = json_of(&r);
+    assert_eq!((t["pick"].as_i64(), t["status"].as_str()), (Some(1), Some("wip")));
+    let r = call(p, "POST", "/api/tracks/1/markers", app, Some(&json!({ "time": 61.27, "label": "kick trop fort" })));
+    assert_eq!(json_of(&r)["markers"], json!([{ "time": 61.3, "label": "kick trop fort" }]));
+    assert_eq!(call(p, "POST", "/api/tracks/1/played", app, None).status, 200);
+    assert_eq!(json_of(&call(p, "GET", "/api/tracks/1", "", None))["play_count"], 1);
+
+    // Refusé : sans l'en-tête de l'app, depuis la page d'un autre site, un statut inventé, un morceau absent.
+    assert_eq!(call(p, "POST", "/api/tracks/1/edit", "", Some(&json!({ "pick": -1 }))).status, 403);
+    assert_eq!(call(p, "POST", "/api/tracks/1/edit", "X-Studio-Vault: 1\r\nOrigin: https://evil.example.com\r\n", Some(&json!({ "pick": -1 }))).status, 403);
+    assert_eq!(call(p, "POST", "/api/tracks/1/edit", app, Some(&json!({ "status": "génial" }))).status, 400);
+    assert_eq!(call(p, "POST", "/api/tracks/9/edit", app, Some(&json!({ "pick": 1 }))).status, 404);
+    assert_eq!(call(p, "POST", "/api/tracks/1/titre", app, Some(&json!({}))).status, 404);
+    assert_eq!(json_of(&call(p, "GET", "/api/tracks/1", "", None))["pick"], 1);
+
+    // Le logiciel du PC sait qu'il doit relire ce morceau (une écoute ne compte pas).
+    let c = Career::open(&tmp.join("carriere.db")).unwrap();
+    assert_eq!(c.setting(otoko_mobile::edits::STAMP).as_deref(), Some("1:2"));
+    drop(c);
+    server.stop();
+    let _ = std::fs::remove_dir_all(&tmp);
+}

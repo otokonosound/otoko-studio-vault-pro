@@ -80,6 +80,12 @@ pub struct Home {
     pub unpaid_total: f64,
 }
 
+/// Les idées jamais triées (ni gardées ni rejetées), pour le tri des idées.
+pub const UNTRIAGED: &str = "missing = 0 AND COALESCE(archived, 0) = 0 AND IFNULL(status, 'idea') = 'idea' AND IFNULL(pick, 0) = 0";
+
+/// À partir de combien d'idées non triées l'accueil propose le tri.
+pub const TRIAGE_MIN: i64 = 5;
+
 pub const UNFINISHED: &str = "missing = 0 AND COALESCE(archived, 0) = 0 AND status IN ('idea','draft','wip','to_mix','to_master')";
 
 fn clean(t: String) -> String {
@@ -345,6 +351,10 @@ pub fn today_actions(conn: &Connection, h: &Home) -> Vec<Action> {
     if idle > 0 {
         out.push(action(30, 0, format!("{idle} morceau{} pas analysé{}", plural(idle), if idle > 1 { "s" } else { "" }), "Tempo, tonalité, sonie, crêtes.", "Analyser", "analyze"));
     }
+    let untriaged = scalar(conn, &format!("SELECT COUNT(*) FROM tracks WHERE {UNTRIAGED}"));
+    if untriaged >= TRIAGE_MIN {
+        out.push(action(28, 0, format!("{untriaged} idées jamais triées"), "Le meilleur passage de chacune, puis P garde, X rejette, N passe.", "Trier", "triage"));
+    }
     if brand_is_empty(conn) {
         out.push(action(25, 0, "Remplis ton univers de marque".to_string(), "Nom, ville, signature : il sert aux textes.", "Remplir", "brand"));
     }
@@ -441,4 +451,29 @@ pub fn charts(conn: &Connection) -> Charts {
         .map(|(t, n)| (clean(t).chars().take(24).collect(), n))
         .collect();
     c
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_home_offers_triage_once_enough_ideas_wait() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::super::schema::SCHEMA).unwrap();
+        let add = |n: i64, status: &str, pick: i64| {
+            conn.execute("INSERT INTO tracks (path, filename, status, pick, analyzed_at) VALUES (?1, ?1, ?2, ?3, 'x')", rusqlite::params![format!("{status}{n}.wav"), status, pick]).unwrap();
+        };
+        for n in 0..4 {
+            add(n, "idea", 0);
+        }
+        // Gardées, rejetées ou en cours : déjà triées.
+        add(10, "idea", 1);
+        add(11, "idea", -1);
+        add(12, "wip", 0);
+        let triage = |c: &Connection| today_actions(c, &Home::default()).into_iter().find(|a| a.action == "triage");
+        assert!(triage(&conn).is_none());
+        add(4, "idea", 0);
+        assert_eq!(triage(&conn).unwrap().title, "5 idées jamais triées");
+    }
 }

@@ -18,22 +18,26 @@ android {
         versionName = "1.1.4"
     }
 
-    signingConfigs {
-        // Toujours la même clé (sauvegardée dans android/cle, à garder) : les mises à jour
-        // s'installent par-dessus. L'app Studio Vault garde la sienne : les deux cohabitent.
-        // La clé et son mot de passe (cle/signature.properties) restent hors du dépôt Git.
-        create("otoko") {
-            val signature = Properties().apply { rootProject.file("cle/signature.properties").inputStream().use { load(it) } }
-            storeFile = rootProject.file("cle/otoko.keystore")
-            storePassword = signature.getProperty("motdepasse")
-            keyAlias = "otoko"
-            keyPassword = signature.getProperty("motdepasse")
+    // Toujours la même clé (sauvegardée dans android/cle, à garder) : les mises à jour
+    // s'installent par-dessus. L'app Studio Vault garde la sienne : les deux cohabitent.
+    // La clé et son mot de passe (cle/signature.properties) restent hors du dépôt Git : sans eux
+    // (la vérification automatique sur GitHub), le code se compile quand même, sans signature.
+    val signatureFile = rootProject.file("cle/signature.properties")
+    if (signatureFile.exists()) {
+        signingConfigs {
+            create("otoko") {
+                val signature = Properties().apply { signatureFile.inputStream().use { load(it) } }
+                storeFile = rootProject.file("cle/otoko.keystore")
+                storePassword = signature.getProperty("motdepasse")
+                keyAlias = "otoko"
+                keyPassword = signature.getProperty("motdepasse")
+            }
         }
     }
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("otoko")
+            if (signatureFile.exists()) signingConfig = signingConfigs.getByName("otoko")
         }
     }
     compileOptions {

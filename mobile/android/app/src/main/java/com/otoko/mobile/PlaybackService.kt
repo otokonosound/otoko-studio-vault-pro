@@ -25,7 +25,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.future
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -55,6 +57,7 @@ class PlaybackService : MediaLibraryService() {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (events.containsAny(Player.EVENT_MEDIA_ITEM_TRANSITION, Player.EVENT_TIMELINE_CHANGED,
                         Player.EVENT_IS_PLAYING_CHANGED)) saveQueue(player)
+                if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) counted = null
                 // Aléatoire ou répétition changés (depuis l'appli ou la voiture) : les boutons suivent
                 if (events.containsAny(Player.EVENT_SHUFFLE_MODE_ENABLED_CHANGED, Player.EVENT_REPEAT_MODE_CHANGED))
                     session?.setCustomLayout(buttons(player))
@@ -69,7 +72,35 @@ class PlaybackService : MediaLibraryService() {
             .build()
         local = player
         mainScope.launch { app.cast.target.collect { switchTo(it) } }
+        mainScope.launch { countPlays() }
     }
+
+    /** Le morceau dont l'écoute est déjà comptée (une fois par passage) */
+    private var counted: Long? = null
+
+    /**
+     * Une écoute compte sur ton PC au bout de 30 secondes (ou de la moitié d'un morceau court), dans l'appli comme
+     * dans la voiture : « Plus écoutés » et « Récents » disent enfin où tu écoutes vraiment.
+     */
+    private suspend fun countPlays() {
+        val app = application as App
+        while (mainScope.isActive) {
+            delay(5000)
+            val p = session?.player ?: continue
+            if (!p.isPlaying) continue
+            val id = currentTrackId(p) ?: continue
+            if (id == counted) continue
+            val d = p.duration.takeIf { it > 0 } ?: continue
+            if (p.currentPosition < minOf(30_000L, d / 2)) continue
+            counted = id
+            scope.launch { runCatching { app.outbox.send("/api/tracks/$id/played") } }
+        }
+    }
+
+    /** Le morceau en cours, d'après les infos qui voyagent avec lui */
+    private fun currentTrackId(p: Player): Long? =
+        p.currentMediaItem?.mediaMetadata?.extras?.getString(TRACK_JSON)
+            ?.let { runCatching { JSONObject(it).getLong("id") }.getOrNull() }
 
     private lateinit var local: ExoPlayer
     private var remote: UpnpPlayer? = null
@@ -132,6 +163,11 @@ class PlaybackService : MediaLibraryService() {
         val shuffle = player.shuffleModeEnabled
         val repeat = player.repeatMode
         return listOf(
+            // Dans la voiture, un seul geste : un repère à cet instant, retrouvé sur la forme d'onde du PC.
+            CommandButton.Builder(CommandButton.ICON_BOOKMARK_UNFILLED)
+                .setDisplayName("Repère à cet instant")
+                .setSessionCommand(NOTE)
+                .build(),
             CommandButton.Builder(if (shuffle) CommandButton.ICON_SHUFFLE_ON else CommandButton.ICON_SHUFFLE_OFF)
                 .setDisplayName(if (shuffle) "Aléatoire activé" else "Aléatoire")
                 .setSessionCommand(SHUFFLE)
@@ -175,7 +211,7 @@ class PlaybackService : MediaLibraryService() {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult =
             MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                 .setAvailableSessionCommands(
-                    MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(SHUFFLE).add(REPEAT).build())
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon().add(SHUFFLE).add(REPEAT).add(NOTE).build())
                 .setCustomLayout(buttons(session.player))
                 .build()
 
@@ -183,6 +219,13 @@ class PlaybackService : MediaLibraryService() {
             session: MediaSession, controller: MediaSession.ControllerInfo, customCommand: SessionCommand, args: Bundle,
         ): ListenableFuture<SessionResult> {
             val p = session.player
+            if (customCommand.customAction == NOTE.customAction) {
+                val id = currentTrackId(p) ?: return immediate(SessionResult(SessionError.ERROR_BAD_VALUE))
+                val at = p.currentPosition / 1000.0
+                val body = JSONObject().put("time", at).put("label", "Repère (voiture)")
+                scope.launch { runCatching { app.outbox.send("/api/tracks/$id/markers", body) } }
+                return immediate(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
             when (customCommand.customAction) {
                 SHUFFLE.customAction -> p.shuffleModeEnabled = !p.shuffleModeEnabled
                 REPEAT.customAction -> p.repeatMode = when (p.repeatMode) {
@@ -311,3 +354,4 @@ private fun <T> immediate(v: T): ListenableFuture<T> = com.google.common.util.co
 
 private val SHUFFLE = SessionCommand("otoko.aleatoire", Bundle.EMPTY)
 private val REPEAT = SessionCommand("otoko.repetition", Bundle.EMPTY)
+private val NOTE = SessionCommand("otoko.repere", Bundle.EMPTY)

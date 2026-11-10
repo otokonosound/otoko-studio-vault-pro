@@ -45,7 +45,7 @@ fn track_cols() -> String {
     format!(
         "t.id, t.path, t.filename, t.title, t.artist, t.album, t.genre, t.year, t.duration_s, t.samplerate, t.channels, t.file_format,
          t.file_size, t.bitrate_kbps, t.bpm, t.music_key, t.lufs, t.status, t.role, t.parent_id, t.version_label, t.nature, t.mood_auto,
-         t.energy, t.added_at, t.last_played, t.play_count, t.published_at, t.sc_url, {PUB_DATE} AS published_date"
+         t.energy, t.added_at, t.last_played, t.play_count, t.published_at, t.sc_url, IFNULL(t.pick, 0) AS pick, {PUB_DATE} AS published_date"
     )
 }
 
@@ -137,6 +137,7 @@ pub fn track_json(r: &Row, releases: &HashMap<i64, Json>) -> Json {
         "added_at": r.get::<_, Option<String>>("added_at").ok().flatten(),
         "last_played": r.get::<_, Option<String>>("last_played").ok().flatten(),
         "play_count": i(r, "play_count").unwrap_or(0),
+        "pick": i(r, "pick").unwrap_or(0),
         "published_at": s(r, "published_at"),
         "published_date": s(r, "published_date"),
         "soundcloud": s(r, "sc_url"),

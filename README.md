@@ -11,7 +11,7 @@ Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 ## Ce qu'il fait
 
 - **Bibliothèque** : tempo, tonalité, loudness, énergie et ambiance détectés tout seuls ; recherche du genre `bpm:120-128 key:Am` ; tableau ou cartes ; vues gardées ; palette Ctrl+K pour tout trouver.
-- **Écoute** : waveform, marqueurs, boucle A-B, notes, file d'attente, comparaison de deux morceaux à volume égal, morceaux compatibles et roue de Camelot.
+- **Écoute** : waveform, marqueurs, boucle A-B, notes, file d'attente, comparaison de deux morceaux à volume égal, « Volume égal » pour toute l'écoute, tri des idées au clavier, morceaux compatibles et roue de Camelot.
 - **Outils** : renommer, réorganiser, trouver les doublons (Ctrl+Z annule), compléter genres et artistes, éditer en lot, exporter en CSV.
 - **Ton logiciel de musique, quel qu'il soit** : FL Studio, Ableton Live, Cubase, Reaper, Bitwig… Le projet de chaque morceau s'ouvre d'un clic, et le dossier où tu exportes est surveillé : chaque nouvel export rejoint son morceau, rangé comme version.
 - **Production** : un tableau de l'idée à la sortie, des statuts qui avancent tout seuls sur preuve, tes commandes et ton carnet de clients, un outil pour construire tes sets DJ, l'Atelier Suno pour tes prompts.
@@ -19,7 +19,7 @@ Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 - **Sorties** : la galerie, le compte à rebours, la prochaine étape et ce qui reste à faire, le planning, le contrôle avant publication, la discographie en PDF ou en page web.
 - **Publier** : un texte par plateforme (SoundCloud, Instagram, story), six tons, tes propres modèles. Tout reste hors ligne.
 - **Statistiques** : création, musique, avancement, parcours.
-- **Écouter partout** : ta bibliothèque sur ton téléphone et dans Android Auto, avec des morceaux gardés hors ligne.
+- **Écouter partout** : ta bibliothèque sur ton téléphone et dans Android Auto, avec des morceaux gardés hors ligne. En écoutant, tu gardes, rejettes, changes le statut et poses une note à l'instant précis : elle t'attend sur la forme d'onde du PC.
 - **Partager** : un lien privé pour faire écouter un morceau ou une sortie, avec mot de passe et date de fin si tu veux. La personne n'a rien à installer, et tu vois les écoutes.
 - **Rester tranquille** : ta musique reste chez toi. Rien ne part dans le cloud. Ta base est sauvegardée chaque jour, tu peux revenir à une date ou repartir de zéro.
 - **Le confort** : sombre ou clair, couleur d'accent, raccourcis modifiables, l'icône près de l'horloge (Ouvrir, Vérifier une mise à jour, Fermer le logiciel), mise à jour en un clic, travail depuis un autre PC.

@@ -6,6 +6,7 @@
 //! (`PUBLIC_PORT`, 127.0.0.1 seulement, que Funnel publie sur Internet).
 
 pub mod complements;
+pub mod edits;
 pub mod http;
 pub mod library;
 pub mod media;

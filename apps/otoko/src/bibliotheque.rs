@@ -93,6 +93,9 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     lib_on!(app, state, on_player_mark, |app, st, f| { crate::lecteur::add_marker(&app, st, f as f64); });
     lib_on!(app, state, on_player_unmark, |app, st, k| { crate::lecteur::remove_marker(&app, st, k.max(0) as usize); });
     lib_on!(app, state, on_player_switch, |app, st| { crate::lecteur::switch_ab(&app, st); });
+    lib_on!(app, state, on_player_volume_set, |app, st, v| { crate::lecteur::set_volume(&app, st, v); });
+    lib_on!(app, state, on_player_equal_toggle, |app, st| { crate::lecteur::toggle_equal(&app, st); });
+    watch_phone(app, state);
     crate::lecteur::wire(app, state);
 }
 
@@ -132,6 +135,8 @@ pub struct View {
     pub waves: HashMap<i64, Image>,
     /// Les pointes de ces ondes, lues d'un coup dans la base.
     pub peaks: HashMap<i64, Vec<u8>>,
+    /// L'horloge qui guette les changements faits depuis le téléphone.
+    pub phone_watch: Option<slint::Timer>,
     /// Les frappes du tempo tapé, et le tempo qu'elles donnent.
     pub taps: Vec<Instant>,
     pub tap_bpm: Option<f64>,
@@ -351,6 +356,45 @@ pub fn push_rows(app: &AppWindow, st: &mut State) {
 }
 
 /// Met à jour une seule ligne (après une modification), sans tout relire.
+/// Le téléphone a changé un morceau (gardé, statut, note) : sa ligne, ses détails et le lecteur se relisent, les autres
+/// pages se reliront à la prochaine visite. Le serveur le signale dans un réglage, lu toutes les 3 secondes.
+fn watch_phone(app: &AppWindow, state: &Rc<RefCell<State>>) {
+    let weak = app.as_weak();
+    let s = state.clone();
+    let last = std::cell::RefCell::new(None::<String>);
+    let timer = slint::Timer::default();
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(3), move || {
+        let Some(app) = weak.upgrade() else { return };
+        let Ok(mut st) = s.try_borrow_mut() else { return };
+        let Some(now) = st.career.as_ref().map(|c| c.setting(otoko_mobile::edits::STAMP).unwrap_or_default()) else { return };
+        let before = last.borrow_mut().replace(now.clone());
+        if before.is_none_or(|b| b == now) {
+            return;
+        }
+        let Some(id) = now.split(':').next().and_then(|i| i.parse::<i64>().ok()) else { return };
+        phone_changed(&app, &mut st, id);
+    });
+    state.borrow_mut().lib.phone_watch = Some(timer);
+}
+
+fn phone_changed(app: &AppWindow, st: &mut State, id: i64) {
+    st.pages_lues = [false; 8];
+    update_row(app, st, id);
+    if st.lib.details == Some(id) {
+        details(app, st);
+    }
+    if st.player.id == Some(id) {
+        if let Some(c) = st.career.as_ref() {
+            st.player.markers = lib::markers(c.conn(), id);
+        }
+        crate::lecteur::push(app, st);
+    }
+    let title = st.career.as_ref().and_then(|c| lib::row_by_id(c.conn(), id).ok().flatten()).map(|r| r.title).unwrap_or_default();
+    if !title.is_empty() {
+        app.set_message(format!("« {title} » modifié depuis le téléphone.").into());
+    }
+}
+
 fn update_row(app: &AppWindow, st: &mut State, id: i64) {
     let Some(c) = st.career.as_ref() else { return };
     let Some(fresh) = lib::row_by_id(c.conn(), id).ok().flatten() else { return };
@@ -811,6 +855,64 @@ pub fn open_view(app: &AppWindow, st: &mut State, label: &str, where_sql: &str) 
     app.global::<Lib>().set_table_scroll(0.0);
 }
 
+/// Le nom de la vue du tri des idées.
+pub const TRIAGE: &str = "Tri des idées";
+
+/// La bibliothèque est-elle sur le tri des idées ?
+pub fn in_triage(st: &State) -> bool {
+    st.lib.active == 1 && st.lib.extra.as_ref().is_some_and(|n| n.label == TRIAGE)
+}
+
+/// Le tri des idées : les idées jamais triées, chacune jouée sur son passage le plus chargé. P garde, X rejette,
+/// N passe : la suivante enchaîne aussitôt.
+pub fn triage(app: &AppWindow, st: &mut State) {
+    open_view(app, st, TRIAGE, otoko_library::career::home::UNTRIAGED);
+    let Some(first) = st.lib.rows.iter().position(|r| !r.missing) else {
+        app.set_message("Aucune idée à trier : elles sont toutes gardées ou rejetées.".into());
+        return;
+    };
+    row_clicked(app, st, first, false, false);
+    let id = st.lib.rows[first].id;
+    crate::lecteur::play_id(app, st, id, 0.0);
+    app.set_message(format!("Tri des idées ({} à écouter) : P garde, X rejette, N passe. Le morceau suivant démarre tout seul, sur son passage le plus fort.", st.lib.rows.len()).into());
+}
+
+/// Garder, rejeter ou passer un seul morceau mène au suivant (et le lance si celui-là jouait) : on trie au clavier.
+fn advance_after_pick(app: &AppWindow, st: &mut State, id: i64) {
+    let on = in_triage(st) || st.career.as_ref().is_none_or(|c| lib::flag(c.conn(), "pick_advance", true));
+    if !on {
+        return;
+    }
+    let Some(i) = st.lib.rows.iter().position(|r| r.id == id) else { return };
+    let Some(j) = st.lib.rows.iter().enumerate().skip(i + 1).find(|(_, r)| !r.missing).map(|(j, _)| j) else {
+        if in_triage(st) {
+            crate::lecteur::stop(app, st);
+            app.set_message("Tri des idées terminé. Les gardées sont dans « Gardés », les rejetées restent dans la bibliothèque.".into());
+        }
+        return;
+    };
+    let was_playing = st.player.id == Some(id);
+    row_clicked(app, st, j, false, false);
+    show_row(app, j);
+    if was_playing {
+        let next = st.lib.rows[j].id;
+        crate::lecteur::play_id(app, st, next, 0.0);
+    }
+}
+
+/// Fait défiler le tableau pour que la ligne `i` soit à l'écran.
+fn show_row(app: &AppWindow, i: usize) {
+    let g = app.global::<Lib>();
+    let row_h = g.get_row_h().max(1.0);
+    let (top, h) = (-g.get_table_scroll(), g.get_table_view_h());
+    let y = i as f32 * row_h;
+    if y < top {
+        g.set_table_scroll(-y);
+    } else if y + row_h > top + h {
+        g.set_table_scroll(-(y + row_h - h));
+    }
+}
+
 /// Montre un morceau dans la bibliothèque : tous les morceaux, lui sélectionné, ses détails ouverts.
 pub fn reveal(app: &AppWindow, st: &mut State, id: i64) {
     st.lib.extra = None;
@@ -964,6 +1066,9 @@ pub fn action(app: &AppWindow, st: &mut State, what: &str) {
             for id in &ids {
                 update_row(app, st, *id);
             }
+            if let [id] = ids[..] {
+                advance_after_pick(app, st, id);
+            }
         }
         "archive" => {
             let archive = !st.lib.rows.iter().filter(|r| ids.contains(&r.id)).all(|r| r.archived);
@@ -1042,13 +1147,7 @@ pub fn key(app: &AppWindow, st: &mut State, k: &str) {
                 _ => return,
             };
             row_clicked(app, st, next, false, false);
-            let (top, h) = (-g.get_table_scroll(), g.get_table_view_h());
-            let y = next as f32 * row_h;
-            if y < top {
-                g.set_table_scroll(-y);
-            } else if y + row_h > top + h {
-                g.set_table_scroll(-(y + row_h - h));
-            }
+            show_row(app, next);
         }
     }
 }
