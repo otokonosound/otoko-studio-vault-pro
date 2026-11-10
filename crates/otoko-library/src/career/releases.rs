@@ -6,13 +6,18 @@ use std::path::Path;
 use chrono::NaiveDate;
 use rusqlite::{Connection, params};
 
-use super::{STEPS, nature, release_label};
+use super::{nature, platforms_label, platforms_of, release_label, steps_for};
 
-/// Étape → jours avant la sortie (repères pour SoundCloud).
-pub const OFFSETS: [(&str, i64); 7] = [("master", 21), ("pochette", 14), ("infos", 10), ("controle", 7), ("textes", 3), ("soundcloud", 1), ("promo", 0)];
+/// Étape → jours avant la sortie, pour une sortie mise en ligne par soi-même (SoundCloud, Bandcamp, YouTube).
+pub const OFFSETS: [(&str, i64); 9] =
+    [("master", 21), ("pochette", 14), ("infos", 10), ("controle", 7), ("textes", 3), ("soundcloud", 1), ("bandcamp", 1), ("youtube", 1), ("promo", 0)];
+/// Les mêmes, quand la sortie passe aussi par un distributeur : il lui faut tout (master, pochette, infos) environ trois
+/// semaines avant, le temps de livrer les plateformes et de proposer le morceau aux playlists.
+pub const OFFSETS_STREAMING: [(&str, i64); 5] = [("master", 35), ("pochette", 30), ("infos", 28), ("controle", 25), ("distrib", 21)];
 
-fn offset(key: &str) -> i64 {
-    OFFSETS.iter().find(|o| o.0 == key).map(|o| o.1).unwrap_or(0)
+fn offset(key: &str, streaming: bool) -> i64 {
+    let early = if streaming { OFFSETS_STREAMING.iter().find(|o| o.0 == key) } else { None };
+    early.or_else(|| OFFSETS.iter().find(|o| o.0 == key)).map(|o| o.1).unwrap_or(0)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -41,19 +46,21 @@ pub fn today() -> NaiveDate {
 
 /// Les sorties datées, chaque étape avec sa date conseillée.
 pub fn planning(conn: &Connection, today: NaiveDate) -> Vec<Planned> {
-    let rows: Vec<(i64, String, String, String, String)> = conn
-        .prepare("SELECT id, title, IFNULL(rtype, ''), IFNULL(release_date, ''), IFNULL(steps, '{}') FROM releases WHERE release_date <> '' ORDER BY release_date")
-        .and_then(|mut s| s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?.collect())
+    let rows: Vec<(i64, String, String, String, String, String)> = conn
+        .prepare("SELECT id, title, IFNULL(rtype, ''), IFNULL(release_date, ''), IFNULL(steps, '{}'), IFNULL(extra, '{}') FROM releases WHERE release_date <> '' ORDER BY release_date")
+        .and_then(|mut s| s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))?.collect())
         .unwrap_or_default();
     rows.into_iter()
-        .filter_map(|(id, title, kind, date, steps)| {
+        .filter_map(|(id, title, kind, date, steps, extra): (i64, String, String, String, String, String)| {
             let d = NaiveDate::parse_from_str(date.get(..10)?, "%Y-%m-%d").ok()?;
             let done = nature::load_meta(&steps);
-            let steps: Vec<Step> = STEPS
-                .iter()
+            let platforms = platforms_of(&nature::load_meta(&extra));
+            let streaming = platforms.iter().any(|p| p == "streaming");
+            let steps: Vec<Step> = steps_for(&platforms)
+                .into_iter()
                 .map(|(key, label)| {
-                    let due = d - chrono::Days::new(offset(key) as u64);
-                    let ok = done[*key].as_bool().unwrap_or(false);
+                    let due = d - chrono::Days::new(offset(key, streaming) as u64);
+                    let ok = done[key].as_bool().unwrap_or(false);
                     Step { key, label, done: ok, due, late: !ok && due < today }
                 })
                 .collect();
@@ -70,9 +77,12 @@ pub fn step_label(key: &str) -> &'static str {
         "pochette" => "Pochette prête",
         "infos" => "Titres, crédits et description",
         "controle" => "Contrôle avant publication",
+        "distrib" => "Envoyé au distributeur",
         "soundcloud" => "Mis en ligne sur SoundCloud",
+        "bandcamp" => "Mis en ligne sur Bandcamp",
+        "youtube" => "Mis en ligne sur YouTube",
         "textes" => "Textes de publication écrits",
-        "promo" => "Annoncé sur Instagram",
+        "promo" => "Annoncé sur les réseaux",
         _ => "",
     }
 }
@@ -238,7 +248,8 @@ pub fn sync_apply(conn: &Connection, actions: &[SyncAction]) -> rusqlite::Result
         let rid = match a.release_id {
             Some(r) => r,
             None => {
-                tx.execute("INSERT INTO releases (title, rtype) VALUES (?1, ?2)", params![a.title, a.rtype])?;
+                let extra = serde_json::json!({ "platforms": default_platforms(&tx) }).to_string();
+                tx.execute("INSERT INTO releases (title, rtype, extra) VALUES (?1, ?2, ?3)", params![a.title, a.rtype, extra])?;
                 tx.last_insert_rowid()
             }
         };
@@ -349,22 +360,22 @@ pub struct GalleryItem {
 
 pub fn gallery(conn: &Connection) -> Vec<GalleryItem> {
     conn.prepare(
-        "SELECT r.id, r.title, IFNULL(r.rtype, ''), IFNULL(r.release_date, ''), IFNULL(r.steps, '{}'), IFNULL(r.cover_path, ''), COUNT(rt.track_id)
+        "SELECT r.id, r.title, IFNULL(r.rtype, ''), IFNULL(r.release_date, ''), IFNULL(r.steps, '{}'), IFNULL(r.cover_path, ''), COUNT(rt.track_id), IFNULL(r.extra, '{}')
          FROM releases r LEFT JOIN release_tracks rt ON rt.release_id = r.id GROUP BY r.id
          ORDER BY (IFNULL(r.release_date, '') = ''), r.release_date DESC, r.title",
     )
     .and_then(|mut s| {
         s.query_map([], |r| {
             let date: String = r.get(3)?;
-            let steps = nature::load_meta(&r.get::<_, String>(4)?);
+            let (done, total) = super::steps_count(&r.get::<_, String>(4)?, &r.get::<_, String>(7)?);
             let n: i64 = r.get(6)?;
             let when = fr_date(&date);
             Ok(GalleryItem {
                 id: r.get(0)?,
                 title: r.get(1)?,
                 sub: format!("{} · {n} titre(s){}", release_label(&r.get::<_, String>(2)?), if when.is_empty() { String::new() } else { format!(" · {when}") }),
-                done: STEPS.iter().filter(|(k, _)| steps[*k].as_bool().unwrap_or(false)).count(),
-                total: STEPS.len(),
+                done,
+                total,
                 cover_path: r.get(5)?,
             })
         })?
@@ -386,20 +397,54 @@ pub struct Sheet {
     pub credits: String,
     pub description: String,
     pub notes: String,
-    /// Les étapes faites (clés de `STEPS`).
+    /// Les étapes faites (clés de `ALL_STEPS`, parmi celles de ses plateformes).
     pub steps: Vec<String>,
     /// Les morceaux, dans l'ordre.
     pub tracks: Vec<i64>,
+    /// Où elle sort (clés de `PLATFORMS`).
+    pub platforms: Vec<String>,
+    /// Pour le distributeur : le code-barres (UPC/EAN), le label, la langue des paroles, contenu explicite.
+    pub upc: String,
+    pub label: String,
+    pub language: String,
+    pub explicit: bool,
+    /// Le reste du JSON `extra`, gardé tel quel.
+    pub extra: serde_json::Value,
+}
+
+impl Sheet {
+    pub fn streaming(&self) -> bool {
+        self.platforms.iter().any(|p| p == "streaming")
+    }
+
+    pub fn on(&self, platform: &str) -> bool {
+        self.platforms.iter().any(|p| p == platform)
+    }
+}
+
+/// Les plateformes proposées pour une nouvelle sortie (réglage partagé `release_platforms`, sinon SoundCloud).
+pub fn default_platforms(conn: &Connection) -> Vec<String> {
+    let raw: String = conn.query_row("SELECT value FROM settings WHERE key = 'release_platforms'", [], |r| r.get(0)).unwrap_or_default();
+    let list: Vec<String> = super::PLATFORMS.iter().map(|p| p.0).filter(|k| raw.split(',').any(|x| x.trim() == *k)).map(String::from).collect();
+    if list.is_empty() { vec!["soundcloud".into()] } else { list }
+}
+
+pub fn set_default_platforms(conn: &Connection, platforms: &[String]) -> rusqlite::Result<()> {
+    conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('release_platforms', ?1)", [platforms.join(",")])?;
+    Ok(())
 }
 
 pub fn load(conn: &Connection, id: i64) -> Option<Sheet> {
     let mut s = conn
         .query_row(
             "SELECT id, title, IFNULL(rtype, 'single'), IFNULL(release_date, ''), IFNULL(sc_link, ''), IFNULL(cover_path, ''), IFNULL(credits, ''),
-                    IFNULL(description, ''), IFNULL(notes, ''), IFNULL(steps, '{}') FROM releases WHERE id = ?1",
+                    IFNULL(description, ''), IFNULL(notes, ''), IFNULL(steps, '{}'), IFNULL(extra, '{}') FROM releases WHERE id = ?1",
             [id],
             |r| {
                 let steps = nature::load_meta(&r.get::<_, String>(9)?);
+                let extra = nature::load_meta(&r.get::<_, String>(10)?);
+                let platforms = platforms_of(&extra);
+                let text = |k: &str| extra[k].as_str().unwrap_or("").to_string();
                 Ok(Sheet {
                     id: r.get(0)?,
                     title: r.get(1)?,
@@ -410,8 +455,14 @@ pub fn load(conn: &Connection, id: i64) -> Option<Sheet> {
                     credits: r.get(6)?,
                     description: r.get(7)?,
                     notes: r.get(8)?,
-                    steps: STEPS.iter().filter(|(k, _)| steps[*k].as_bool().unwrap_or(false)).map(|(k, _)| k.to_string()).collect(),
+                    steps: steps_for(&platforms).iter().filter(|(k, _)| steps[*k].as_bool().unwrap_or(false)).map(|(k, _)| k.to_string()).collect(),
                     tracks: Vec::new(),
+                    upc: text("upc"),
+                    label: text("label"),
+                    language: text("language"),
+                    explicit: extra["explicit"].as_bool().unwrap_or(false),
+                    platforms,
+                    extra,
                 })
             },
         )
@@ -425,13 +476,34 @@ pub fn load(conn: &Connection, id: i64) -> Option<Sheet> {
 
 /// Enregistre la fiche (et l'ordre de ses morceaux).
 pub fn save(conn: &Connection, s: &Sheet) -> rusqlite::Result<()> {
-    let steps: serde_json::Map<String, serde_json::Value> = STEPS.iter().map(|(k, _)| (k.to_string(), serde_json::Value::Bool(s.steps.iter().any(|x| x == k)))).collect();
+    // Toutes les étapes connues sont écrites : une plateforme retirée puis remise retrouve ce qui était coché.
+    let steps: serde_json::Map<String, serde_json::Value> =
+        super::ALL_STEPS.iter().map(|(k, _)| (k.to_string(), serde_json::Value::Bool(s.steps.iter().any(|x| x == k)))).collect();
+    let mut extra = if s.extra.is_object() { s.extra.clone() } else { serde_json::json!({}) };
+    extra["platforms"] = serde_json::json!(s.platforms);
+    extra["upc"] = serde_json::json!(s.upc.trim());
+    extra["label"] = serde_json::json!(s.label.trim());
+    extra["language"] = serde_json::json!(s.language.trim());
+    extra["explicit"] = serde_json::json!(s.explicit);
     let title = if s.title.trim().is_empty() { "Sans titre" } else { s.title.trim() };
     let tx = conn.unchecked_transaction()?;
     tx.execute(
-        "UPDATE releases SET title = ?2, rtype = ?3, release_date = ?4, cover_path = ?5, credits = ?6, description = ?7, sc_link = ?8, notes = ?9, steps = ?10
+        "UPDATE releases SET title = ?2, rtype = ?3, release_date = ?4, cover_path = ?5, credits = ?6, description = ?7, sc_link = ?8, notes = ?9, steps = ?10,
+                extra = ?11
          WHERE id = ?1",
-        params![s.id, title, s.rtype, s.date, s.cover_path, s.credits.trim(), s.description.trim(), s.sc_link.trim(), s.notes.trim(), serde_json::Value::Object(steps).to_string()],
+        params![
+            s.id,
+            title,
+            s.rtype,
+            s.date,
+            s.cover_path,
+            s.credits.trim(),
+            s.description.trim(),
+            s.sc_link.trim(),
+            s.notes.trim(),
+            serde_json::Value::Object(steps).to_string(),
+            extra.to_string()
+        ],
     )?;
     tx.execute("DELETE FROM release_tracks WHERE release_id = ?1", [s.id])?;
     for (pos, tid) in s.tracks.iter().enumerate() {
@@ -442,7 +514,8 @@ pub fn save(conn: &Connection, s: &Sheet) -> rusqlite::Result<()> {
 
 /// Une nouvelle sortie (type deviné d'après le nombre de morceaux), avec ces morceaux.
 pub fn create(conn: &Connection, title: &str, track_ids: &[i64]) -> rusqlite::Result<i64> {
-    conn.execute("INSERT INTO releases (title, rtype) VALUES (?1, ?2)", params![title.trim(), guess_type(track_ids.len(), "")])?;
+    let extra = serde_json::json!({ "platforms": default_platforms(conn) }).to_string();
+    conn.execute("INSERT INTO releases (title, rtype, extra) VALUES (?1, ?2, ?3)", params![title.trim(), guess_type(track_ids.len(), ""), extra])?;
     let id = conn.last_insert_rowid();
     add_tracks(conn, id, track_ids)?;
     Ok(id)
@@ -570,19 +643,38 @@ pub fn export_text(conn: &Connection, s: &Sheet) -> String {
     if !s.date.is_empty() {
         lines.push(format!("Date de sortie : {}", fr_date(&s.date)));
     }
+    lines.push(format!("Plateformes : {}", platforms_label(&s.platforms)));
     if !s.sc_link.trim().is_empty() {
         lines.push(format!("SoundCloud : {}", s.sc_link.trim()));
     }
     if !s.cover_path.is_empty() {
         lines.push(format!("Pochette : {}", s.cover_path));
     }
+    for (name, v) in [("UPC / EAN", s.upc.trim()), ("Label", s.label.trim()), ("Langue", s.language.trim())] {
+        if !v.is_empty() {
+            lines.push(format!("{name} : {v}"));
+        }
+    }
+    if s.explicit {
+        lines.push("Contenu explicite : oui".into());
+    }
     lines.push(String::new());
     lines.push("Morceaux :".into());
     for (n, id) in s.tracks.iter().enumerate() {
-        let Ok((title, path, dur, bpm, key, lufs)) = conn.query_row(
-            "SELECT COALESCE(NULLIF(title, ''), filename), path, duration_s, bpm, IFNULL(music_key, ''), lufs FROM tracks WHERE id = ?1",
+        let Ok((title, path, dur, bpm, key, lufs, isrc)) = conn.query_row(
+            "SELECT COALESCE(NULLIF(title, ''), filename), path, duration_s, bpm, IFNULL(music_key, ''), lufs, IFNULL(isrc, '') FROM tracks WHERE id = ?1",
             [id],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<f64>>(2)?, r.get::<_, Option<f64>>(3)?, r.get::<_, String>(4)?, r.get::<_, Option<f64>>(5)?)),
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<f64>>(2)?,
+                    r.get::<_, Option<f64>>(3)?,
+                    r.get::<_, String>(4)?,
+                    r.get::<_, Option<f64>>(5)?,
+                    r.get::<_, String>(6)?,
+                ))
+            },
         ) else {
             continue;
         };
@@ -600,6 +692,9 @@ pub fn export_text(conn: &Connection, s: &Sheet) -> String {
         if let Some(l) = lufs {
             bits.push(format!("{l:.1} LUFS"));
         }
+        if !isrc.is_empty() {
+            bits.push(format!("ISRC {isrc}"));
+        }
         lines.push(format!("  {:02}. {title}  ({})", n + 1, bits.join(", ")));
         lines.push(format!("      {path}"));
     }
@@ -612,11 +707,199 @@ pub fn export_text(conn: &Connection, s: &Sheet) -> String {
     lines.join("\n") + "\n"
 }
 
+/// Un ISRC écrit proprement (« FR-ABC-26-00001 » → « FRABC2600001 »), ou rien s'il n'en est pas un : deux lettres
+/// (le pays), trois caractères, deux chiffres (l'année), cinq chiffres.
+pub fn isrc_clean(raw: &str) -> Option<String> {
+    let s: String = raw.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>().to_ascii_uppercase();
+    let b = s.as_bytes();
+    let ok = b.len() == 12 && b[..2].iter().all(u8::is_ascii_alphabetic) && b[2..5].iter().all(u8::is_ascii_alphanumeric) && b[5..].iter().all(u8::is_ascii_digit);
+    ok.then_some(s)
+}
+
+/// Écrit l'ISRC d'un morceau (vide l'efface). Rend ce qui est gardé, ou pourquoi c'est refusé.
+pub fn set_isrc(conn: &Connection, track: i64, raw: &str) -> Result<String, String> {
+    let v = if raw.trim().is_empty() { String::new() } else { isrc_clean(raw).ok_or("ISRC invalide : 12 caractères, comme FR-ABC-26-00001.")? };
+    conn.execute("UPDATE tracks SET isrc = ?2, modified_at = datetime('now') WHERE id = ?1", params![track, v]).map_err(|e| e.to_string())?;
+    Ok(v)
+}
+
+/// Un code-barres de sortie (UPC à 12 chiffres, EAN à 13), espaces retirés.
+pub fn upc_clean(raw: &str) -> Option<String> {
+    let s: String = raw.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
+    (matches!(s.len(), 12 | 13) && s.bytes().all(|b| b.is_ascii_digit())).then_some(s)
+}
+
+/// Ce que `delivery` a préparé.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Delivery {
+    pub dir: std::path::PathBuf,
+    /// Les fichiers audio copiés.
+    pub copied: usize,
+    /// Ce qui n'a pas pu être copié (titre ou pochette).
+    pub missing: Vec<String>,
+}
+
+/// Le fichier à envoyer pour ce morceau : son master le plus récent s'il en a un (et qu'il est là), sinon lui-même.
+fn delivered_file(conn: &Connection, id: i64) -> Option<String> {
+    conn.query_row(
+        "SELECT path FROM tracks WHERE parent_id = ?1 AND version_label = 'master' AND IFNULL(missing, 0) = 0 ORDER BY id DESC LIMIT 1",
+        [id],
+        |r| r.get::<_, String>(0),
+    )
+    .ok()
+    .filter(|p| Path::new(p).is_file())
+    .or_else(|| conn.query_row("SELECT path FROM tracks WHERE id = ?1", [id], |r| r.get::<_, String>(0)).ok())
+}
+
+fn file_name(s: &str) -> String {
+    let t: String = s.trim().chars().map(|ch| if r#"\/:*?"<>|"#.contains(ch) || ch.is_control() { '_' } else { ch }).collect();
+    let t = t.trim_end_matches(['.', ' ']).to_string();
+    if t.is_empty() { "sans titre".into() } else { t }
+}
+
+/// Un champ de tableur : entre guillemets s'il contient un séparateur, un guillemet ou un retour.
+fn csv_field(s: &str) -> String {
+    if s.contains([';', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() }
+}
+
+/// Prépare le dossier à envoyer au distributeur (ou à garder) : les morceaux numérotés dans l'ordre de la sortie (le
+/// master quand il existe), la pochette, un tableau des infos (Excel, LibreOffice) et la fiche en texte. Un dossier déjà
+/// là n'est pas écrasé : le nouveau prend un numéro.
+pub fn delivery(conn: &Connection, s: &Sheet, dir: &Path) -> Result<Delivery, String> {
+    let mut target = dir.to_path_buf();
+    let mut n = 2;
+    while target.exists() {
+        target = std::path::PathBuf::from(format!("{} {n}", dir.display()));
+        n += 1;
+    }
+    std::fs::create_dir_all(&target).map_err(|e| format!("{} : {e}", target.display()))?;
+    let artist = artist_name(conn);
+    let mut out = Delivery { dir: target.clone(), ..Default::default() };
+    let mut rows = vec!["Piste;Titre;Artiste;Genre;Durée;ISRC;Langue;Explicite;Fichier".to_string()];
+    for (i, id) in s.tracks.iter().enumerate() {
+        let Ok((title, track_artist, genre, dur, isrc)) = conn.query_row(
+            "SELECT COALESCE(NULLIF(title, ''), filename), IFNULL(artist, ''), IFNULL(genre, ''), duration_s, IFNULL(isrc, '') FROM tracks WHERE id = ?1",
+            [id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, Option<f64>>(3)?, r.get::<_, String>(4)?)),
+        ) else {
+            continue;
+        };
+        let title = match title.rsplit_once('.') {
+            Some((stem, ext)) if super::scan::AUDIO_EXTENSIONS.contains(&ext.to_lowercase().as_str()) => stem.to_string(),
+            _ => title,
+        };
+        let src = delivered_file(conn, *id).unwrap_or_default();
+        let ext = Path::new(&src).extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_else(|| "wav".into());
+        let name = format!("{:02} - {}.{ext}", i + 1, file_name(&title));
+        if !src.is_empty() && Path::new(&src).is_file() && std::fs::copy(&src, target.join(&name)).is_ok() {
+            out.copied += 1;
+        } else {
+            out.missing.push(title.clone());
+        }
+        let duration = dur.map(|d| d.round() as i64).map(|d| format!("{}:{:02}", d / 60, d % 60)).unwrap_or_default();
+        let who = if track_artist.trim().is_empty() { artist.clone() } else { track_artist };
+        let explicit = if s.explicit { "oui" } else { "non" };
+        let cells = [format!("{}", i + 1), title, who, genre, duration, isrc, s.language.trim().to_string(), explicit.to_string(), name];
+        rows.push(cells.iter().map(|c| csv_field(c)).collect::<Vec<_>>().join(";"));
+    }
+    if !s.cover_path.trim().is_empty() {
+        let cover = Path::new(s.cover_path.trim());
+        let ext = cover.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_else(|| "jpg".into());
+        if !(cover.is_file() && std::fs::copy(cover, target.join(format!("Pochette.{ext}"))).is_ok()) {
+            out.missing.push("la pochette".into());
+        }
+    }
+    // Un BOM pour qu'Excel lise les accents, des fins de ligne Windows.
+    let csv = format!("\u{feff}{}\r\n", rows.join("\r\n"));
+    std::fs::write(target.join("Infos.csv"), csv).map_err(|e| e.to_string())?;
+    std::fs::write(target.join("Fiche.txt"), export_text(conn, s).replace('\n', "\r\n")).map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Le texte d'un champ d'agenda (virgules, points-virgules et retours échappés).
+fn ics_text(s: &str) -> String {
+    s.replace('\\', "\\\\").replace(';', "\\;").replace(',', "\\,").replace('\n', "\\n")
+}
+
+/// Les rappels à mettre dans un agenda (Google Agenda, Outlook, Calendrier d'Apple ou du téléphone) : chaque sortie
+/// à venir, chaque étape qui reste avec sa date conseillée, et les échéances des commandes de clients. Un rappel le jour
+/// même à 9 h. Les identifiants sont stables : réimporter le fichier met à jour au lieu de doubler.
+pub fn agenda_ics(conn: &Connection, today: NaiveDate) -> String {
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let mut out = vec!["BEGIN:VCALENDAR".to_string(), "VERSION:2.0".into(), "PRODID:-//OTOKO//Studio Vault Pro//FR".into(), "CALSCALE:GREGORIAN".into(), "X-WR-CALNAME:OTOKO".into()];
+    let mut event = |uid: String, day: NaiveDate, summary: String, desc: String| {
+        let next = day + chrono::Days::new(1);
+        out.extend([
+            "BEGIN:VEVENT".to_string(),
+            format!("UID:{uid}@otoko"),
+            format!("DTSTAMP:{stamp}"),
+            format!("DTSTART;VALUE=DATE:{}", day.format("%Y%m%d")),
+            format!("DTEND;VALUE=DATE:{}", next.format("%Y%m%d")),
+            format!("SUMMARY:{}", ics_text(&summary)),
+            format!("DESCRIPTION:{}", ics_text(&desc)),
+            "TRANSP:TRANSPARENT".into(),
+            "BEGIN:VALARM".into(),
+            "ACTION:DISPLAY".into(),
+            format!("DESCRIPTION:{}", ics_text(&summary)),
+            "TRIGGER:PT9H".into(),
+            "END:VALARM".into(),
+            "END:VEVENT".into(),
+        ]);
+    };
+    for rel in planning(conn, today).into_iter().filter(|r| r.days >= 0) {
+        event(format!("sortie-{}", rel.id), rel.date, format!("Sortie : {}", rel.title), format!("{} sort aujourd'hui.", rel.title));
+        for st in rel.steps.iter().filter(|s| !s.done) {
+            // Une étape en retard est rappelée aujourd'hui plutôt qu'à une date passée.
+            let day = st.due.max(today);
+            event(format!("sortie-{}-{}", rel.id, st.key), day, format!("{} : {}", rel.title, step_label(st.key).to_lowercase()), format!("Pour la sortie du {}.", rel.date.format("%d/%m/%Y")));
+        }
+    }
+    let orders: Vec<(i64, String, String)> = conn
+        .prepare("SELECT id, COALESCE(NULLIF(title, ''), filename), IFNULL(nature_meta, '{}') FROM tracks WHERE nature = 'prod' AND IFNULL(archived, 0) = 0")
+        .and_then(|mut s| s.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect())
+        .unwrap_or_default();
+    for (id, title, meta) in orders {
+        let m = nature::load_meta(&meta);
+        let open = !["delivered", "paid"].contains(&m["order_status"].as_str().unwrap_or(""));
+        let Some(day) = m["deadline"].as_str().and_then(|d| NaiveDate::parse_from_str(d.get(..10)?, "%Y-%m-%d").ok()) else { continue };
+        if open && day >= today {
+            let who = m["commissioned_by"].as_str().filter(|c| !c.is_empty()).map(|c| format!(" pour {c}")).unwrap_or_default();
+            event(format!("commande-{id}"), day, format!("À livrer : {title}{who}"), "Échéance de la commande (fiche projet).".into());
+        }
+    }
+    out.push("END:VCALENDAR".into());
+    // Les lignes d'un agenda finissent par CRLF, et se replient au-delà de 75 octets.
+    out.iter().map(|l| fold(l)).collect::<Vec<_>>().join("\r\n") + "\r\n"
+}
+
+fn fold(line: &str) -> String {
+    let mut out = String::new();
+    let mut len = 0;
+    for c in line.chars() {
+        if len + c.len_utf8() > 74 {
+            out.push_str("\r\n ");
+            len = 1;
+        }
+        out.push(c);
+        len += c.len_utf8();
+    }
+    out
+}
+
 pub const QC_NAMES: [&str; 6] = ["Format", "Niveau", "Crêtes", "Saturation", "Silences", "Infos"];
 
-/// Contrôle avant publication sur SoundCloud (comme `ui/qc_dialog.py`) : (contrôle, niveau
-/// « ok », « attention », « problème » ou « — », explication).
+/// Contrôle avant publication sur SoundCloud (comme `ui/qc_dialog.py`) : voir `qc_on`.
 pub fn qc(conn: &Connection, id: i64) -> Vec<(&'static str, &'static str, String)> {
+    qc_on(conn, id, &["soundcloud".to_string()])
+}
+
+/// Contrôle avant publication sur ces plateformes : (contrôle, niveau « ok », « attention », « problème » ou « — »,
+/// explication). Le streaming (par un distributeur) et YouTube ramènent le volume vers -14 LUFS ; SoundCloud et Bandcamp
+/// le laissent tel quel ; un distributeur refuse un fichier compressé.
+pub fn qc_on(conn: &Connection, id: i64, platforms: &[String]) -> Vec<(&'static str, &'static str, String)> {
+    let streaming = platforms.iter().any(|p| p == "streaming");
+    let leveled = streaming || platforms.iter().any(|p| p == "youtube");
+    let names = platforms_label(platforms);
     let row = conn.query_row(
         "SELECT LOWER(IFNULL(file_format, '')), samplerate, analyzed_at IS NOT NULL, lufs, true_peak, clip_ratio, silence_start, silence_end,
                 IFNULL(title, ''), IFNULL(artist, ''), IFNULL(genre, ''), IFNULL(NULLIF(nature, ''), 'original'), IFNULL(nature_meta, '{}'),
@@ -646,12 +929,19 @@ pub fn qc(conn: &Connection, id: i64) -> Vec<(&'static str, &'static str, String
     let sr = sr.unwrap_or(0);
     if ["wav", "flac", "aiff", "aif"].contains(&fmt.as_str()) {
         if sr > 48000 {
-            out.push(("Format", warn, format!("{} en {} kHz : SoundCloud accepte, mais 44,1 ou 48 kHz suffisent et l'envoi sera plus rapide.", fmt.to_uppercase(), sr as f64 / 1000.0)));
+            let who = if streaming { "vérifie ce que ton distributeur accepte (souvent 44,1 kHz minimum, parfois 96 kHz au plus)" } else { "44,1 ou 48 kHz suffisent et l'envoi sera plus rapide" };
+            out.push(("Format", warn, format!("{} en {} kHz : {who}.", fmt.to_uppercase(), sr as f64 / 1000.0)));
+        } else if streaming {
+            out.push(("Format", ok, format!("{} sans perte : ce que demandent les distributeurs.", fmt.to_uppercase())));
         } else {
-            out.push(("Format", ok, format!("{} sans perte : idéal pour SoundCloud, qui fera sa propre conversion.", fmt.to_uppercase())));
+            out.push(("Format", ok, format!("{} sans perte : idéal pour {names}, qui fera sa propre conversion.", fmt.to_uppercase())));
         }
     } else if ["mp3", "m4a", "aac", "ogg", "opus"].contains(&fmt.as_str()) {
-        out.push(("Format", warn, format!("{} est déjà compressé : SoundCloud va le recompresser. Envoie plutôt un WAV ou un FLAC.", fmt.to_uppercase())));
+        if streaming {
+            out.push(("Format", bad, format!("{} est compressé : les distributeurs le refusent. Envoie le WAV ou le FLAC.", fmt.to_uppercase())));
+        } else {
+            out.push(("Format", warn, format!("{} est déjà compressé : {names} va le recompresser. Envoie plutôt un WAV ou un FLAC.", fmt.to_uppercase())));
+        }
     } else {
         out.push(("Format", warn, format!("Format « {} » : préfère un WAV ou un FLAC.", if fmt.is_empty() { "?" } else { &fmt })));
     }
@@ -662,13 +952,18 @@ pub fn qc(conn: &Connection, id: i64) -> Vec<(&'static str, &'static str, String
     } else {
         out.push(match lufs {
             None => ("Niveau", na, "Niveau sonore non mesuré.".into()),
-            Some(l) if l > -6.0 => ("Niveau", warn, format!("{l:.1} LUFS : très fort. SoundCloud ne baisse pas le volume, mais un master aussi compressé fatigue l'oreille et sature plus facilement.")),
-            Some(l) if l < -16.0 => ("Niveau", warn, format!("{l:.1} LUFS : nettement plus bas que la plupart des morceaux sur SoundCloud, qui ne remonte pas le volume.")),
-            Some(l) => ("Niveau", ok, format!("{l:.1} LUFS : dans la zone habituelle sur SoundCloud (repère : -14 à -8).")),
+            // Spotify, Apple Music, Deezer, Tidal et YouTube ramènent tout vers -14 LUFS environ.
+            Some(l) if leveled && l > -7.0 => ("Niveau", warn, format!("{l:.1} LUFS : très fort. Les plateformes de streaming vont le baisser d'environ {:.0} dB : la compression en plus n'apporte rien, et elle s'entend.", l + 14.0)),
+            Some(l) if leveled && l > -14.0 => ("Niveau", ok, format!("{l:.1} LUFS : les plateformes de streaming le baisseront d'environ {:.0} dB, comme la plupart des morceaux.", l + 14.0)),
+            Some(l) if leveled && l < -16.0 => ("Niveau", warn, format!("{l:.1} LUFS : plus bas que -14. Spotify ne le remonte que s'il a de la marge, Apple Music et YouTube jamais : il paraîtra plus faible.")),
+            Some(l) if leveled => ("Niveau", ok, format!("{l:.1} LUFS : pile dans la cible du streaming (-14 LUFS), il ne sera presque pas touché.")),
+            Some(l) if l > -6.0 => ("Niveau", warn, format!("{l:.1} LUFS : très fort. {names} ne baisse pas le volume, mais un master aussi compressé fatigue l'oreille et sature plus facilement.")),
+            Some(l) if l < -16.0 => ("Niveau", warn, format!("{l:.1} LUFS : nettement plus bas que la plupart des morceaux sur {names}, qui ne remonte pas le volume.")),
+            Some(l) => ("Niveau", ok, format!("{l:.1} LUFS : dans la zone habituelle sur {names} (repère : -14 à -8).")),
         });
         out.push(match tp {
             None => ("Crêtes", na, "Crête non mesurée.".into()),
-            Some(t) if t > 0.0 => ("Crêtes", bad, format!("Crête à {t:+.1} dB : au-dessus de 0. La conversion de SoundCloud va produire de la distorsion. Vise -1 dB maximum.")),
+            Some(t) if t > 0.0 => ("Crêtes", bad, format!("Crête à {t:+.1} dB : au-dessus de 0. La conversion des plateformes va produire de la distorsion. Vise -1 dB maximum.")),
             Some(t) if t > -1.0 => ("Crêtes", warn, format!("Crête à {t:+.1} dB : un peu haute. Après conversion, de petites saturations sont possibles. Vise -1 dB maximum.")),
             Some(t) => ("Crêtes", ok, format!("Crête à {t:+.1} dB : marge suffisante.")),
         });
@@ -693,7 +988,7 @@ pub fn qc(conn: &Connection, id: i64) -> Vec<(&'static str, &'static str, String
     out.push(if missing.is_empty() {
         ("Infos", ok, "Titre, artiste et genre renseignés.".into())
     } else {
-        ("Infos", warn, format!("Manque : {}. SoundCloud lit ces informations à l'envoi.", missing.join(", ")))
+        ("Infos", warn, format!("Manque : {}. {} lit ces informations à l'envoi.", missing.join(", "), if streaming { "Ton distributeur" } else { names.as_str() }))
     });
     if nat != "original" {
         let meta = nature::load_meta(&meta);
@@ -755,6 +1050,99 @@ mod tests {
         assert!(load(&conn, id).is_none());
         assert_eq!(fr_date("2026-07-08"), "08/07/2026");
         assert_eq!(iso_date("31/02/2026"), "");
+    }
+
+    #[test]
+    fn a_release_follows_its_platforms() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::super::schema::SCHEMA).unwrap();
+        conn.execute_batch(
+            "INSERT INTO tracks (id, path, filename, title, artist, genre, file_format, samplerate, analyzed_at, lufs, true_peak, clip_ratio, nature, nature_meta)
+             VALUES (1, 'D:\\a.mp3', 'a.mp3', 'Nuit', 'Otoko', 'House', 'mp3', 44100, '2026-01-01', -8.0, -0.5, 0, 'original', '{}'),
+                    (2, 'D:\\b.wav', 'b.wav', 'Jour', 'Otoko', 'House', 'wav', 44100, '2026-01-01', -14.2, -1.5, 0, 'original', '{}'),
+                    (3, 'D:\\c.wav', 'c.wav', 'Commande', '', '', 'wav', 44100, NULL, NULL, NULL, NULL, 'prod', '{\"deadline\": \"2026-11-20\", \"commissioned_by\": \"Léa\"}');",
+        )
+        .unwrap();
+        // Une sortie d'avant (sans choix) : SoundCloud, comme avant.
+        conn.execute("INSERT INTO releases (id, title, release_date) VALUES (1, 'Ancienne', '2026-12-31')", []).unwrap();
+        assert_eq!(load(&conn, 1).unwrap().platforms, vec!["soundcloud"]);
+        // Une nouvelle sortie prend les plateformes par défaut.
+        super::set_default_platforms(&conn, &["streaming".into(), "bandcamp".into()]).unwrap();
+        let id = create(&conn, "Nuit", &[1, 2]).unwrap();
+        let mut s = load(&conn, id).unwrap();
+        assert_eq!(s.platforms, vec!["streaming", "bandcamp"]);
+        let keys: Vec<&str> = super::super::steps_for(&s.platforms).iter().map(|x| x.0).collect();
+        assert_eq!(keys, vec!["master", "pochette", "infos", "controle", "distrib", "bandcamp", "textes", "promo"]);
+        // Avec un distributeur, tout est prêt plus tôt : le master 5 semaines avant, l'envoi 3 semaines avant.
+        s.date = "2026-12-31".into();
+        s.upc = " 0123 4567 8901 2 ".into();
+        s.explicit = true;
+        s.steps = vec!["master".into(), "soundcloud".into()];
+        save(&conn, &s).unwrap();
+        let back = load(&conn, id).unwrap();
+        assert_eq!((back.upc.as_str(), back.explicit, back.steps.clone()), ("0123 4567 8901 2", true, vec!["master".to_string()]));
+        assert_eq!(upc_clean(&back.upc).as_deref(), Some("0123456789012"));
+        let today = NaiveDate::from_ymd_opt(2026, 11, 10).unwrap();
+        let p = planning(&conn, today).into_iter().find(|p| p.id == id).unwrap();
+        let due = |k: &str| p.steps.iter().find(|x| x.key == k).unwrap().due.format("%d/%m").to_string();
+        assert_eq!((due("master"), due("distrib"), due("bandcamp"), p.steps.len()), ("26/11".into(), "10/12".into(), "30/12".into(), 8));
+        // Le contrôle suit les plateformes : un MP3 est refusé par un distributeur, un master fort sera baissé.
+        let q = qc_on(&conn, 1, &back.platforms);
+        assert_eq!(q[0].1, "problème");
+        assert!(q[1].2.contains("environ 6 dB"), "{}", q[1].2);
+        assert_eq!(qc(&conn, 1)[0].1, "attention", "SoundCloud seul : un MP3 passe, mais sera recompressé");
+        assert_eq!(qc_on(&conn, 2, &back.platforms)[1].1, "ok");
+        // ISRC
+        assert_eq!(isrc_clean("fr-abc-26-00001").as_deref(), Some("FRABC2600001"));
+        assert!(isrc_clean("FR-ABC-26-0001").is_none() && isrc_clean("12ABC2600001").is_none());
+        assert_eq!(set_isrc(&conn, 2, "FR-ABC-26-00001").unwrap(), "FRABC2600001");
+        assert!(set_isrc(&conn, 2, "n'importe quoi").is_err());
+        assert!(export_text(&conn, &back).contains("ISRC FRABC2600001"));
+        // L'agenda : la sortie, ses étapes restantes, la commande à livrer.
+        let ics = agenda_ics(&conn, today);
+        assert!(ics.starts_with("BEGIN:VCALENDAR\r\n") && ics.ends_with("END:VCALENDAR\r\n"));
+        assert!(ics.contains(&format!("UID:sortie-{id}@otoko")) && ics.contains("DTSTART;VALUE=DATE:20261231"));
+        assert!(ics.contains(&format!("UID:sortie-{id}-distrib@otoko")) && !ics.contains(&format!("UID:sortie-{id}-master@otoko")));
+        assert!(ics.contains("SUMMARY:À livrer : Commande pour Léa"));
+        assert!(ics.split("\r\n").all(|l| l.len() <= 75), "lignes repliées");
+    }
+
+    #[test]
+    fn the_delivery_folder_holds_masters_cover_and_infos() {
+        let dir = std::env::temp_dir().join(format!("otoko-envoi-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |n: &str, body: &str| {
+            let p = dir.join(n);
+            std::fs::write(&p, body).unwrap();
+            p.to_string_lossy().replace('\'', "''")
+        };
+        let (a, a_master, b, cover) = (file("a.wav", "brouillon"), file("a master.wav", "master"), file("b.flac", "b"), file("cover.PNG", "png"));
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(super::super::schema::SCHEMA).unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO settings (key, value) VALUES ('artist_alias', 'Otoko');
+             INSERT INTO tracks (id, path, filename, title, artist, genre, duration_s, isrc) VALUES
+                (1, '{a}', 'a.wav', 'Nuit; blanche', '', 'House', 185.4, 'FRABC2600001'),
+                (2, '{b}', 'b.flac', 'b.flac', 'Léa', '', NULL, ''),
+                (3, 'D:\\perdu.wav', 'perdu.wav', 'Perdu', '', '', NULL, '');
+             INSERT INTO tracks (id, path, filename, title, parent_id, version_label) VALUES (4, '{a_master}', 'a master.wav', 'Nuit (master)', 1, 'master');"
+        ))
+        .unwrap();
+        let s = Sheet { title: "Nuit".into(), tracks: vec![1, 2, 3], cover_path: cover, language: "Français".into(), ..Default::default() };
+        let d = delivery(&conn, &s, &dir.join("Nuit (envoi)")).unwrap();
+        assert_eq!((d.copied, d.missing.clone()), (2, vec!["Perdu".to_string()]));
+        // Le master part à la place du brouillon, dans l'ordre de la sortie ; le titre « b.flac » perd son extension.
+        assert_eq!(std::fs::read_to_string(d.dir.join("01 - Nuit; blanche.wav")).unwrap(), "master");
+        assert!(d.dir.join("02 - b.flac").is_file() && d.dir.join("Pochette.png").is_file() && d.dir.join("Fiche.txt").is_file());
+        let csv = std::fs::read_to_string(d.dir.join("Infos.csv")).unwrap();
+        assert!(csv.starts_with("\u{feff}Piste;Titre;Artiste"), "{csv}");
+        assert!(csv.contains("1;\"Nuit; blanche\";Otoko;House;3:05;FRABC2600001;Français;non;\"01 - Nuit; blanche.wav\"\r\n"), "{csv}");
+        assert!(csv.contains("2;b;Léa;"), "{csv}");
+        // Un deuxième envoi n'écrase pas le premier.
+        let again = delivery(&conn, &s, &dir.join("Nuit (envoi)")).unwrap();
+        assert!(again.dir.ends_with("Nuit (envoi) 2"), "{}", again.dir.display());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

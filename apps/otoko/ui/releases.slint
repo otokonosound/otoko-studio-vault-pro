@@ -51,6 +51,21 @@ export struct QcRowUi {
     cells: [QcCellUi],
 }
 
+// Une plateforme où la sortie peut sortir.
+export struct PlatformUi {
+    key: string,
+    label: string,
+    hint: string,
+    on: bool,
+}
+
+// L'ISRC d'un morceau de la sortie.
+export struct IsrcUi {
+    id: int,
+    title: string,
+    isrc: string,
+}
+
 export struct DayUi {
     day: int,
     in-month: bool,
@@ -83,6 +98,15 @@ export global Rel {
     in property <string> rtype;
     in property <[string]> types;
     in property <[string]> type-labels;
+    // Où elle sort, et ce que demande un distributeur.
+    in property <[PlatformUi]> platforms;
+    in property <bool> streaming;
+    in property <bool> soundcloud;
+    in-out property <string> upc;
+    in-out property <string> label-name;
+    in-out property <string> language;
+    in property <bool> explicit;
+    in property <[IsrcUi]> isrcs;
     in property <bool> has-date;
     in-out property <string> date-text;
     in property <string> date-hint;
@@ -111,6 +135,8 @@ export global Rel {
     in property <[RelTrackUi]> picker;
     // Contrôle avant publication.
     in property <bool> qc-open;
+    in property <string> qc-title: "Contrôle avant publication";
+    in property <string> qc-intro;
     in property <[string]> qc-names;
     in property <[QcRowUi]> qc;
     in property <string> qc-detail;
@@ -133,6 +159,12 @@ export global Rel {
     callback set-type(string);
     callback set-has-date(bool);
     callback toggle-step(string);
+    callback toggle-platform(string);
+    callback set-explicit(bool);
+    callback isrc-edited(int, string);
+    // Le dossier à envoyer au distributeur (fichiers numérotés, pochette, infos), et l'agenda (.ics).
+    callback delivery();
+    callback agenda();
     // Les liens de chaque morceau, lus sur SoundCloud : cette sortie (son identifiant) ou toutes (-1).
     callback link(int);
     in property <int> to-link;
@@ -501,7 +533,33 @@ export component ReleasesView inherits Rectangle {
                             }
                             Text { horizontal-stretch: 1; text: Rel.date-hint; color: Rel.date-bad ? Theme.danger : Theme.text3; font-size: 11.5px; vertical-alignment: center; }
                         }
-                        Field { label: "LIEN SOUNDCLOUD"; placeholder: "https://soundcloud.com/…"; value <=> Rel.sc-link; changed(t) => { Rel.edited("sc_link", t); } }
+                        VerticalLayout {
+                            spacing: 4px;
+                            Text { text: "OÙ ELLE SORT"; color: Theme.text3; font-size: 10.5px; font-weight: 700; letter-spacing: 0.6px; }
+                            HorizontalLayout {
+                                spacing: 6px;
+                                alignment: start;
+                                for p in Rel.platforms: Rectangle {
+                                    width: pl.preferred-width + 22px;
+                                    height: 28px;
+                                    border-radius: 14px;
+                                    background: p.on ? Theme.ember-soft : (pta.has-hover ? Theme.ink4 : Theme.ink3);
+                                    border-width: 1px;
+                                    border-color: p.on ? Theme.ember : Theme.line2;
+                                    pl := Text { text: (p.on ? "✓ " : "") + p.label; color: p.on ? Theme.ember : Theme.text2; font-size: 11.5px; font-weight: 700; }
+                                    pta := TouchArea { mouse-cursor: pointer; clicked => { Rel.toggle-platform(p.key); } }
+                                }
+                            }
+                            Text {
+                                text: Rel.streaming
+                                    ? "Streaming : ton distributeur (DistroKid, TuneCore, CD Baby, Believe…) envoie la sortie à Spotify, Apple Music, Deezer, Tidal, Amazon… Les étapes commencent plus tôt pour lui laisser trois semaines."
+                                    : "Le planning et le contrôle suivent ce choix. Pour Spotify, Apple Music ou Deezer, coche Streaming.";
+                                color: Theme.text3;
+                                font-size: 11px;
+                                wrap: word-wrap;
+                            }
+                        }
+                        if Rel.soundcloud: Field { label: "LIEN SOUNDCLOUD"; placeholder: "https://soundcloud.com/…"; value <=> Rel.sc-link; changed(t) => { Rel.edited("sc_link", t); } }
                     }
                     VerticalLayout {
                         width: 190px;
@@ -554,6 +612,45 @@ export component ReleasesView inherits Rectangle {
                         Btn { text: "+ Ajouter un morceau…"; height: 28px; clicked => { Rel.picker-show(); } }
                         Rectangle { horizontal-stretch: 1; }
                         Btn { text: "Appliquer album, type et numéros aux morceaux"; height: 28px; ghost: true; clicked => { Rel.apply-to-tracks(); } }
+                    }
+                }
+                if Rel.streaming: Box {
+                    title: "POUR LE DISTRIBUTEUR";
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Field { horizontal-stretch: 1; label: "CODE-BARRES (UPC / EAN)"; placeholder: "donné par le distributeur"; mono: true; value <=> Rel.upc; changed(t) => { Rel.edited("upc", t); } }
+                        Field { horizontal-stretch: 1; label: "LABEL"; placeholder: "ton nom, ou celui du label"; value <=> Rel.label-name; changed(t) => { Rel.edited("label", t); } }
+                        Field { width: 130px; label: "LANGUE"; placeholder: "français"; value <=> Rel.language; changed(t) => { Rel.edited("language", t); } }
+                    }
+                    Check { text: "Contenu explicite (paroles)"; on: Rel.explicit; toggled => { Rel.set-explicit(!Rel.explicit); } }
+                    Text { text: "ISRC : le code de chaque morceau. Ton distributeur en donne un (souvent gratuit) ; note-le ici, il te servira pour les droits et les stats."; color: Theme.text3; font-size: 11px; wrap: word-wrap; }
+                    for t in Rel.isrcs: HorizontalLayout {
+                        spacing: 10px;
+                        height: 32px;
+                        Text { horizontal-stretch: 1; text: t.title; color: Theme.text2; font-size: 12px; vertical-alignment: center; overflow: elide; }
+                        Rectangle {
+                            width: 170px;
+                            border-radius: 8px;
+                            background: Theme.ink3;
+                            if ii.text == "": Text { x: 10px; text: "FR-ABC-26-00001"; color: Theme.text3; font-size: 12px; vertical-alignment: center; height: parent.height; }
+                            ii := TextInput {
+                                x: 10px;
+                                width: parent.width - 20px;
+                                height: 100%;
+                                text: t.isrc;
+                                color: Theme.text;
+                                font-size: 12px;
+                                font-family: Theme.mono-font;
+                                vertical-alignment: center;
+                                single-line: true;
+                                accepted => { Rel.isrc-edited(t.id, self.text); }
+                                edited => { Rel.isrc-edited(t.id, self.text); }
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        alignment: start;
+                        Btn { text: "Préparer l'envoi au distributeur…"; height: 28px; clicked => { Rel.delivery(); } }
                     }
                 }
                 Box {
@@ -623,9 +720,16 @@ export component ReleasesView inherits Rectangle {
                     }
                 }
                 Text {
-                    text: "En couleur : les jours de sortie. Soulignés : les dates conseillées des étapes restantes, comptées à rebours (master 3 semaines avant, pochette 2 semaines, contrôle 1 semaine, mise en ligne programmée la veille).";
+                    text: "En couleur : les jours de sortie. Soulignés : les dates conseillées des étapes restantes, comptées à rebours (master 3 semaines avant, pochette 2 semaines, contrôle 1 semaine, mise en ligne programmée la veille). Avec un distributeur, tout est prêt 5 semaines avant et lui est envoyé 3 semaines avant.";
                     color: Theme.text3;
                     font-size: 11.5px;
+                    wrap: word-wrap;
+                }
+                Btn { text: "Ajouter à mon agenda (.ics)…"; height: 30px; clicked => { Rel.agenda(); } }
+                Text {
+                    text: "Les sorties, leurs étapes et les échéances de tes commandes, avec un rappel le jour même : pour Google Agenda, Outlook ou le calendrier du téléphone. Réimporter le fichier met à jour sans doubler.";
+                    color: Theme.text3;
+                    font-size: 11px;
                     wrap: word-wrap;
                 }
             }
@@ -782,8 +886,8 @@ export component ReleasesView inherits Rectangle {
             VerticalLayout {
                 padding: 18px;
                 spacing: 10px;
-                Text { text: "Contrôle avant publication — SoundCloud"; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; }
-                Text { text: "SoundCloud ne normalise pas le volume et convertit le fichier envoyé : format, niveau, crêtes, saturation, silences et infos de chaque morceau. Clique une ligne pour le détail."; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
+                Text { text: Rel.qc-title; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; overflow: elide; }
+                Text { text: Rel.qc-intro; color: Theme.text2; font-size: 12px; wrap: word-wrap; }
                 Rectangle {
                     height: 30px;
                     Text { x: 12px; text: "MORCEAU"; color: Theme.text3; font-size: 10.5px; font-weight: 800; vertical-alignment: center; height: parent.height; }

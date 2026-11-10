@@ -3,6 +3,7 @@
 // clavier modifiables. Mêmes réglages que Studio Vault (repris à l'import). Global `CPrefs`.
 import { Theme } from "theme.slint";
 import { Btn, H2, Hit } from "components.slint";
+import { PlatformUi } from "releases.slint";
 
 export struct KeyUi {
     label: string,
@@ -39,6 +40,8 @@ export global CPrefs {
     in property <string> arrival-dir;
     // Statuts automatiques.
     in property <bool> auto-status;
+    // Où sortent les nouvelles sorties (chacune se règle ensuite dans sa fiche).
+    in property <[PlatformUi]> platforms;
     // Contrôle des copies.
     in property <[string]> copies-roots;
     in property <string> copies-text;
@@ -184,6 +187,13 @@ export component CareerPrefs inherits VerticalLayout {
             Btn { text: "Choisir…"; height: 28px; clicked => { CPrefs.arrival-choose(); } }
             if CPrefs.arrival-dir != "": Btn { text: "Retirer"; height: 28px; ghost: true; clicked => { CPrefs.arrival-clear(); } }
         }
+    }
+    // ---------- sorties
+    if CPrefs.ready && root.part == "general": VerticalLayout {
+        spacing: 10px;
+        H2 { text: "Où sortent tes morceaux"; }
+        Text { text: "Le choix proposé pour chaque nouvelle sortie. Il se change ensuite sortie par sortie, dans sa fiche : le planning, les étapes et le contrôle avant publication suivent les plateformes cochées."; color: Theme.text3; font-size: 11.5px; wrap: word-wrap; }
+        for p in CPrefs.platforms: PCheck { text: p.label + " : " + p.hint; on: p.on; clicked => { CPrefs.toggle("platform:" + p.key); } }
     }
     // ---------- ce PC et le PC principal
     if CPrefs.ready && root.part == "general": VerticalLayout {

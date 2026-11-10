@@ -5,7 +5,7 @@ use chrono::NaiveDate;
 use rusqlite::Connection;
 
 use super::releases::{self, Sheet};
-use super::{STEPS, nature};
+use super::{nature, steps_for};
 
 /// Un point à traiter. `level` : 0 prêt à cocher, 1 à voir, 2 bloquant. `action` : ce que fait le bouton
 /// (« cover », « credits », « step:infos », « track:12 »…), vide s'il n'y a rien à lancer.
@@ -46,6 +46,8 @@ struct Row {
     /// La crête du fichier qui partira : le master s'il existe, sinon le morceau.
     peak: Option<f64>,
     master: bool,
+    lossy: bool,
+    isrc: String,
 }
 
 fn rows(conn: &Connection, ids: &[i64]) -> Vec<Row> {
@@ -53,7 +55,8 @@ fn rows(conn: &Connection, ids: &[i64]) -> Vec<Row> {
         .filter_map(|id| {
             let row = conn.query_row(
                 "SELECT COALESCE(NULLIF(title, ''), filename), missing, analyzed_at IS NOT NULL, IFNULL(genre, '') <> '', IFNULL(artist, '') <> '',
-                        IFNULL(NULLIF(nature, ''), 'original'), IFNULL(nature_meta, '{}'), true_peak, IFNULL(version_label, '') = 'master'
+                        IFNULL(NULLIF(nature, ''), 'original'), IFNULL(nature_meta, '{}'), true_peak, IFNULL(version_label, '') = 'master',
+                        LOWER(IFNULL(file_format, '')) IN ('mp3', 'm4a', 'aac', 'ogg', 'opus'), IFNULL(isrc, '')
                  FROM tracks WHERE id = ?1",
                 [id],
                 |r| {
@@ -67,6 +70,8 @@ fn rows(conn: &Connection, ids: &[i64]) -> Vec<Row> {
                         private: nature::is_private(&r.get::<_, String>(5)?, &nature::load_meta(&r.get::<_, String>(6)?)),
                         peak: r.get(7)?,
                         master: r.get(8)?,
+                        lossy: r.get(9)?,
+                        isrc: r.get(10)?,
                     })
                 },
             );
@@ -102,7 +107,8 @@ fn who(list: &[&Row], one: &str, many: &str) -> String {
 pub fn pilot(conn: &Connection, s: &Sheet, today: NaiveDate, cover: (i32, &str)) -> Pilot {
     let planned = releases::planning(conn, today).into_iter().find(|p| p.id == s.id);
     let checked = |k: &str| s.steps.iter().any(|x| x == k);
-    let done = STEPS.iter().filter(|(k, _)| checked(k)).count();
+    let steps = steps_for(&s.platforms);
+    let done = steps.iter().filter(|(k, _)| checked(k)).count();
     let (countdown, tone) = match planned.as_ref().map(|p| p.days) {
         None => ("Date à fixer".to_string(), 0),
         Some(0) => ("Aujourd'hui".to_string(), 1),
@@ -118,13 +124,16 @@ pub fn pilot(conn: &Connection, s: &Sheet, today: NaiveDate, cover: (i32, &str))
             Some(x) => format!("{}, avant le {}", releases::step_label(x.key), x.due.format("%d/%m")),
             None => "Tout est fait.".to_string(),
         },
-        None => match STEPS.iter().find(|(k, _)| !checked(k)) {
+        None => match steps.iter().find(|(k, _)| !checked(k)) {
             Some((k, _)) => releases::step_label(k).to_string(),
             None => "Tout est fait.".to_string(),
         },
     };
     let tracks = rows(conn, &s.tracks);
     let mut points = Vec::new();
+    if s.platforms.is_empty() {
+        points.push(point(1, "Aucune plateforme choisie : coche où sort la sortie (streaming, SoundCloud…).", "", ""));
+    }
     if let Some(p) = planned.as_ref().filter(|_| !out) {
         for x in p.steps.iter().filter(|x| x.late) {
             points.push(point(2, format!("En retard : {} (prévu le {}).", releases::step_label(x.key).to_lowercase(), x.due.format("%d/%m")), format!("step:{}", x.key), "Fait"));
@@ -164,8 +173,22 @@ pub fn pilot(conn: &Connection, s: &Sheet, today: NaiveDate, cover: (i32, &str))
     if s.description.trim().is_empty() {
         points.push(point(1, "Pas de description de la sortie.", "texts", "Écrire"));
     }
-    if s.sc_link.trim().is_empty() && (checked("soundcloud") || planned.as_ref().is_some_and(|p| p.days <= 1)) {
+    if s.on("soundcloud") && s.sc_link.trim().is_empty() && (checked("soundcloud") || planned.as_ref().is_some_and(|p| p.days <= 1)) {
         points.push(point(1, "Pas de lien SoundCloud sur la fiche.", "", ""));
+    }
+    if s.streaming() {
+        // Un distributeur refuse un fichier compressé, et donne les ISRC (souvent gratuitement) : à noter ici ensuite.
+        let lossy: Vec<&Row> = tracks.iter().filter(|t| t.lossy).collect();
+        if let [first, ..] = lossy[..] {
+            points.push(point(2, who(&lossy, "est compressé (MP3…) : les distributeurs le refusent.", "sont compressés (MP3…) : les distributeurs les refusent."), format!("track:{}", first.id), "Voir"));
+        }
+        let no_isrc = tracks.iter().filter(|t| t.isrc.is_empty()).count();
+        if checked("distrib") && no_isrc > 0 {
+            points.push(point(1, format!("{no_isrc} titre{} sans ISRC : note ceux que ton distributeur a donnés.", if no_isrc > 1 { "s" } else { "" }), "isrc", "Noter"));
+        }
+        if !s.upc.is_empty() && super::releases::upc_clean(&s.upc).is_none() {
+            points.push(point(1, "Le code-barres (UPC/EAN) n'a pas 12 ou 13 chiffres.", "", ""));
+        }
     }
     if super::liens::is_soundcloud(&s.sc_link) {
         let bare = s.tracks.iter().filter(|id| conn.query_row("SELECT 1 FROM tracks WHERE id = ?1 AND IFNULL(sc_url, '') = ''", [id], |_| Ok(())).is_ok()).count();
@@ -188,11 +211,11 @@ pub fn pilot(conn: &Connection, s: &Sheet, today: NaiveDate, cover: (i32, &str))
     if !tracks.is_empty() && bare.is_empty() && !s.credits.trim().is_empty() && !s.description.trim().is_empty() {
         proven("infos", "Titres, crédits et description sont remplis.", &mut points);
     }
-    let qc_ok = !tracks.is_empty() && idle.is_empty() && tracks.iter().all(|t| !releases::qc(conn, t.id).iter().any(|x| x.1 == "problème"));
+    let qc_ok = !tracks.is_empty() && idle.is_empty() && tracks.iter().all(|t| !releases::qc_on(conn, t.id, &s.platforms).iter().any(|x| x.1 == "problème"));
     if qc_ok {
         proven("controle", "Le contrôle ne trouve aucun problème.", &mut points);
     }
-    if !s.sc_link.trim().is_empty() {
+    if s.on("soundcloud") && !s.sc_link.trim().is_empty() {
         proven("soundcloud", "Le lien SoundCloud est sur la fiche.", &mut points);
     }
     let written = !s.tracks.is_empty() && s.tracks.iter().all(|id| conn.query_row("SELECT 1 FROM post_drafts WHERE track_id = ?1 LIMIT 1", [id], |_| Ok(())).is_ok());
@@ -204,7 +227,7 @@ pub fn pilot(conn: &Connection, s: &Sheet, today: NaiveDate, cover: (i32, &str))
         1 => 1,
         _ => 2,
     });
-    Pilot { countdown, tone, date: releases::long_date(&s.date), done, total: STEPS.len(), next, points }
+    Pilot { countdown, tone, date: releases::long_date(&s.date), done, total: steps.len(), next, points }
 }
 
 #[cfg(test)]

@@ -7,11 +7,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use otoko_library::career::{arrivee, backup, copies, library as lib, prefs, statuts};
+use otoko_library::career::{PLATFORMS, arrivee, backup, copies, library as lib, prefs, releases, statuts};
 use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
 
 use crate::state::State;
-use crate::{AppWindow, CPrefs, KeyUi, Lib, Theme};
+use crate::{AppWindow, CPrefs, KeyUi, Lib, PlatformUi, Theme};
 
 fn model<T: Clone + 'static>(v: Vec<T>) -> ModelRc<T> {
     ModelRc::new(VecModel::from(v))
@@ -146,6 +146,9 @@ pub fn fill(app: &AppWindow, st: &mut State) {
     crate::majs::push(app, st);
     if let Some(c) = st.career.as_ref() {
         g.set_auto_status(lib::flag(c.conn(), statuts::FLAG, true));
+        let chosen = releases::default_platforms(c.conn());
+        let on = |k: &str| chosen.iter().any(|x| x == k);
+        g.set_platforms(model(PLATFORMS.iter().map(|(k, label, hint)| PlatformUi { key: (*k).into(), label: (*label).into(), hint: (*hint).into(), on: on(k) }).collect()));
         let roots = copies::roots(c.conn());
         g.set_copies_roots(model(roots.iter().map(|r| SharedString::from(r.as_str())).collect()));
         g.set_copies_busy(st.copies_busy);
@@ -393,6 +396,20 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
                     st.prefs_extra_pending = false;
                     set(st, backup::EXTRA_SETTING, "");
                 }
+            }
+            k if k.starts_with("platform:") => {
+                let Some(c) = st.career.as_ref() else { return };
+                let key = &k["platform:".len()..];
+                let mut list = releases::default_platforms(c.conn());
+                if list.iter().any(|x| x == key) {
+                    // Au moins une : sans plateforme, une sortie n'a plus d'étapes.
+                    if list.len() > 1 {
+                        list.retain(|x| x != key);
+                    }
+                } else {
+                    list.push(key.to_string());
+                }
+                let _ = releases::set_default_platforms(c.conn(), &list);
             }
             k => {
                 let Some(c) = st.career.as_ref() else { return };

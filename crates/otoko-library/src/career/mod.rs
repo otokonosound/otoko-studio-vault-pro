@@ -44,7 +44,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value as Json;
 
 pub use import::ImportReport;
-pub use schema::{BOARD, MAIN_ROLES, NATURES, RELEASE_TYPES, STATUSES, STEPS, nature_short, release_color, release_label, status_label};
+pub use schema::{
+    ALL_STEPS, BOARD, MAIN_ROLES, NATURES, PLATFORMS, RELEASE_TYPES, STATUSES, nature_short, platforms_label, platforms_of, release_color, release_label, status_label,
+    steps_count, steps_for,
+};
 
 pub struct Career {
     db: Connection,
@@ -270,6 +273,12 @@ impl Career {
             }
         }
         db.execute_batch(schema::SCHEMA)?;
+        // Les colonnes venues après coup : une base existante les reçoit à l'ouverture.
+        for (table, col, def) in [("releases", "extra", "TEXT DEFAULT '{}'"), ("tracks", "isrc", "TEXT DEFAULT ''")] {
+            if db.prepare(&format!("SELECT {col} FROM {table} LIMIT 0")).is_err() {
+                db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {def}"))?;
+            }
+        }
         if old {
             migrate_first_version(&db)?;
         }
@@ -313,14 +322,15 @@ impl Career {
     pub fn releases(&self) -> rusqlite::Result<Vec<Release>> {
         let mut st = self.db.prepare(
             "SELECT id, title, IFNULL(rtype, ''), IFNULL(release_date, ''), IFNULL(sc_link, ''), IFNULL(description, ''), IFNULL(steps, ''),
-                    IFNULL(credits, ''), IFNULL(notes, ''), IFNULL(cover_path, '')
+                    IFNULL(credits, ''), IFNULL(notes, ''), IFNULL(cover_path, ''), IFNULL(extra, '{}')
              FROM releases ORDER BY COALESCE(release_date, '') DESC, id DESC",
         )?;
         let mut list: Vec<Release> = st
             .query_map([], |r| {
                 let raw: String = r.get(6)?;
+                let list = steps_for(&platforms_of(&nature::load_meta(&r.get::<_, String>(10)?)));
                 let done: Vec<String> = match serde_json::from_str::<Json>(&raw) {
-                    Ok(Json::Object(m)) => STEPS.iter().filter(|(k, _)| m.get(*k).and_then(|v| v.as_bool()).unwrap_or(false)).map(|(k, _)| k.to_string()).collect(),
+                    Ok(Json::Object(m)) => list.iter().filter(|(k, _)| m.get(*k).and_then(|v| v.as_bool()).unwrap_or(false)).map(|(k, _)| k.to_string()).collect(),
                     _ => Vec::new(),
                 };
                 Ok(Release {
@@ -332,7 +342,7 @@ impl Career {
                     description: r.get(5)?,
                     steps_done: done.len(),
                     steps: done,
-                    steps_total: STEPS.len(),
+                    steps_total: list.len(),
                     credits: r.get(7)?,
                     notes: r.get(8)?,
                     cover_path: r.get(9)?,

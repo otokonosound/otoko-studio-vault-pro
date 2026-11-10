@@ -16,7 +16,7 @@ Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 - **Ton logiciel de musique, quel qu'il soit** : FL Studio, Ableton Live, Cubase, Reaper, Bitwig… Le projet de chaque morceau s'ouvre d'un clic, et le dossier où tu exportes est surveillé : chaque nouvel export rejoint son morceau, rangé comme version.
 - **Production** : un tableau de l'idée à la sortie, des statuts qui avancent tout seuls sur preuve, tes commandes et ton carnet de clients, un outil pour construire tes sets DJ, l'Atelier Suno pour tes prompts.
 - **Mastering** : le moteur libre PhaseLimiter, installé d'un clic. Mesures avant et après, écoute à volume égal, un EP entier avec les mêmes réglages. L'original n'est jamais touché.
-- **Sorties** : la galerie, le compte à rebours, la prochaine étape et ce qui reste à faire, le planning, le contrôle avant publication, la discographie en PDF ou en page web.
+- **Sorties** : sur les plateformes de ton choix (streaming par un distributeur, SoundCloud, Bandcamp, YouTube), la galerie, le compte à rebours, la prochaine étape et ce qui reste à faire, le planning et ses rappels dans ton agenda, le contrôle avant publication, le dossier à envoyer au distributeur (UPC, ISRC), la discographie en PDF ou en page web.
 - **Publier** : un texte par plateforme (SoundCloud, Instagram, story), six tons, tes propres modèles. Tout reste hors ligne.
 - **Statistiques** : création, musique, avancement, parcours.
 - **Écouter partout** : ta bibliothèque sur ton téléphone et dans Android Auto, avec des morceaux gardés hors ligne. En écoutant, tu gardes, rejettes, changes le statut et poses une note à l'instant précis : elle t'attend sur la forme d'onde du PC.

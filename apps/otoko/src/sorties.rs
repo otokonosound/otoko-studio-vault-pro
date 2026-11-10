@@ -3,17 +3,22 @@
 //! le contrôle avant publication, la pochette écrite dans les fichiers, la discographie (PDF ou
 //! page web). La sortie n'est qu'une fiche : supprimer la fiche ne touche ni aux morceaux ni aux
 //! fichiers.
+//!
+//! Une sortie choisit où elle sort (streaming par un distributeur, SoundCloud, Bandcamp, YouTube) : ses étapes, son
+//! planning et son contrôle suivent ce choix. Pour un distributeur, la fiche garde le code-barres, le label, la langue, le
+//! contenu explicite et l'ISRC de chaque morceau, et prépare le dossier à lui envoyer. Le planning s'exporte vers un
+//! agenda (.ics).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use otoko_library::career::releases::{self, Sheet};
-use otoko_library::career::{RELEASE_TYPES, STEPS, discography, files, pilotage};
+use otoko_library::career::{PLATFORMS, RELEASE_TYPES, discography, files, pilotage, platforms_label, steps_for};
 use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 use crate::state::{Done, State};
-use crate::{AppWindow, DayUi, PlanRelUi, QcCellUi, QcRowUi, Rel, RelPointUi, RelStepUi, RelTileUi, RelTrackUi};
+use crate::{AppWindow, DayUi, IsrcUi, PlanRelUi, PlatformUi, QcCellUi, QcRowUi, Rel, RelPointUi, RelStepUi, RelTileUi, RelTrackUi};
 
 macro_rules! rel_on {
     ($app:expr, $state:expr, $setter:ident, |$a:ident, $st:ident $(, $arg:ident)*| $body:block) => {{
@@ -88,6 +93,39 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
         });
     });
     rel_on!(app, state, on_fix, |app, st, what| { fix(&app, st, what.as_str()); });
+    rel_on!(app, state, on_toggle_platform, |app, st, key| {
+        change(&app, st, |s| {
+            if s.platforms.iter().any(|p| p == key.as_str()) {
+                s.platforms.retain(|p| p != key.as_str());
+            } else {
+                s.platforms.push(key.to_string());
+                // Dans l'ordre de la liste, quel que soit l'ordre des clics.
+                s.platforms.sort_by_key(|p| PLATFORMS.iter().position(|x| x.0 == p));
+            }
+        });
+        // La pochette se juge autrement pour un distributeur.
+        push_sheet(&app, st, true);
+        push_gallery(&app, st);
+    });
+    rel_on!(app, state, on_set_explicit, |app, st, on| { change(&app, st, |s| s.explicit = on); });
+    rel_on!(app, state, on_isrc_edited, |app, st, id, text| {
+        let raw = text.trim();
+        let typed = raw.chars().filter(|c| c.is_ascii_alphanumeric()).count();
+        // Tant que le code n'est pas complet, rien n'est écrit (ni reproché).
+        if !raw.is_empty() && typed < 12 {
+            return;
+        }
+        let Some(c) = st.career.as_ref() else { return };
+        let msg = match releases::set_isrc(c.conn(), id as i64, raw) {
+            Ok(v) if v.is_empty() => "ISRC effacé.".to_string(),
+            Ok(v) => format!("ISRC {v} enregistré."),
+            Err(e) => e,
+        };
+        app.global::<Rel>().set_msg(msg.into());
+        push_sheet(&app, st, false);
+    });
+    rel_on!(app, state, on_delivery, |app, st| { delivery(&app, st); });
+    rel_on!(app, state, on_agenda, |app, st| { agenda(&app, st); });
     rel_on!(app, state, on_link, |app, st, id| { crate::fond::link(&app, st, (id >= 0).then_some(id as i64)); });
     rel_on!(app, state, on_pick_cover, |app, st| { pick_cover(&app, st); });
     rel_on!(app, state, on_embed_cover, |app, st| { embed_cover(&app, st); });
@@ -325,6 +363,7 @@ fn fix(app: &AppWindow, st: &mut State, what: &str) {
             crate::analyse::start(app, st, todo, false);
         }
         "genre" => crate::outils::open(app, st, "batches"),
+        "isrc" => app.global::<Rel>().set_msg("Note les ISRC dans « Pour le distributeur », plus bas.".into()),
         w if w.starts_with("step:") => {
             let key = w[5..].to_string();
             change(app, st, |s| {
@@ -367,6 +406,18 @@ pub fn cover_check(path: &str) -> (i32, String) {
     if msgs.is_empty() { (0, format!("{w}×{h}, carrée : parfait.")) } else { (level, format!("Pochette {}.", msgs.join(", "))) }
 }
 
+/// `cover_check`, plus exigeant quand la sortie passe par un distributeur : 3000×3000 carrée, demandée presque partout.
+pub fn cover_check_for(path: &str, streaming: bool) -> (i32, String) {
+    let (level, text) = cover_check(path);
+    if !streaming || level == 2 || path.is_empty() {
+        return (level, text);
+    }
+    match image::image_dimensions(path) {
+        Ok((w, h)) if w != h || w < 3000 => (2, format!("Pochette {w}×{h} : les distributeurs demandent une image carrée d'au moins 3000×3000.")),
+        _ => (level, text),
+    }
+}
+
 fn load_image(path: &str, size: u32) -> Option<Image> {
     let img = image::open(path).ok()?.resize_to_fill(size, size, image::imageops::FilterType::Triangle).to_rgba8();
     Some(Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(img.as_raw(), size, size)))
@@ -397,7 +448,17 @@ pub fn push_sheet(app: &AppWindow, st: &State, full: bool) {
         g.set_credits(s.credits.as_str().into());
         g.set_description(s.description.as_str().into());
         g.set_notes(s.notes.as_str().into());
-        let (level, info) = cover_check(&s.cover_path);
+        g.set_upc(s.upc.as_str().into());
+        g.set_label_name(s.label.as_str().into());
+        g.set_language(s.language.as_str().into());
+        // Pas pendant qu'on tape un ISRC : la case perdrait ce qui est en cours.
+        g.set_isrcs(model(
+            releases::track_lines(c.conn(), &s.tracks)
+                .iter()
+                .map(|t| IsrcUi { id: t.id as i32, title: t.title.as_str().into(), isrc: otoko_library::career::library::field(c.conn(), t.id, "isrc").into() })
+                .collect(),
+        ));
+        let (level, info) = cover_check_for(&s.cover_path, s.streaming());
         g.set_cover_level(level);
         g.set_cover_info(info.into());
         let img = if s.cover_path.is_empty() { None } else { load_image(&s.cover_path, 320) };
@@ -405,6 +466,10 @@ pub fn push_sheet(app: &AppWindow, st: &State, full: bool) {
         g.set_cover(img.unwrap_or_default());
     }
     g.set_rtype(s.rtype.as_str().into());
+    g.set_platforms(model(PLATFORMS.iter().map(|(k, label, hint)| PlatformUi { key: (*k).into(), label: (*label).into(), hint: (*hint).into(), on: s.on(k) }).collect()));
+    g.set_streaming(s.streaming());
+    g.set_soundcloud(s.on("soundcloud"));
+    g.set_explicit(s.explicit);
     g.set_has_date(!s.date.is_empty());
     g.set_date_bad(false);
     g.set_date_hint(date_hint(&s.date).into());
@@ -423,7 +488,7 @@ pub fn push_sheet(app: &AppWindow, st: &State, full: bool) {
     // Les étapes, avec leur date conseillée si la sortie est datée.
     let planned = releases::planning(c.conn(), releases::today()).into_iter().find(|p| p.id == s.id);
     g.set_steps(model(
-        STEPS
+        steps_for(&s.platforms)
             .iter()
             .map(|(k, _)| {
                 let p = planned.as_ref().and_then(|p| p.steps.iter().find(|x| x.key == *k));
@@ -437,7 +502,7 @@ pub fn push_sheet(app: &AppWindow, st: &State, full: bool) {
             })
             .collect(),
     ));
-    let (level, info) = cover_check(&s.cover_path);
+    let (level, info) = cover_check_for(&s.cover_path, s.streaming());
     let p = pilotage::pilot(c.conn(), s, releases::today(), (level, &info));
     g.set_pilot_count(p.countdown.into());
     g.set_pilot_tone(p.tone);
@@ -479,6 +544,9 @@ fn edited(app: &AppWindow, st: &mut State, key: &str, value: &str) {
         "credits" => s.credits = value.to_string(),
         "description" => s.description = value.to_string(),
         "notes" => s.notes = value.to_string(),
+        "upc" => s.upc = value.to_string(),
+        "label" => s.label = value.to_string(),
+        "language" => s.language = value.to_string(),
         "date" => {
             let iso = releases::iso_date(value);
             let g = app.global::<Rel>();
@@ -656,15 +724,30 @@ fn qc_run(app: &AppWindow, st: &mut State) {
         app.global::<Rel>().set_msg("Ajoute d'abord des morceaux à la sortie.".into());
         return;
     }
-    let ids = s.tracks.clone();
-    qc_for(app, st, &ids);
+    let (ids, platforms) = (s.tracks.clone(), s.platforms.clone());
+    qc_on(app, st, &ids, &platforms);
 }
 
-/// Le contrôle avant publication de ces morceaux (une sortie, ou la sélection de la bibliothèque).
+/// Le contrôle avant publication de ces morceaux (la sélection de la bibliothèque), pour les plateformes par défaut.
 pub fn qc_for(app: &AppWindow, st: &mut State, ids: &[i64]) {
+    let platforms = st.career.as_ref().map(|c| releases::default_platforms(c.conn())).unwrap_or_default();
+    qc_on(app, st, ids, &platforms);
+}
+
+/// Le contrôle de ces morceaux pour ces plateformes.
+fn qc_on(app: &AppWindow, st: &mut State, ids: &[i64], platforms: &[String]) {
     let Some(c) = st.career.as_ref() else { return };
     let lines = releases::track_lines(c.conn(), ids);
-    st.rel.qc = lines.iter().map(|t| (t.id, t.title.clone(), releases::qc(c.conn(), t.id))).collect();
+    st.rel.qc = lines.iter().map(|t| (t.id, t.title.clone(), releases::qc_on(c.conn(), t.id, platforms))).collect();
+    let streaming = platforms.iter().any(|p| p == "streaming");
+    let intro = if streaming || platforms.iter().any(|p| p == "youtube") {
+        "Le streaming ramène chaque morceau vers -14 LUFS et convertit le fichier envoyé ; un distributeur refuse un fichier compressé. Format, niveau, crêtes, saturation, silences et infos de chaque morceau. Clique une ligne pour le détail."
+    } else {
+        "Ces plateformes ne touchent pas au volume et convertissent le fichier envoyé : format, niveau, crêtes, saturation, silences et infos de chaque morceau. Clique une ligne pour le détail."
+    };
+    let g = app.global::<Rel>();
+    g.set_qc_title(format!("Contrôle avant publication — {}", platforms_label(platforms)).into());
+    g.set_qc_intro(intro.into());
     let rows: Vec<QcRowUi> = st
         .rel
         .qc
@@ -712,6 +795,56 @@ fn export_sheet(app: &AppWindow, st: &mut State) {
         Err(e) => format!("Export impossible : {e}"),
     };
     app.global::<Rel>().set_msg(msg.into());
+}
+
+// ---------------------------------------------------------------------- distributeur et agenda
+
+/// Un nom de fichier sans les caractères que Windows refuse.
+fn safe_name(s: &str) -> String {
+    let t: String = s.trim().chars().map(|ch| if r#"\/:*?"<>|"#.contains(ch) || ch.is_control() { '_' } else { ch }).collect();
+    if t.is_empty() { "sortie".into() } else { t }
+}
+
+/// Le dossier à envoyer au distributeur : choisi par l'utilisateur, rempli en fond.
+fn delivery(app: &AppWindow, st: &mut State) {
+    let Some(s) = st.rel.sheet.clone() else { return };
+    if s.tracks.is_empty() {
+        app.global::<Rel>().set_msg("Ajoute d'abord des morceaux à la sortie.".into());
+        return;
+    }
+    if st.selftest {
+        return;
+    }
+    let Some(parent) = rfd::FileDialog::new().set_title("Où préparer l'envoi au distributeur ?").pick_folder() else { return };
+    let db = st.career_path.clone();
+    app.global::<Rel>().set_msg("Préparation de l'envoi…".into());
+    st.spawn(move || {
+        let r = otoko_library::career::Career::open(&db).map_err(|e| e.to_string()).and_then(|c| releases::delivery(c.conn(), &s, &parent.join(format!("{} (envoi)", safe_name(&s.title)))));
+        Done::Say(match r {
+            Ok(d) if d.missing.is_empty() => format!("Envoi prêt : {} fichier(s), la pochette et les infos dans {}", d.copied, d.dir.display()),
+            Ok(d) => format!("Envoi préparé dans {}, mais introuvable : {}", d.dir.display(), d.missing.join(", ")),
+            Err(e) => format!("Envoi impossible : {e}"),
+        })
+    });
+}
+
+/// Le planning et les échéances en .ics, ouvert ensuite par l'agenda de Windows (ou importé à la main).
+fn agenda(app: &AppWindow, st: &mut State) {
+    let Some(c) = st.career.as_ref() else { return };
+    let text = releases::agenda_ics(c.conn(), releases::today());
+    if st.selftest {
+        return;
+    }
+    let Some(f) = rfd::FileDialog::new().set_title("Ajouter à mon agenda").set_file_name("OTOKO - sorties et échéances.ics").add_filter("Agenda", &["ics"]).save_file() else { return };
+    let msg = match std::fs::write(&f, text) {
+        Ok(()) => {
+            let _ = std::process::Command::new("explorer.exe").arg(&f).spawn();
+            format!("Agenda écrit : {}. Ouvre-le avec ton agenda, ou importe-le dans Google Agenda (Paramètres › Importer).", f.display())
+        }
+        Err(e) => format!("Agenda impossible à écrire : {e}"),
+    };
+    app.global::<Rel>().set_msg(msg.clone().into());
+    app.set_message(msg.into());
 }
 
 // ---------------------------------------------------------------------- planning
