@@ -415,7 +415,7 @@ export component AppWindow inherits Window {
                                         alignment: start;
                                         spacing: 10px;
                                         Btn { text: root.mobile-wifi ? "Refuser le Wi-Fi de la maison" : "Autoriser le Wi-Fi de la maison (admin)…"; height: 30px; ghost: true; clicked => { root.mobile-wifi-set(!root.mobile-wifi); } }
-                                        Text { vertical-alignment: center; color: root.mobile-wifi ? Theme.ember : Theme.text3; font-size: 12px; text: root.mobile-wifi ? "Tout appareil de ce Wi-Fi peut écouter ta bibliothèque, sans mot de passe." : "Refusé : seuls cet ordinateur et tes appareils Tailscale ont accès."; }
+                                        Text { vertical-alignment: center; color: root.mobile-wifi ? Theme.ember : Theme.text3; font-size: 12px; text: root.mobile-wifi ? "Tout appareil de ce Wi-Fi peut écouter ta bibliothèque et noter ses morceaux, sans mot de passe." : "Refusé : seuls cet ordinateur et tes appareils Tailscale ont accès."; }
                                     }
                                     Rectangle { height: 22px; }
                                     ShareSection { }

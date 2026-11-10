@@ -91,6 +91,8 @@ data class UiState(
     /** partage public (Tailscale Funnel) allumé sur ton PC */
     val funnel: Boolean = true,
     val shareRequest: ShareRequest? = null,
+    /** Garder, rejeter, statut et notes du morceau en cours */
+    val mine: Mine? = null,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -106,6 +108,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val queueQuality = mutableMapOf<String, Quality?>()
     private var loadJob: Job? = null
     private var waveJob: Job? = null
+    private var mineJob: Job? = null
 
     init {
         viewModelScope.launch { findServer(); loadReleases(); reload() }
@@ -402,6 +405,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (changed && track != null) {
             loadWaveform(track)
+            loadMine(track)
             if (_ui.value.filter == Filter.COMPATIBLE) reload()
         }
     }
@@ -412,6 +416,64 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val w = runCatching { a.api.waveform(t.id, 64) }.getOrNull() ?: return@launch
             if (_ui.value.current?.id == t.id) _ui.update { it.copy(waveform = w.peaks) }
         }
+    }
+
+    // ------------------------------------------------------------ garder, rejeter, statut, notes
+
+    private fun loadMine(t: Track) {
+        _ui.update { it.copy(mine = Mine(t.id, t.pick, t.status.ifBlank { "idea" }, emptyList())) }
+        mineJob?.cancel()
+        mineJob = viewModelScope.launch {
+            val m = runCatching { a.api.mine(t.id) }.getOrNull() ?: return@launch
+            if (_ui.value.current?.id == t.id) _ui.update { it.copy(mine = m) }
+        }
+    }
+
+    /** Montre le changement tout de suite, l'envoie à ton PC (ou le garde s'il ne répond pas), revient en arrière s'il refuse */
+    private fun change(path: String, body: JSONObject, done: String, onMessage: (String) -> Unit, guess: (Mine) -> Mine) {
+        val t = _ui.value.current ?: return
+        val before = _ui.value.mine?.takeIf { it.trackId == t.id } ?: Mine(t.id, t.pick, t.status.ifBlank { "idea" }, emptyList())
+        _ui.update { it.copy(mine = guess(before)) }
+        viewModelScope.launch {
+            try {
+                val r = a.outbox.send("/api/tracks/${t.id}/$path", body)
+                if (r == null) {
+                    onMessage("$done. Ton PC ne répond pas : ça part dès qu'il sera joignable.")
+                } else {
+                    val m = Mine.fromJson(r)
+                    if (_ui.value.current?.id == t.id) _ui.update { it.copy(mine = m) }
+                    onMessage(done)
+                }
+            } catch (e: Exception) {
+                if (_ui.value.current?.id == t.id) _ui.update { it.copy(mine = before) }
+                onMessage(e.message ?: "Refusé par ton PC.")
+            }
+        }
+    }
+
+    /** 1 garder, -1 rejeter, 0 ni l'un ni l'autre */
+    fun setPick(pick: Int, onMessage: (String) -> Unit) =
+        change("edit", JSONObject().put("pick", pick), when (pick) { 1 -> "Gardé"; -1 -> "Rejeté"; else -> "Ni gardé ni rejeté" }, onMessage) {
+            it.copy(pick = pick)
+        }
+
+    fun setStatus(status: String, onMessage: (String) -> Unit) {
+        val label = STATUSES.firstOrNull { it.first == status }?.second ?: return
+        change("edit", JSONObject().put("status", status), "Statut : $label", onMessage) { it.copy(status = status) }
+    }
+
+    /** Une note à `atMs` (vide : un simple repère) */
+    fun addNote(atMs: Long, text: String, onMessage: (String) -> Unit) {
+        val n = Note((atMs / 100) / 10.0, text.trim().ifBlank { "Note" })
+        change("markers", n.toJson(), "Note posée à ${formatClock(atMs)}", onMessage) { m -> m.copy(notes = (m.notes + n).sortedBy { it.time }) }
+    }
+
+    fun removeNote(n: Note, onMessage: (String) -> Unit) =
+        change("markers/remove", n.toJson(), "Note retirée", onMessage) { m -> m.copy(notes = m.notes - n) }
+
+    fun setAutoOffline(on: Boolean) {
+        settings.setAutoOffline(on)
+        if (on) viewModelScope.launch { a.keepWorkInProgress() }
     }
 
     // ------------------------------------------------------------ hors ligne
@@ -478,4 +540,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         controller?.release()
         super.onCleared()
     }
+}
+
+/** « 1:32 » */
+internal fun formatClock(ms: Long): String {
+    val s = (ms / 1000).coerceAtLeast(0)
+    return "%d:%02d".format(s / 60, s % 60)
 }

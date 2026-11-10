@@ -95,6 +95,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     lib_on!(app, state, on_player_switch, |app, st| { crate::lecteur::switch_ab(&app, st); });
     lib_on!(app, state, on_player_volume_set, |app, st, v| { crate::lecteur::set_volume(&app, st, v); });
     lib_on!(app, state, on_player_equal_toggle, |app, st| { crate::lecteur::toggle_equal(&app, st); });
+    watch_phone(app, state);
     crate::lecteur::wire(app, state);
 }
 
@@ -134,6 +135,8 @@ pub struct View {
     pub waves: HashMap<i64, Image>,
     /// Les pointes de ces ondes, lues d'un coup dans la base.
     pub peaks: HashMap<i64, Vec<u8>>,
+    /// L'horloge qui guette les changements faits depuis le téléphone.
+    pub phone_watch: Option<slint::Timer>,
     /// Les frappes du tempo tapé, et le tempo qu'elles donnent.
     pub taps: Vec<Instant>,
     pub tap_bpm: Option<f64>,
@@ -353,6 +356,45 @@ pub fn push_rows(app: &AppWindow, st: &mut State) {
 }
 
 /// Met à jour une seule ligne (après une modification), sans tout relire.
+/// Le téléphone a changé un morceau (gardé, statut, note) : sa ligne, ses détails et le lecteur se relisent, les autres
+/// pages se reliront à la prochaine visite. Le serveur le signale dans un réglage, lu toutes les 3 secondes.
+fn watch_phone(app: &AppWindow, state: &Rc<RefCell<State>>) {
+    let weak = app.as_weak();
+    let s = state.clone();
+    let last = std::cell::RefCell::new(None::<String>);
+    let timer = slint::Timer::default();
+    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(3), move || {
+        let Some(app) = weak.upgrade() else { return };
+        let Ok(mut st) = s.try_borrow_mut() else { return };
+        let Some(now) = st.career.as_ref().map(|c| c.setting(otoko_mobile::edits::STAMP).unwrap_or_default()) else { return };
+        let before = last.borrow_mut().replace(now.clone());
+        if before.is_none_or(|b| b == now) {
+            return;
+        }
+        let Some(id) = now.split(':').next().and_then(|i| i.parse::<i64>().ok()) else { return };
+        phone_changed(&app, &mut st, id);
+    });
+    state.borrow_mut().lib.phone_watch = Some(timer);
+}
+
+fn phone_changed(app: &AppWindow, st: &mut State, id: i64) {
+    st.pages_lues = [false; 8];
+    update_row(app, st, id);
+    if st.lib.details == Some(id) {
+        details(app, st);
+    }
+    if st.player.id == Some(id) {
+        if let Some(c) = st.career.as_ref() {
+            st.player.markers = lib::markers(c.conn(), id);
+        }
+        crate::lecteur::push(app, st);
+    }
+    let title = st.career.as_ref().and_then(|c| lib::row_by_id(c.conn(), id).ok().flatten()).map(|r| r.title).unwrap_or_default();
+    if !title.is_empty() {
+        app.set_message(format!("« {title} » modifié depuis le téléphone.").into());
+    }
+}
+
 fn update_row(app: &AppWindow, st: &mut State, id: i64) {
     let Some(c) = st.career.as_ref() else { return };
     let Some(fresh) = lib::row_by_id(c.conn(), id).ok().flatten() else { return };

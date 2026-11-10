@@ -30,6 +30,7 @@ class App : Application() {
     lateinit var api: Api
     lateinit var downloads: Downloads
     lateinit var cast: Cast
+    lateinit var outbox: Outbox
 
     private val _connection = MutableStateFlow(Connection.SEARCHING)
     val connection: StateFlow<Connection> = _connection
@@ -40,12 +41,33 @@ class App : Application() {
         settings = Settings(this)
         api = Api { settings.server.value }
         downloads = Downloads(this, api, settings, scope)
+        outbox = Outbox(this, api)
         cast = Cast(this)
         watchNetwork()
         // Ton PC répond : les morceaux hors ligne récupèrent ce qui leur manque (pochette, place dans la sortie)
         scope.launch {
-            connection.collect { if (it == Connection.LAN || it == Connection.TAILSCALE) downloads.completeSaved() }
+            connection.collect {
+                if (it == Connection.LAN || it == Connection.TAILSCALE) {
+                    downloads.completeSaved()
+                    // Ce qui a été noté sans réseau part maintenant.
+                    outbox.flush()
+                    keepWorkInProgress()
+                }
+            }
         }
+    }
+
+    /**
+     * « Mes morceaux en cours, toujours sur le téléphone » : en Wi-Fi, les derniers morceaux en cours (idée exceptée)
+     * se téléchargent tout seuls. Rien n'est effacé : ce qui est déjà là reste.
+     */
+    suspend fun keepWorkInProgress() {
+        if (!settings.autoOffline.value || !onUnmeteredNetwork()) return
+        val tracks = runCatching {
+            api.tracks(mapOf("status" to "draft,wip,to_mix,to_master", "sort" to "added", "limit" to AUTO_OFFLINE_COUNT.toString()))
+        }.getOrNull() ?: return
+        val states = downloads.states.value
+        tracks.filter { states[it.id] == null || states[it.id] is DlState.Failed }.forEach { downloads.start(it) }
     }
 
     @Volatile private var downUntil = 0L
@@ -171,6 +193,8 @@ class App : Application() {
         lateinit var instance: App
             private set
         private const val LAN_TIMEOUT = 1500
+        /** Combien de morceaux en cours « Mes morceaux en cours » garde sur le téléphone */
+        const val AUTO_OFFLINE_COUNT = 10
         private const val DOWN_MS = 30_000L
         private const val DEFAULT_PORT = 8775
 
@@ -201,6 +225,9 @@ class Settings(context: Context) {
     val mobileQuality: StateFlow<Quality> = _mobileQuality
     private val _wifiOnly = MutableStateFlow(prefs.getBoolean("wifi_only", true))
     val wifiOnly: StateFlow<Boolean> = _wifiOnly
+    private val _autoOffline = MutableStateFlow(prefs.getBoolean("auto_offline", false))
+    /** Les derniers morceaux en cours se téléchargent seuls en Wi-Fi */
+    val autoOffline: StateFlow<Boolean> = _autoOffline
     private val _saveToMusic = MutableStateFlow(prefs.getBoolean("save_to_music", true))
     /** Copie de chaque téléchargement dans Musique/OTOKO (visible des autres applis) */
     val saveToMusic: StateFlow<Boolean> = _saveToMusic
@@ -224,4 +251,5 @@ class Settings(context: Context) {
     fun setMobileQuality(q: Quality) { _mobileQuality.value = q; prefs.edit().putString("mobile_quality", q.name).apply() }
     fun setWifiOnly(v: Boolean) { _wifiOnly.value = v; prefs.edit().putBoolean("wifi_only", v).apply() }
     fun setSaveToMusic(v: Boolean) { _saveToMusic.value = v; prefs.edit().putBoolean("save_to_music", v).apply() }
+    fun setAutoOffline(v: Boolean) { _autoOffline.value = v; prefs.edit().putBoolean("auto_offline", v).apply() }
 }

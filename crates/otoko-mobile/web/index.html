@@ -132,6 +132,19 @@ select.chip{appearance:none;padding-right:14px}
 .seg button{flex:1;border:0;background:none;border-radius:9px;padding:8px 4px;font-size:14px;font-weight:600;color:rgba(255,255,255,.8)}
 .seg button[aria-pressed=true]{background:#fff;color:#000}
 .qnote{font-size:12px;color:rgba(255,255,255,.7);text-align:center;margin-top:8px}
+/* ce que je pense du morceau : garder, rejeter, statut, notes posées à un instant */
+.mine{display:flex;gap:8px;margin-top:20px;align-items:center}
+.mine button,.mine select{height:40px;border-radius:20px;border:0;background:rgba(255,255,255,.14);color:#fff;font-size:14px;font-weight:600;padding:0 14px}
+.mine button[aria-pressed=true]{background:#fff;color:#000}
+.mine select{flex:1;min-width:0;appearance:none;-webkit-appearance:none}
+.mine select option{color:#000}
+#fnote{width:100%;justify-content:center;margin-top:10px}
+.notes{list-style:none;margin:10px 0 0;padding:0}
+.notes li{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid rgba(255,255,255,.1);font-size:14px}
+.notes li button{border:0;background:none;color:#fff;font-size:14px;padding:4px}
+.notes li .at{font-variant-numeric:tabular-nums;font-weight:700;min-width:44px;text-align:left}
+.notes li span{flex:1;min-width:0;overflow-wrap:anywhere}
+.bar b.mk{position:absolute;top:0;bottom:0;width:2px;background:#ffd166;border-radius:1px;pointer-events:none}
 
 
 /* ---------- partages */
@@ -221,6 +234,13 @@ input.link{width:100%;height:46px;border-radius:12px;border:0;background:#222;co
       <button class="round" id="fplay" aria-label="Pause"></button>
       <button class="ghost" id="next" aria-label="Morceau suivant"><svg width="30" height="30" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5.5v13l9.5-6.5zM16.6 5.5H19v13h-2.4z"/></svg></button>
     </div>
+    <div class="mine" role="group" aria-label="Mon avis sur ce morceau">
+      <button id="fkeep" aria-pressed="false">Garder</button>
+      <button id="freject" aria-pressed="false">Rejeter</button>
+      <select id="fstatus" aria-label="Statut"></select>
+    </div>
+    <button class="btn sec" id="fnote">Note à cet instant</button>
+    <ul class="notes" id="fnotes"></ul>
     <div class="seg" id="qseg" role="group" aria-label="Qualité">
       <button data-q="lossless">Origine</button><button data-q="high">Haute</button><button data-q="eco">Éco</button>
     </div>
@@ -257,6 +277,9 @@ const lib = { q: '', sort: store.get('sv-sort', 'added'), filter: 'all', tracks:
 let quality = store.get('sv-quality', 'lossless');
 if (!QUALITY[quality]) quality = 'lossless';
 let queue = [], qi = -1, cur = null, peaks = [], ctx = '', timer;
+// Les notes du morceau en cours (repères du PC), et son écoute déjà comptée.
+let notes = [], counted = false;
+const STATUSES = [['idea', 'Idée'], ['draft', 'Brouillon'], ['wip', 'En cours'], ['to_mix', 'À mixer'], ['to_master', 'À masteriser'], ['done', 'Terminé'], ['released', 'Publié']];
 let releasesCache = null;
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -668,10 +691,47 @@ async function play(t) {
   setSession(t);
   refreshRows();
   if (lib.filter === 'compat' && $('#list')) loadLibrary();
+  counted = false; notes = []; syncMine(); renderNotes();
   peaks = []; drawBars();
+  api(`/api/tracks/${t.id}`).then(d => { if (cur !== t) return; notes = d.markers || []; t.pick = d.pick; t.status = d.status; syncMine(); renderNotes(); drawBars(); }).catch(() => {});
   try { peaks = (await api(`/api/tracks/${t.id}/waveform?points=90`)).peaks || []; } catch (e) {}
   if (cur === t) drawBars();
 }
+
+/* garder, rejeter, statut et notes : écrits sur ton PC, visibles dans le logiciel */
+$('#fstatus').innerHTML = STATUSES.map(([k, l]) => `<option value="${k}">${l}</option>`).join('');
+function syncMine() {
+  $('#fkeep').setAttribute('aria-pressed', !!cur && cur.pick === 1);
+  $('#freject').setAttribute('aria-pressed', !!cur && cur.pick === -1);
+  if (cur) $('#fstatus').value = cur.status || 'idea';
+}
+async function changeTrack(t, path, body) {
+  const d = await apiSend(`/api/tracks/${t.id}/${path}`, 'POST', body);
+  t.pick = d.pick; t.status = d.status; t.status_label = d.status_label;
+  if (cur === t) { notes = d.markers || []; syncMine(); renderNotes(); drawBars(); }
+  return d;
+}
+const mine = (body, msg) => { const t = cur; if (t) changeTrack(t, 'edit', body).then(() => toast(msg)).catch(e => { toast(e.message); syncMine(); }); };
+$('#fkeep').addEventListener('click', () => cur && mine({ pick: cur.pick === 1 ? 0 : 1 }, cur.pick === 1 ? 'Plus gardé' : 'Gardé'));
+$('#freject').addEventListener('click', () => cur && mine({ pick: cur.pick === -1 ? 0 : -1 }, cur.pick === -1 ? 'Plus rejeté' : 'Rejeté'));
+$('#fstatus').addEventListener('change', e => mine({ status: e.target.value }, 'Statut : ' + e.target.selectedOptions[0].textContent));
+$('#fnote').addEventListener('click', () => {
+  const t = cur; if (!t) return;
+  const at = audio.currentTime;
+  // Le micro du clavier du téléphone suffit pour dicter.
+  const label = prompt(`Note à ${fmt(at)} (vide : un simple repère)`, '');
+  if (label === null) return;
+  changeTrack(t, 'markers', { time: at, label }).then(() => toast('Note posée à ' + fmt(at))).catch(e => toast(e.message));
+});
+function renderNotes() {
+  $('#fnotes').innerHTML = notes.map((n, i) => `<li><button class="at" data-i="${i}" aria-label="Aller à ${fmt(n.time)}">${fmt(n.time)}</button><span>${esc(n.label)}</span><button class="rm" data-i="${i}" aria-label="Retirer la note">✕</button></li>`).join('');
+}
+$('#fnotes').addEventListener('click', e => {
+  const b = e.target.closest('button[data-i]'); if (!b || !cur) return;
+  const n = notes[+b.dataset.i]; if (!n) return;
+  if (b.classList.contains('at')) { audio.currentTime = n.time; return; }
+  changeTrack(cur, 'markers/remove', n).then(() => toast('Note retirée')).catch(e => toast(e.message));
+});
 function drawBars() {
   const done = audio.duration ? audio.currentTime / audio.duration : 0;
   for (const [el, n] of [[$('#bar'), 70], [$('#fbar'), 90]]) {
@@ -681,6 +741,8 @@ function drawBars() {
       return `<i class="${i / m < done ? 'p' : ''}" style="height:${Math.max(8, (pk || .15) * 100)}%"></i>`;
     }).join('');
   }
+  const d = (cur && cur.duration) || audio.duration;
+  if (d) $('#fbar').insertAdjacentHTML('beforeend', notes.map(n => `<b class="mk" style="left:${Math.min(100, n.time / d * 100)}%"></b>`).join(''));
 }
 function step(d) {
   if (!queue.length) return;
@@ -693,7 +755,12 @@ audio.addEventListener('timeupdate', () => {
   const done = audio.currentTime / (audio.duration || 1);
   $('#pos').textContent = $('#fpos').textContent = fmt(audio.currentTime);
   $('#dur').textContent = $('#fdur').textContent = fmt(audio.duration);
-  for (const el of [$('#bar'), $('#fbar')]) { const n = el.children.length; [...el.children].forEach((x, i) => x.classList.toggle('p', i / n < done)); }
+  for (const el of [$('#bar'), $('#fbar')]) { const bars = el.querySelectorAll('i'), n = bars.length; bars.forEach((x, i) => x.classList.toggle('p', i / n < done)); }
+  // Une écoute compte sur ton PC au bout de 30 secondes (ou de la moitié d'un morceau court).
+  if (cur && !counted && audio.currentTime >= Math.min(30, (audio.duration || 60) / 2)) {
+    counted = true;
+    apiSend(`/api/tracks/${cur.id}/played`, 'POST').catch(() => {});
+  }
   if ('mediaSession' in navigator && audio.duration && navigator.mediaSession.setPositionState) {
     try { navigator.mediaSession.setPositionState({ duration: audio.duration, position: audio.currentTime, playbackRate: 1 }); } catch (e) {}
   }

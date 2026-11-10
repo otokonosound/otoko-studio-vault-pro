@@ -544,6 +544,11 @@ fn route(st: &State, req: &Request, c: &mut Conn) -> Out {
             if p == ["api", "distant", "ecrire"] {
                 return distant_write(st, req, c);
             }
+            if let ["api", "tracks", id, rest @ ..] = p.as_slice() {
+                if let Some(id) = digits(id) {
+                    return track_write(st, req, c, id, rest);
+                }
+            }
             return Ok(c.error(404, "Adresse inconnue.")?);
         }
         _ => {
@@ -684,6 +689,72 @@ fn distant_ok(st: &State, req: &Request, c: &mut Conn) -> std::io::Result<bool> 
         return Ok(false);
     }
     Ok(true)
+}
+
+/// Une écriture venue d'une page ou d'une app à nous : l'en-tête que seul notre code envoie, et pas d'autre site
+/// (un navigateur n'envoie pas cet en-tête vers une autre adresse sans le demander d'abord).
+fn ours(req: &Request, c: &mut Conn) -> std::io::Result<bool> {
+    if req.header("X-Studio-Vault") != Some("1") {
+        c.error(403, "Requête refusée.")?;
+        return Ok(false);
+    }
+    if let Some(origin) = req.header("Origin") {
+        let o = origin.split("://").nth(1).unwrap_or("").split('/').next().unwrap_or("").split(':').next().unwrap_or("").to_lowercase();
+        let h = req.header("Host").unwrap_or("").split(':').next().unwrap_or("").to_lowercase();
+        if o != h {
+            c.error(403, "Requête refusée.")?;
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Une connexion qui écrit dans la Carrière (les lectures, elles, restent en lecture seule).
+fn writer(st: &State) -> rusqlite::Result<Connection> {
+    let con = Connection::open(&st.cfg.db)?;
+    con.busy_timeout(Duration::from_secs(5))?;
+    con.execute_batch("PRAGMA foreign_keys = ON;")?;
+    Ok(con)
+}
+
+/// Ce que le téléphone change sur un morceau en l'écoutant (voir `edits`).
+fn track_write(st: &State, req: &Request, c: &mut Conn, id: i64, rest: &[&str]) -> Out {
+    if req.method != "POST" {
+        return Ok(c.error(405, "Méthode refusée.")?);
+    }
+    if !ours(req, c)? {
+        return Ok(());
+    }
+    let Ok(b) = body(req) else { return Ok(c.error(400, "Requête illisible.")?) };
+    let con = writer(st)?;
+    // (résultat, le PC doit-il relire son écran ?) : une simple écoute ne le dérange pas.
+    let (done, shown) = match rest {
+        ["edit"] => (crate::edits::edit(&con, id, &b), true),
+        ["markers"] => (crate::edits::add_note(&con, id, &b), true),
+        ["markers", "remove"] => (crate::edits::remove_note(&con, id, &b), true),
+        ["played"] => (crate::edits::played(&con, id), false),
+        _ => return Ok(c.error(404, "Adresse inconnue.")?),
+    };
+    if shown && done.is_ok() {
+        crate::edits::stamp(&con, id);
+    }
+    drop(con);
+    match done {
+        Ok(()) => {
+            let con = st.con()?;
+            match library::get_track(&con, id)? {
+                Some(t) => {
+                    let mut l = [t];
+                    with_colors(st, &mut l);
+                    let [t] = l;
+                    Ok(c.json(200, &t)?)
+                }
+                None => Ok(c.error(404, "Morceau introuvable.")?),
+            }
+        }
+        Err(e) if e == "Morceau introuvable." => Ok(c.error(404, &e)?),
+        Err(e) => Ok(c.error(400, &e)?),
+    }
 }
 
 /// Les écritures de l'autre PC.
@@ -877,17 +948,8 @@ fn manage_ok(st: &State, req: &Request, c: &mut Conn) -> std::io::Result<bool> {
         c.error(403, "Les partages se gèrent par Tailscale (adresse https://…ts.net), pas par le Wi-Fi.")?;
         return Ok(false);
     }
-    if req.header("X-Studio-Vault") != Some("1") {
-        c.error(403, "Requête refusée.")?;
+    if !ours(req, c)? {
         return Ok(false);
-    }
-    if let Some(origin) = req.header("Origin") {
-        let o = origin.split("://").nth(1).unwrap_or("").split('/').next().unwrap_or("").split(':').next().unwrap_or("").to_lowercase();
-        let h = req.header("Host").unwrap_or("").split(':').next().unwrap_or("").to_lowercase();
-        if o != h {
-            c.error(403, "Requête refusée.")?;
-            return Ok(false);
-        }
     }
     if st.shares.is_none() {
         c.error(503, "Partages indisponibles.")?;
