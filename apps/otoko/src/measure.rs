@@ -1343,13 +1343,13 @@ fn qcm_checks(app: &AppWindow, state: &Rc<RefCell<State>>, check: &mut impl FnMu
     if !lib.get_details_open() {
         lib.invoke_key("i".into());
     }
-    let counts: Vec<usize> = (0..4)
+    let counts: Vec<usize> = (0..5)
         .map(|t| {
             lib.invoke_details_tab_changed(t);
             lib.get_fields().row_count()
         })
         .collect();
-    check(counts == [9, 3, 3, 3], &format!("détails : quatre onglets ({counts:?} champs)"));
+    check(counts == [9, 3, 3, 3, 0], &format!("détails : cinq onglets ({counts:?} champs)"));
     // Correction rapide : tempo doublé, gardé, rendu à l'analyse.
     let id = state.borrow().lib.selected.iter().next().copied().unwrap_or(0);
     let bpm = |s: &Rc<RefCell<State>>| s.borrow().career.as_ref().map(|c| field(c.conn(), id, "bpm")).unwrap_or_default().parse::<f64>().unwrap_or(0.0);
@@ -1360,6 +1360,13 @@ fn qcm_checks(app: &AppWindow, state: &Rc<RefCell<State>>, check: &mut impl FnMu
     lib.invoke_bpm_scale(0.5);
     lib.invoke_unlock();
     check(!lib.get_details_locked(), "tempo rendu à l'analyse");
+    // L'historique du morceau, et Ctrl+Z qui défait la dernière modification.
+    lib.invoke_details_tab_changed(4);
+    let hist: Vec<String> = lib.get_history().iter().map(|h| h.text.to_string()).collect();
+    check(hist.iter().any(|h| h.starts_with("Tempo : ")), &format!("historique : {hist:?}"));
+    check(lib.get_undo_label().starts_with("Rendu à l'analyse"), &format!("Ctrl+Z propose : {}", lib.get_undo_label()));
+    lib.invoke_action("undo".into());
+    check(lib.get_details_locked(), "Ctrl+Z : le tempo est de nouveau gardé contre l'analyse");
     lib.invoke_details_tab_changed(0);
     lib.invoke_close_details();
     // Mes textes.

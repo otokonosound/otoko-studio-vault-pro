@@ -12,7 +12,7 @@ Logiciel libre et gratuit, en français, pour Windows, avec une app Android.
 
 - **Bibliothèque** : tempo, tonalité, loudness, énergie et ambiance détectés tout seuls ; recherche du genre `bpm:120-128 key:Am` ; tableau ou cartes ; vues gardées ; palette Ctrl+K pour tout trouver.
 - **Écoute** : waveform, marqueurs, boucle A-B, notes, file d'attente, comparaison de deux morceaux à volume égal, « Volume égal » pour toute l'écoute, tri des idées au clavier, morceaux compatibles et roue de Camelot.
-- **Outils** : renommer, réorganiser, trouver les doublons (Ctrl+Z annule), compléter genres et artistes, éditer en lot, exporter en CSV.
+- **Outils** : renommer, réorganiser, trouver les doublons, compléter genres et artistes, éditer en lot, exporter en CSV. Ctrl+Z annule la dernière modification, de fichiers comme de fiches, et chaque morceau garde l'historique de ses changements.
 - **Ton logiciel de musique, quel qu'il soit** : FL Studio, Ableton Live, Cubase, Reaper, Bitwig… Le projet de chaque morceau s'ouvre d'un clic, et le dossier où tu exportes est surveillé : chaque nouvel export rejoint son morceau, rangé comme version.
 - **Production** : un tableau de l'idée à la sortie, des statuts qui avancent tout seuls sur preuve, tes commandes et ton carnet de clients, un outil pour construire tes sets DJ, l'Atelier Suno pour tes prompts.
 - **Mastering** : le moteur libre PhaseLimiter, installé d'un clic. Mesures avant et après, écoute à volume égal, un EP entier avec les mêmes réglages. L'original n'est jamais touché.

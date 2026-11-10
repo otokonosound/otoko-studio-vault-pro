@@ -2,7 +2,7 @@
 //! un instant précis (un repère, le même que ceux du lecteur du PC) et l'écoute elle-même (compteur et date). Rien
 //! d'autre : ni fichiers, ni titres, ni tags. Chaque valeur est vérifiée avant d'être écrite.
 
-use otoko_library::career::{STATUSES, library as lib};
+use otoko_library::career::{STATUSES, journal, library as lib};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::Value as Json;
 
@@ -30,13 +30,15 @@ pub fn edit(con: &Connection, id: i64, body: &Json) -> Result<(), String> {
     if pick.is_none() && status.is_none() {
         return Err("Rien à changer.".into());
     }
-    if let Some(p) = pick {
-        lib::set_pick(con, &[id], p).map_err(|e| e.to_string())?;
-    }
-    if let Some(s) = status {
-        lib::update(con, id, "status", s)?;
-    }
-    Ok(())
+    journal::record_as(con, "Depuis le téléphone", journal::PHONE, "", || {
+        if let Some(p) = pick {
+            lib::set_pick(con, &[id], p).map_err(|e| e.to_string())?;
+        }
+        if let Some(s) = status {
+            lib::update(con, id, "status", s)?;
+        }
+        Ok(())
+    })
 }
 
 /// Le texte d'une note : sans espaces autour, sans retours à la ligne, coupé à `NOTE_MAX` caractères ; « Note » si vide.

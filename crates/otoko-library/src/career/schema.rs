@@ -260,6 +260,26 @@ CREATE TABLE IF NOT EXISTS text_models (
 );
 ";
 
+/// L'historique des fiches (voir `journal`) : une ligne par champ changé, avec sa valeur d'avant et d'après (sans type :
+/// texte, nombre ou rien, tels quels).
+pub const JOURNAL: &str = "
+CREATE TABLE IF NOT EXISTS main.edit_log (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id  TEXT NOT NULL,
+    label     TEXT NOT NULL,
+    source    TEXT NOT NULL DEFAULT 'pc',
+    grp       TEXT NOT NULL DEFAULT '',
+    track_id  INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    field     TEXT NOT NULL,
+    old_value,
+    new_value,
+    at        TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    undone    INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS main.idx_edit_log_track ON edit_log(track_id, id);
+CREATE INDEX IF NOT EXISTS main.idx_edit_log_batch ON edit_log(batch_id);
+";
+
 /// Statuts d'un morceau, dans l'ordre de la production.
 pub const STATUSES: [(&str, &str); 7] = [
     ("idea", "Idée"),

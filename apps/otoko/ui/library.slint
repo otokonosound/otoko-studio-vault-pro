@@ -66,6 +66,15 @@ export struct VersionUi {
     sub: string,
 }
 
+// Une ligne de l'historique d'un morceau.
+export struct EditUi {
+    batch: string,
+    field: string,
+    text: string,
+    sub: string,
+    undone: bool,
+}
+
 export struct MarkUi {
     x: float,
     label: string,
@@ -134,8 +143,9 @@ export global Lib {
     in property <string> details-sub;
     // Édition en lot (Ctrl+E sur plusieurs morceaux) : leur nombre, sinon 0.
     in property <int> details-batch;
-    // 0 Infos, 1 Analyse, 2 Sortie, 3 Versions.
+    // 0 Infos, 1 Analyse, 2 Sortie, 3 Versions, 4 Historique.
     in-out property <int> details-tab;
+    in property <[EditUi]> history;
     in property <string> details-measures;
     // Tempo, tonalité ou ambiance corrigés à la main : l'analyse n'y touche plus.
     in property <bool> details-locked;
@@ -234,6 +244,8 @@ export global Lib {
     callback field-edited(string, string);
     callback tags-edited(string);
     callback version-clicked(int);
+    // Remettre un champ comme avant une modification de l'historique : (lot, champ).
+    callback history-restore(string, string);
     callback close-details();
     callback details-tab-changed(int);
     // Correction rapide de l'analyse : tempo ×2 ou ÷2, tempo tapé, retour à l'analyse.
@@ -278,13 +290,15 @@ component DTab inherits Rectangle {
     callback clicked;
     height: 28px;
     horizontal-stretch: 1;
+    // Cinq onglets dans 340 px : chacun garde au moins la place de son nom.
+    min-width: dt.preferred-width + 10px;
     border-radius: 7px;
     background: root.on ? Theme.ink4 : (ta.has-hover ? Theme.ink3 : transparent);
-    Text { text: root.text; color: root.on ? Theme.text : Theme.text2; font-size: 12px; font-weight: 700; }
+    dt := Text { text: root.text; color: root.on ? Theme.text : Theme.text2; font-size: 12px; font-weight: 700; }
     ta := Hit { ring-radius: 7px; clicked => { root.clicked(); } }
 }
 
-// Le panneau de détails d'un morceau (ou d'une sélection), en quatre onglets.
+// Le panneau de détails d'un morceau (ou d'une sélection), en cinq onglets.
 component DetailsPanel inherits Rectangle {
     property <string> menu-field;
     property <[string]> menu-choices;
@@ -330,7 +344,7 @@ component DetailsPanel inherits Rectangle {
                 HorizontalLayout {
                     padding: 2px;
                     spacing: 2px;
-                    for t[ti] in ["Infos", "Analyse", "Sortie", "Versions"]: DTab { text: t; on: Lib.details-tab == ti; clicked => { Lib.details-tab-changed(ti); } }
+                    for t[ti] in ["Infos", "Analyse", "Sortie", "Versions", "Historique"]: DTab { text: t; on: Lib.details-tab == ti; clicked => { Lib.details-tab-changed(ti); } }
                 }
             }
             if Lib.details-error != "": Text { text: Lib.details-error; color: Theme.danger; font-size: 11.5px; wrap: word-wrap; }
@@ -473,6 +487,38 @@ component DetailsPanel inherits Rectangle {
                 spacing: 6px;
                 Btn { text: "Rattacher à un morceau…"; height: 28px; ghost: true; clicked => { Lib.action("attach"); } }
                 if Lib.details-attached: Btn { text: "Détacher"; height: 28px; ghost: true; clicked => { Lib.action("detach"); } }
+            }
+
+            // ---------- Historique
+            if Lib.details-batch == 0 && Lib.details-tab == 4 && Lib.history.length == 0: Text {
+                text: "Aucune modification notée pour ce morceau. Chaque changement de sa fiche s'inscrira ici (depuis le PC, le téléphone ou les statuts automatiques), et Ctrl+Z annule le dernier fait sur ce PC.";
+                color: Theme.text3;
+                font-size: 11.5px;
+                wrap: word-wrap;
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 4: VerticalLayout {
+                spacing: 2px;
+                for h in Lib.history: Rectangle {
+                    height: max(42px, ht.preferred-height + hs.preferred-height + 12px);
+                    border-radius: 7px;
+                    background: Theme.ink1;
+                    HorizontalLayout {
+                        padding-left: 8px;
+                        padding-right: 6px;
+                        spacing: 6px;
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            alignment: center;
+                            spacing: 2px;
+                            ht := Text { text: h.text; color: h.undone ? Theme.text3 : Theme.text; font-size: 12px; wrap: word-wrap; }
+                            hs := Text { text: h.sub + (h.undone ? " · annulé" : ""); color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+                        }
+                        if !h.undone: VerticalLayout {
+                            alignment: center;
+                            Btn { text: "Remettre"; height: 24px; ghost: true; clicked => { Lib.history-restore(h.batch, h.field); } }
+                        }
+                    }
+                }
             }
 
             // ---------- Édition en lot

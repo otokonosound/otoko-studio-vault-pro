@@ -334,7 +334,8 @@ pub fn fill_board(app: &AppWindow, st: &mut State) {
 fn drop(app: &AppWindow, st: &mut State, id: i64, col: usize) {
     let Some(key) = st.home.keys.get(col).cloned() else { return };
     let Some(c) = st.career.as_ref() else { return };
-    if let Err(e) = board::drop_card(c.conn(), &st.home.mode, id, &key) {
+    let mode = st.home.mode.clone();
+    if let Err(e) = otoko_library::career::journal::record(c.conn(), "Déplacé dans Production", "", || board::drop_card(c.conn(), &mode, id, &key)) {
         app.set_message(format!("Écriture impossible : {e}").into());
         return;
     }
@@ -352,7 +353,8 @@ fn menu(app: &AppWindow, st: &mut State, id: i64, what: &str) {
         "open-project" => crate::career::open_project(app, st, id),
         "publish" | "unpublish" => {
             if let Some(c) = st.career.as_ref() {
-                let _ = board::set_to_publish(c.conn(), &[id], what == "publish");
+                let label = if what == "publish" { "Mis à publier" } else { "Retiré de « à publier »" };
+                let _ = otoko_library::career::journal::record(c.conn(), label, "", || board::set_to_publish(c.conn(), &[id], what == "publish"));
             }
             fill_board(app, st);
             fill_home(app, st);

@@ -681,7 +681,7 @@ pub fn published(app: &AppWindow, st: &mut State) {
     let Some(id) = st.career_pick else { return };
     let link = app.global::<Pub>().get_link().trim().to_string();
     if let Some(c) = st.career.as_ref() {
-        let _ = c.mark_published(id, &crate::career::today(), &link);
+        let _ = otoko_library::career::journal::record(c.conn(), "Marqué publié", "", || c.mark_published(id, &crate::career::today(), &link));
     }
     crate::career::fill(app, st);
     say(app, &format!("Morceau marqué publié aujourd'hui{}.", if link.is_empty() { String::new() } else { format!(" ({link})") }));

@@ -827,10 +827,13 @@ pub fn tags_of(conn: &Connection, id: i64) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Remplace les tags d'un morceau (« club, nuit »).
+/// Remplace les tags d'un morceau (« club, nuit ») : seuls ceux qui partent sont retirés, seuls les nouveaux sont ajoutés.
 pub fn set_tags(conn: &Connection, id: i64, list: &str) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM track_tags WHERE track_id = ?1", [id])?;
-    for t in list.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+    let wanted: Vec<&str> = list.split(',').map(str::trim).filter(|t| !t.is_empty()).collect();
+    for old in tags_of(conn, id).iter().filter(|o| !wanted.contains(&o.as_str())) {
+        conn.execute("DELETE FROM track_tags WHERE track_id = ?1 AND tag_id = (SELECT id FROM tags WHERE name = ?2)", rusqlite::params![id, old])?;
+    }
+    for t in wanted {
         conn.execute("INSERT OR IGNORE INTO tags (name) VALUES (?1)", [t])?;
         conn.execute("INSERT OR IGNORE INTO track_tags (track_id, tag_id) SELECT ?1, id FROM tags WHERE name = ?2", rusqlite::params![id, t])?;
     }

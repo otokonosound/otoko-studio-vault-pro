@@ -116,7 +116,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
             return;
         }
         let Some(c) = st.career.as_ref() else { return };
-        let msg = match releases::set_isrc(c.conn(), id as i64, raw) {
+        let msg = match otoko_library::career::journal::record(c.conn(), "Modification : ISRC", &format!("field:{id}:isrc"), || releases::set_isrc(c.conn(), id as i64, raw)) {
             Ok(v) if v.is_empty() => "ISRC effacé.".to_string(),
             Ok(v) => format!("ISRC {v} enregistré."),
             Err(e) => e,
@@ -154,7 +154,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     });
     rel_on!(app, state, on_apply_to_tracks, |app, st| {
         let n = match (st.career.as_ref(), st.rel.sheet.as_ref()) {
-            (Some(c), Some(s)) => releases::apply_to_tracks(c.conn(), s).unwrap_or(0),
+            (Some(c), Some(s)) => otoko_library::career::journal::record(c.conn(), "Fiche de sortie appliquée", "", || releases::apply_to_tracks(c.conn(), s).unwrap_or(0)),
             _ => 0,
         };
         app.global::<Rel>().set_msg(format!("Album, type et numéros appliqués à {n} morceau(x).").into());

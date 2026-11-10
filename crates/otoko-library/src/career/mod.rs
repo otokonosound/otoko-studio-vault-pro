@@ -15,6 +15,7 @@ pub mod folders;
 pub mod home;
 pub mod humeur;
 pub mod import;
+pub mod journal;
 pub mod liens;
 pub mod library;
 pub mod mastering;
@@ -282,6 +283,7 @@ impl Career {
         if old {
             migrate_first_version(&db)?;
         }
+        db.execute_batch(schema::JOURNAL)?;
         Ok(Career { db })
     }
 

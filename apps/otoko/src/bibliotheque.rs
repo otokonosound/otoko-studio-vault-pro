@@ -10,12 +10,13 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
+use otoko_library::career::journal;
 use otoko_library::career::library::{self as lib, Chips, Nav, Row};
 use otoko_library::career::{NATURES, RELEASE_TYPES, STATUSES, nature_short, release_label, status_label};
 use slint::{ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
 use crate::state::{Done, State};
-use crate::{AppWindow, ColUi, LibFieldUi, Lib, LibRowUi, NavUi, VersionUi, settings};
+use crate::{AppWindow, ColUi, EditUi, LibFieldUi, Lib, LibRowUi, NavUi, VersionUi, settings};
 
 macro_rules! lib_on {
     ($app:expr, $state:expr, $setter:ident, |$a:ident, $st:ident $(, $arg:ident)*| $body:block) => {{
@@ -70,6 +71,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     lib_on!(app, state, on_field_edited, |app, st, key, value| { field_edited(&app, st, key.as_str(), value.as_str()); });
     lib_on!(app, state, on_tags_edited, |app, st, text| { tags_edited(&app, st, text.as_str()); });
     lib_on!(app, state, on_version_clicked, |app, st, id| { version_clicked(&app, st, id as i64); });
+    lib_on!(app, state, on_history_restore, |app, st, batch, field| { history_restore(&app, st, batch.as_str(), field.as_str()); });
     lib_on!(app, state, on_close_details, |app, st| { close_details(&app, st); });
     lib_on!(app, state, on_details_tab_changed, |app, st, tab| {
         app.global::<Lib>().set_details_tab(tab);
@@ -282,7 +284,7 @@ pub fn refresh_rows(app: &AppWindow, st: &mut State) {
     g.set_title(n.label.as_str().into());
     let total: f64 = st.lib.rows.iter().filter_map(|r| r.duration).sum();
     g.set_count_text(format!("{} · {} morceau{} · {:.1} h", n.label, st.lib.rows.len(), if st.lib.rows.len() > 1 { "x" } else { "" }, total / 3600.0).into());
-    g.set_undo_label(otoko_library::career::files::last_batch(c.conn()).map(|b| format!("{} ({} fichier{})", b.1, b.2, if b.2 > 1 { "s" } else { "" })).unwrap_or_default().into());
+    g.set_undo_label(crate::outils::undo_label(c).into());
     let (cols, all, fixed) = cols_ui(&st.lib);
     let wave = cols.iter().find(|c| c.key == "wave");
     g.set_wave_x(wave.map(|c| c.x).unwrap_or(-1.0));
@@ -419,6 +421,8 @@ fn update_row(app: &AppWindow, st: &mut State, id: i64) {
             m.set_row_data(i, ui);
         }
     }
+    let Some(c) = st.career.as_ref() else { return };
+    app.global::<Lib>().set_undo_label(crate::outils::undo_label(c).into());
 }
 
 
@@ -1070,7 +1074,12 @@ pub fn action(app: &AppWindow, st: &mut State, what: &str) {
                 _ => 0,
             };
             if let Some(c) = st.career.as_ref() {
-                if let Err(e) = lib::set_pick(c.conn(), &ids, v) {
+                let label = match v {
+                    1 => "Gardé",
+                    -1 => "Rejeté",
+                    _ => "Remis à neutre",
+                };
+                if let Err(e) = journal::record(c.conn(), label, "", || lib::set_pick(c.conn(), &ids, v)) {
                     app.set_message(format!("Choix non enregistré : {e}").into());
                 }
             }
@@ -1084,7 +1093,7 @@ pub fn action(app: &AppWindow, st: &mut State, what: &str) {
         "archive" => {
             let archive = !st.lib.rows.iter().filter(|r| ids.contains(&r.id)).all(|r| r.archived);
             if let Some(c) = st.career.as_ref() {
-                let _ = lib::set_archived(c.conn(), &ids, archive);
+                let _ = journal::record(c.conn(), if archive { "Archivage" } else { "Sortie des archives" }, "", || lib::set_archived(c.conn(), &ids, archive));
             }
             app.set_message(
                 if archive { format!("{} morceau(x) archivé(s) — retrouvables dans la vue « Archives ».", ids.len()) } else { format!("{} morceau(x) sorti(s) des archives.", ids.len()) }.into(),
@@ -1219,6 +1228,7 @@ pub fn details(app: &AppWindow, st: &mut State) {
             text("published_at", "PUBLIÉ LE (AAAA-MM-JJ)"),
         ],
         3 => vec![pick("role", "TYPE DE FICHIER", lib::role_label(&r.role)), text("version_label", "VERSION"), text("daw_project", "PROJET (FL, ABLETON, CUBASE, REAPER…)")],
+        4 => Vec::new(),
         _ => vec![
             text("title", "TITRE"),
             text("artist", "ARTISTE"),
@@ -1232,6 +1242,20 @@ pub fn details(app: &AppWindow, st: &mut State) {
         ],
     };
     g.set_fields(model(fields));
+    let history = if g.get_details_tab() == 4 { journal::history(c.conn(), id, 60) } else { Vec::new() };
+    g.set_history(model(
+        history
+            .into_iter()
+            .map(|h| {
+                let from = match h.source.as_str() {
+                    journal::PHONE => " · depuis le téléphone",
+                    journal::AUTO => " · automatique",
+                    _ => "",
+                };
+                EditUi { batch: h.batch.into(), field: h.field.into(), text: h.text.into(), sub: format!("{}{from} · {}", h.label, h.when).into(), undone: h.undone }
+            })
+            .collect(),
+    ));
     g.set_details_locked(["bpm", "music_key", "mood_auto"].iter().any(|k| lib::locked(c.conn(), id, k)));
     g.set_details_releases(model(lib::releases_of(c.conn(), id).into_iter().map(|(rid, title, sub)| VersionUi { id: rid as i32, title: title.into(), sub: sub.into() }).collect()));
     g.set_details_id(id as i32);
@@ -1297,7 +1321,9 @@ pub fn field_edited(app: &AppWindow, st: &mut State, key: &str, value: &str) {
     // En lot : le champ modifié vaut pour toute la sélection.
     if st.lib.batch.len() > 1 {
         let ids = st.lib.batch.clone();
-        let errors: Vec<String> = ids.iter().filter_map(|i| lib::update(c.conn(), *i, key, value).err()).collect();
+        let label = format!("Édition en lot : {}", field_name(key));
+        let grp = format!("lot:{key}:{}:{}", ids[0], ids.len());
+        let errors: Vec<String> = journal::record(c.conn(), &label, &grp, || ids.iter().filter_map(|i| lib::update(c.conn(), *i, key, value).err()).collect());
         st.lib.details_error = errors.into_iter().next().unwrap_or_default();
         for i in ids {
             update_row(app, st, i);
@@ -1308,7 +1334,8 @@ pub fn field_edited(app: &AppWindow, st: &mut State, key: &str, value: &str) {
         }
         return;
     }
-    st.lib.details_error = match lib::update(c.conn(), id, key, value) {
+    let label = format!("Modification : {}", field_name(key));
+    st.lib.details_error = match journal::record(c.conn(), &label, &format!("field:{id}:{key}"), || lib::update(c.conn(), id, key, value)) {
         Ok(()) => String::new(),
         Err(e) => e,
     };
@@ -1318,6 +1345,24 @@ pub fn field_edited(app: &AppWindow, st: &mut State, key: &str, value: &str) {
     if ["status", "nature", "role", "release_type"].contains(&key) {
         details(app, st);
     }
+}
+
+/// Remet un champ comme avant une modification de l'historique.
+fn history_restore(app: &AppWindow, st: &mut State, batch: &str, field: &str) {
+    let Some(id) = st.lib.details else { return };
+    let Some(c) = st.career.as_ref() else { return };
+    let msg = match journal::restore(c.conn(), id, batch, field) {
+        Ok(name) => format!("{name} remis comme avant (Ctrl+Z pour revenir)."),
+        Err(e) => e,
+    };
+    app.set_message(msg.into());
+    update_row(app, st, id);
+    details(app, st);
+}
+
+/// Le nom d'un champ dans l'historique et le menu Annuler.
+pub fn field_name(key: &str) -> &'static str {
+    journal::FIELDS.iter().find(|f| f.0 == key).map(|f| f.1).unwrap_or("Fiche")
 }
 
 /// Le morceau du panneau, ou la sélection : ce que les corrections rapides visent.
@@ -1330,7 +1375,7 @@ fn targets(st: &State) -> Vec<i64> {
 fn bpm_scale(app: &AppWindow, st: &mut State, factor: f64) {
     let ids = targets(st);
     let Some(c) = st.career.as_ref() else { return };
-    let n = lib::scale_bpm(c.conn(), &ids, factor).unwrap_or(0);
+    let n = journal::record(c.conn(), if factor < 1.0 { "Tempo ÷ 2" } else { "Tempo × 2" }, "", || lib::scale_bpm(c.conn(), &ids, factor).unwrap_or(0));
     for id in ids {
         update_row(app, st, id);
     }
@@ -1366,7 +1411,7 @@ fn tap(app: &AppWindow, st: &mut State) {
 fn tap_keep(app: &AppWindow, st: &mut State) {
     let (Some(b), Some(id)) = (st.lib.tap_bpm, st.lib.details) else { return };
     let Some(c) = st.career.as_ref() else { return };
-    let _ = lib::update(c.conn(), id, "bpm", &format!("{b:.1}"));
+    let _ = journal::record(c.conn(), "Tempo tapé", "", || lib::update(c.conn(), id, "bpm", &format!("{b:.1}")));
     st.lib.taps.clear();
     st.lib.tap_bpm = None;
     app.global::<Lib>().set_details_tap("".into());
@@ -1378,9 +1423,11 @@ fn tap_keep(app: &AppWindow, st: &mut State) {
 fn unlock(app: &AppWindow, st: &mut State) {
     let Some(id) = st.lib.details else { return };
     if let Some(c) = st.career.as_ref() {
-        for k in ["bpm", "music_key", "mood_auto"] {
-            let _ = lib::lock(c.conn(), id, k, false);
-        }
+        journal::record(c.conn(), "Rendu à l'analyse", "", || {
+            for k in ["bpm", "music_key", "mood_auto"] {
+                let _ = lib::lock(c.conn(), id, k, false);
+            }
+        });
     }
     app.set_message("Rendu à l'analyse : le prochain passage remplacera ces valeurs.".into());
     details(app, st);
@@ -1389,7 +1436,7 @@ fn unlock(app: &AppWindow, st: &mut State) {
 pub fn tags_edited(app: &AppWindow, st: &mut State, text: &str) {
     let Some(id) = st.lib.details else { return };
     if let Some(c) = st.career.as_ref() {
-        let _ = lib::set_tags(c.conn(), id, text);
+        let _ = journal::record(c.conn(), "Modification : Tags", &format!("tags:{id}"), || lib::set_tags(c.conn(), id, text));
     }
     let _ = app;
 }

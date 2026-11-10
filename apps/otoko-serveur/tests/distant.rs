@@ -243,6 +243,10 @@ fn the_phone_writes_what_it_hears() {
     // Le logiciel du PC sait qu'il doit relire ce morceau (une écoute ne compte pas).
     let c = Career::open(&tmp.join("carriere.db")).unwrap();
     assert_eq!(c.setting(otoko_mobile::edits::STAMP).as_deref(), Some("1:2"));
+    // Et l'historique du morceau dit ce que le téléphone a changé ; Ctrl+Z sur le PC n'y touche pas.
+    let h: Vec<String> = otoko_library::career::journal::history(c.conn(), 1, 10).iter().map(|e| format!("{} ({})", e.text, e.source)).collect();
+    assert!(h.contains(&"Statut : Idée → En cours (téléphone)".to_string()) && h.contains(&"Choix : Neutre → Gardé (téléphone)".to_string()), "{h:?}");
+    assert!(otoko_library::career::journal::last(c.conn(), otoko_library::career::journal::PC).is_none());
     drop(c);
     server.stop();
     let _ = std::fs::remove_dir_all(&tmp);
