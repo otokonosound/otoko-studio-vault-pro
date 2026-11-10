@@ -70,6 +70,7 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     lib_on!(app, state, on_add_folder, |app, st| { add_folder(&app, st); });
     lib_on!(app, state, on_field_edited, |app, st, key, value| { field_edited(&app, st, key.as_str(), value.as_str()); });
     lib_on!(app, state, on_tags_edited, |app, st, text| { tags_edited(&app, st, text.as_str()); });
+    lib_on!(app, state, on_edits_done, |app, st| { reload_nav(&app, st); });
     lib_on!(app, state, on_version_clicked, |app, st, id| { version_clicked(&app, st, id as i64); });
     lib_on!(app, state, on_drag_out, |app, st, row| { crate::glisser::drag_out(&app, st, row.max(0) as usize); });
     lib_on!(app, state, on_history_restore, |app, st, batch, field| { history_restore(&app, st, batch.as_str(), field.as_str()); });
@@ -157,7 +158,7 @@ fn model<T: Clone + 'static>(v: Vec<T>) -> ModelRc<T> {
 
 /// Les colonnes montrées (Titre toujours, en premier). Un choix enregistré avant l'arrivée de la colonne Onde la gagne
 /// une fois, juste après le titre ; on peut ensuite la retirer.
-fn shown_cols() -> Vec<String> {
+pub(crate) fn shown_cols() -> Vec<String> {
     let mut v: Vec<String> = settings::get("career_columns")
         .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
         .unwrap_or_else(|| lib::DEFAULT_COLUMNS.iter().map(|s| s.to_string()).collect());
@@ -245,6 +246,28 @@ fn push_nav(app: &AppWindow, st: &State) {
 }
 
 /// L'entrée de navigation d'une ligne de l'interface (les titres de section n'en ont pas).
+/// Relit les nombres de la colonne de gauche (tags, genres, statuts…) après une modification, sans changer de
+/// liste ouverte : l'entrée ouverte est retrouvée même si l'ordre a bougé (un tag passé devant un autre). Si elle
+/// n'existe plus (le dernier morceau d'un tag l'a perdu), la colonne reste telle quelle jusqu'au prochain passage.
+pub fn reload_nav(app: &AppWindow, st: &mut State) {
+    let Some(c) = st.career.as_ref() else { return };
+    let mut nav = lib::nav(c.conn());
+    if let Some(x) = &st.lib.extra {
+        nav.insert(1, x.clone());
+    }
+    let same = |a: &lib::Nav, b: &lib::Nav| a.section == b.section && a.label == b.label && a.where_sql == b.where_sql && a.params == b.params;
+    let active = match st.lib.nav.get(st.lib.active) {
+        Some(open) => match nav.iter().position(|n| same(n, open)) {
+            Some(i) => i,
+            None => return,
+        },
+        None => 0,
+    };
+    st.lib.nav = nav;
+    st.lib.active = active;
+    push_nav(app, st);
+}
+
 fn nav_index(st: &State, ui: usize) -> Option<usize> {
     let mut section = String::new();
     let mut k = 0;
@@ -1333,6 +1356,7 @@ pub fn field_edited(app: &AppWindow, st: &mut State, key: &str, value: &str) {
         app.global::<Lib>().set_details_error(st.lib.details_error.as_str().into());
         if ["status", "nature", "release_type"].contains(&key) {
             details(app, st);
+            reload_nav(app, st);
         }
         return;
     }
@@ -1343,9 +1367,13 @@ pub fn field_edited(app: &AppWindow, st: &mut State, key: &str, value: &str) {
     };
     update_row(app, st, id);
     app.global::<Lib>().set_details_error(st.lib.details_error.as_str().into());
-    // Un choix dans une liste se voit tout de suite dans le panneau.
+    // Un choix dans une liste se voit tout de suite dans le panneau, et dans les nombres de la colonne de gauche.
     if ["status", "nature", "role", "release_type"].contains(&key) {
         details(app, st);
+    }
+    // La tonalité se choisit aussi dans une liste ; les champs à taper se comptent quand on les quitte.
+    if ["status", "nature", "role", "release_type", "music_key"].contains(&key) {
+        reload_nav(app, st);
     }
 }
 

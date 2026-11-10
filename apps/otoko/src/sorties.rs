@@ -157,7 +157,11 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
             (Some(c), Some(s)) => otoko_library::career::journal::record(c.conn(), "Fiche de sortie appliquée", "", || releases::apply_to_tracks(c.conn(), s).unwrap_or(0)),
             _ => 0,
         };
-        app.global::<Rel>().set_msg(format!("Album, type et numéros appliqués à {n} morceau(x).").into());
+        // La colonne « N° » n'est pas dans le tableau de départ : dire où voir les numéros, et comment les mettre
+        // dans les fichiers.
+        let hidden = !crate::bibliotheque::shown_cols().iter().any(|k| k == "track_no");
+        let see = if hidden { " Pour les voir dans la bibliothèque, coche « N° » dans « Colonnes »." } else { "" };
+        app.global::<Rel>().set_msg(format!("Album, type et numéros appliqués à {n} morceau(x).{see} « Écrire les tags dans le fichier » les met aussi dans les fichiers.").into());
         crate::bibliotheque::refresh_rows(&app, st);
     });
     rel_on!(app, state, on_prefill_credits, |app, st| { prefill_credits(&app, st); });
