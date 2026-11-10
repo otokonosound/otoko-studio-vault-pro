@@ -139,11 +139,12 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
 
     // ---- Sorties
     if let Ok(mut st) = conn.prepare(
-        "SELECT r.id, r.title, COUNT(rt.track_id) FROM releases r LEFT JOIN release_tracks rt ON rt.release_id = r.id
-         GROUP BY r.id ORDER BY (r.release_date = ''), r.release_date DESC, r.title",
+        "SELECT r.id, r.title FROM releases r ORDER BY (r.release_date = ''), r.release_date DESC, r.title",
     ) {
-        let rels: Vec<(i64, String, i64)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map(|r| r.flatten().collect()).unwrap_or_default();
-        for (id, title, n) in rels {
+        let rels: Vec<(i64, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map(|r| r.flatten().collect()).unwrap_or_default();
+        for (id, title) in rels {
+            // Compté comme le montre un clic : sans les fichiers manquants ni les archives.
+            let n = count(conn, &format!("missing = 0 AND id IN (SELECT track_id FROM release_tracks WHERE release_id = ?){ex}"), &join(vec![Value::Integer(id)], &ep));
             out.push(Nav {
                 section: "SORTIES".into(),
                 label: title,
@@ -161,13 +162,16 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
         let prompts: Vec<(i64, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map(|r| r.flatten().collect()).unwrap_or_default();
         for (id, name) in prompts {
             let params = vec![Value::Integer(id)];
-            let n = count(conn, "missing = 0 AND prompt_id = ?", &params);
+            let n = count(conn, &format!("missing = 0 AND prompt_id = ?{ex}"), &join(params.clone(), &ep));
             out.push(Nav { section: "PROMPTS SUNO".into(), label: name, count: n, where_sql: "missing = 0 AND prompt_id = ?".into(), params, color: "#c67bff".into(), ..Default::default() });
         }
     }
 
     // ---- Dossiers : les dossiers surveillés et leurs sous-dossiers directs
-    let paths: Vec<String> = conn.prepare("SELECT path FROM tracks WHERE missing = 0").and_then(|mut s| s.query_map([], |r| r.get(0))?.collect()).unwrap_or_default();
+    let paths: Vec<String> = conn
+        .prepare(&format!("SELECT path FROM tracks WHERE missing = 0{ex}"))
+        .and_then(|mut s| s.query_map(params_from_iter(ep.iter()), |r| r.get(0))?.collect())
+        .unwrap_or_default();
     for (id, root, _) in super::scan::watch_folders(conn) {
         let r = root.trim_end_matches(['\\', '/']).replace('/', "\\");
         let rl = format!("{}\\", r.to_lowercase());
@@ -207,13 +211,14 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
         conn,
         &mut out,
         "GENRES",
-        "SELECT genre, COUNT(*) c FROM tracks WHERE missing = 0 AND genre IS NOT NULL AND genre <> '' GROUP BY genre ORDER BY c DESC LIMIT 20",
+        &format!("SELECT genre, COUNT(*) c FROM tracks WHERE missing = 0 AND genre IS NOT NULL AND genre <> ''{ex} GROUP BY genre ORDER BY c DESC LIMIT 20"),
+        &ep,
         &|g| g.to_string(),
         "missing = 0 AND genre = ?",
     );
     let natures: Vec<(String, i64)> = conn
-        .prepare("SELECT COALESCE(nature, 'original'), COUNT(*) FROM tracks WHERE missing = 0 GROUP BY 1")
-        .and_then(|mut s| s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
+        .prepare(&format!("SELECT COALESCE(nature, 'original'), COUNT(*) FROM tracks WHERE missing = 0{ex} GROUP BY 1"))
+        .and_then(|mut s| s.query_map(params_from_iter(ep.iter()), |r| Ok((r.get(0)?, r.get(1)?)))?.collect())
         .unwrap_or_default();
     if natures.iter().any(|n| n.0 != "original") {
         for (code, label, _) in super::NATURES {
@@ -231,7 +236,7 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
     }
     for (code, label) in super::STATUSES {
         let params = vec![Value::Text(code.into())];
-        let n = count(conn, "missing = 0 AND status = ?", &params);
+        let n = count(conn, &format!("missing = 0 AND status = ?{ex}"), &join(params.clone(), &ep));
         if n == 0 && !["draft", "wip", "done"].contains(&code) {
             continue;
         }
@@ -241,7 +246,7 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
     out.push(Nav { section: "STATUT".into(), label: "À publier".into(), count: n, where_sql: TO_PUBLISH_SQL.into(), ..Default::default() });
     for (label, lo, hi) in BPM_BUCKETS {
         let params = vec![Value::Real(lo), Value::Real(hi)];
-        let n = count(conn, "missing = 0 AND bpm >= ? AND bpm < ?", &params);
+        let n = count(conn, &format!("missing = 0 AND bpm >= ? AND bpm < ?{ex}"), &join(params.clone(), &ep));
         if n > 0 {
             out.push(Nav { section: "TEMPO".into(), label: label.into(), count: n, where_sql: "missing = 0 AND bpm >= ? AND bpm < ?".into(), params, ..Default::default() });
         }
@@ -250,7 +255,8 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
         conn,
         &mut out,
         "TONALITÉS",
-        "SELECT music_key, COUNT(*) c FROM tracks WHERE missing = 0 AND music_key IS NOT NULL AND music_key <> '' GROUP BY music_key ORDER BY c DESC LIMIT 15",
+        &format!("SELECT music_key, COUNT(*) c FROM tracks WHERE missing = 0 AND music_key IS NOT NULL AND music_key <> ''{ex} GROUP BY music_key ORDER BY c DESC LIMIT 15"),
+        &ep,
         &|k| {
             let c = camelot::camelot(k);
             if c.is_empty() { k.to_string() } else { format!("{k}  ({c})") }
@@ -261,7 +267,8 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
         conn,
         &mut out,
         "TAGS",
-        "SELECT t.name, COUNT(tt.track_id) c FROM tags t JOIN track_tags tt ON tt.tag_id = t.id JOIN tracks tr ON tr.id = tt.track_id AND tr.missing = 0 GROUP BY t.name ORDER BY c DESC LIMIT 30",
+        &format!("SELECT name, COUNT(*) c FROM (SELECT t.name FROM tags t JOIN track_tags tt ON tt.tag_id = t.id WHERE tt.track_id IN (SELECT id FROM tracks WHERE missing = 0{ex})) GROUP BY name ORDER BY c DESC LIMIT 30"),
+        &ep,
         &|t| t.to_string(),
         "missing = 0 AND id IN (SELECT track_id FROM track_tags JOIN tags ON tags.id = track_tags.tag_id WHERE tags.name = ?)",
     );
@@ -269,16 +276,21 @@ pub fn nav(conn: &Connection) -> Vec<Nav> {
         conn,
         &mut out,
         "FORMATS",
-        "SELECT IFNULL(file_format, ''), COUNT(*) c FROM tracks WHERE missing = 0 GROUP BY file_format ORDER BY c DESC",
+        &format!("SELECT IFNULL(file_format, ''), COUNT(*) c FROM tracks WHERE missing = 0{ex} GROUP BY file_format ORDER BY c DESC"),
+        &ep,
         &|f| if f.is_empty() { "?".into() } else { f.to_uppercase() },
         "missing = 0 AND file_format = ?",
     );
     out
 }
 
-/// Une section dont chaque valeur (genre, tonalité…) est une entrée.
-fn grouped(conn: &Connection, out: &mut Vec<Nav>, section: &str, sql: &str, label: &dyn Fn(&str) -> String, where_sql: &str) {
-    let rows: Vec<(String, i64)> = conn.prepare(sql).and_then(|mut s| s.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?)))?.collect()).unwrap_or_default();
+/// Une section dont chaque valeur (genre, tonalité…) est une entrée. Les nombres comptent comme un clic montre
+/// la liste : la requête reçoit la même condition sur les archives (`params`).
+fn grouped(conn: &Connection, out: &mut Vec<Nav>, section: &str, sql: &str, params: &[Value], label: &dyn Fn(&str) -> String, where_sql: &str) {
+    let rows: Vec<(String, i64)> = conn
+        .prepare(sql)
+        .and_then(|mut s| s.query_map(params_from_iter(params.iter()), |r| Ok((r.get::<_, String>(0)?, r.get(1)?)))?.collect())
+        .unwrap_or_default();
     for (v, n) in rows {
         out.push(Nav { section: section.into(), label: label(&v), count: n, where_sql: where_sql.into(), params: vec![Value::Text(v)], ..Default::default() });
     }

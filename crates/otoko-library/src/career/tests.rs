@@ -384,3 +384,36 @@ fn real_scan_diff() {
     drop(conn);
     let _ = std::fs::remove_dir_all(tmp);
 }
+/// Les nombres de la colonne de gauche (tags, genres, statuts, sorties…) sont ceux de la liste qu'un clic ouvre :
+/// ni les morceaux archivés, ni ceux d'un dossier d'archives n'y sont comptés.
+#[test]
+fn nav_counts_match_the_list() {
+    let (c, path) = temp_career("nombres");
+    let conn = c.conn();
+    conn.execute_batch(
+        "INSERT INTO tracks (id, path, filename, title, genre, music_key, bpm, status, file_format, archived) VALUES
+             (1, 'C:\\Musique\\Nuit.wav', 'Nuit.wav', 'Nuit', 'House', 'Am', 124, 'done', 'wav', 0),
+             (2, 'C:\\Musique\\Jour.wav', 'Jour.wav', 'Jour', 'House', 'Am', 124, 'done', 'wav', 1),
+             (3, 'C:\\Musique\\old\\Soir.wav', 'Soir.wav', 'Soir', 'House', 'Am', 124, 'done', 'wav', 0);
+         INSERT INTO releases (id, title) VALUES (1, 'EP');
+         INSERT INTO release_tracks (release_id, track_id, position) VALUES (1, 1, 1), (1, 2, 2), (1, 3, 3);",
+    )
+    .unwrap();
+    for id in 1..=3 {
+        library::set_tags(conn, id, "club, 2024").unwrap();
+    }
+    let nav = library::nav(conn);
+    let mut seen = Vec::new();
+    for n in nav.iter().filter(|n| n.section != "VUES" || n.label == "Tous les morceaux") {
+        let (w, p) = library::full_where(conn, &n.where_sql, &n.params, false, &library::Chips::default(), "");
+        let shown = library::rows(conn, &w, &p, library::DEFAULT_ORDER).unwrap().len() as i64;
+        assert_eq!(n.count, shown, "{} / {}", n.section, n.label);
+        seen.push(format!("{}:{}", n.section, n.label));
+    }
+    for want in ["TAGS:club", "TAGS:2024", "GENRES:House", "SORTIES:EP", "FORMATS:WAV", "STATUT:Terminé"] {
+        assert!(seen.iter().any(|s| s == want), "{want} manque : {seen:?}");
+    }
+    assert_eq!(nav.iter().find(|n| n.label == "2024").map(|n| n.count), Some(1));
+    drop(c);
+    let _ = std::fs::remove_file(&path);
+}

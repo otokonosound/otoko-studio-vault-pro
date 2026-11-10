@@ -243,6 +243,8 @@ export global Lib {
     callback add-folder();
     callback field-edited(string, string);
     callback tags-edited(string);
+    // On quitte un champ du panneau de détails : les nombres de la colonne de gauche se mettent à jour.
+    callback edits-done();
     callback version-clicked(int);
     // Une ligne tirée hors de la liste : elle part comme un fichier (vers un logiciel de musique, l'Explorateur…).
     callback drag-out(int);
@@ -370,6 +372,7 @@ component DetailsPanel inherits Rectangle {
                         single-line: f.key != "notes";
                         wrap: f.key == "notes" ? word-wrap : no-wrap;
                         edited => { Lib.field-edited(f.key, self.text); }
+                        changed has-focus => { if !self.has-focus { Lib.edits-done(); } }
                     }
                 }
                 if f.kind == 1: Rectangle {
@@ -409,6 +412,8 @@ component DetailsPanel inherits Rectangle {
                         vertical-alignment: center;
                         single-line: true;
                         edited => { Lib.tags-edited(self.text); }
+                        accepted => { Lib.edits-done(); }
+                        changed has-focus => { if !self.has-focus { Lib.edits-done(); } }
                     }
                 }
             }
