@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Otoko Studio Vault Pro</title>
+<meta name="description" content="Le logiciel libre et gratuit des producteurs de musique : ta bibliothèque rangée, analysée et écoutée partout. Windows et Android.">
+<meta property="og:title" content="Otoko Studio Vault Pro">
+<meta property="og:description" content="Ta musique rangée, retrouvée, écoutée partout. Libre et gratuit, pour Windows et Android.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Mise en page : « Nocturne », la direction du logiciel lui-même. Îlots d'encre bleu nuit séparés par
+   des interstices sombres, une seule chaleur (braise) pour l'action, une lagune pour ce qui joue. */
+:root{
+  --ink0:#090A10; --ink1:#10121A; --ink2:#161924; --ink3:#1E2230; --ink4:#2A2F40;
+  --line:rgba(190,200,255,.08); --line2:rgba(190,200,255,.15);
+  --text:#ECEEF6; --text2:#A9AFC3; --text3:#7C829A;
+  --ember:#FF6A3D; --ember2:#FFB547; --ember-soft:rgba(255,106,61,.14); --on-ember:#1A0B06;
+  --lagoon:#35D9C3; --lagoon-soft:rgba(53,217,195,.14);
+  --glow:rgba(255,106,61,.28); --shadow:0 40px 120px -30px rgba(0,0,0,.75);
+  --display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --ui:"Instrument Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",Consolas,ui-monospace,monospace;
+  --r-s:6px; --r:10px; --r-l:14px; --r-xl:22px;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){
+  --ink0:#E7E5DF; --ink1:#F5F4F0; --ink2:#FFFFFF; --ink3:#ECEAE4; --ink4:#D9D6CD;
+  --line:rgba(20,24,40,.10); --line2:rgba(20,24,40,.18);
+  --text:#151824; --text2:#474D63; --text3:#666C84;
+  --ember:#D9480F; --ember2:#B97A06; --ember-soft:rgba(224,80,28,.12); --on-ember:#FFFFFF;
+  --lagoon:#0B8574; --lagoon-soft:rgba(12,147,129,.12);
+  --glow:rgba(224,80,28,.18); --shadow:0 40px 100px -40px rgba(40,30,20,.35);
+  color-scheme:light;
+}}
+:root[data-theme="light"]{
+  --ink0:#E7E5DF; --ink1:#F5F4F0; --ink2:#FFFFFF; --ink3:#ECEAE4; --ink4:#D9D6CD;
+  --line:rgba(20,24,40,.10); --line2:rgba(20,24,40,.18);
+  --text:#151824; --text2:#474D63; --text3:#666C84;
+  --ember:#D9480F; --ember2:#B97A06; --ember-soft:rgba(224,80,28,.12); --on-ember:#FFFFFF;
+  --lagoon:#0B8574; --lagoon-soft:rgba(12,147,129,.12);
+  --glow:rgba(224,80,28,.18); --shadow:0 40px 100px -40px rgba(40,30,20,.35);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--ink0);color:var(--text);font:17px/1.6 var(--ui);overflow-x:hidden;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--lagoon);outline-offset:3px;border-radius:6px}
+.wrap{max-width:1200px;margin-inline:auto;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px))}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:-.025em;line-height:1.02}
+p{margin:0}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font:500 12.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ember)}
+.grad{background:linear-gradient(100deg,var(--ember),var(--ember2));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* barre de progression + nav */
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:60;background:var(--ink0)}
+#prog{position:fixed;left:0;top:env(safe-area-inset-top,0px);height:3px;width:100%;transform-origin:0 50%;transform:scaleX(0);background:linear-gradient(90deg,var(--ember),var(--ember2),var(--lagoon));z-index:70}
+.nav{position:sticky;top:env(safe-area-inset-top,0px);z-index:50;backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);background:color-mix(in srgb,var(--ink0) 72%,transparent);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:22px;height:64px}
+.brand{display:flex;align-items:center;gap:11px;text-decoration:none;font:800 17px/1 var(--display);letter-spacing:-.01em;white-space:nowrap}
+.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,#FF7445,#FFAA40);display:grid;place-items:center;flex:none;box-shadow:0 6px 20px -6px var(--glow)}
+.logo::after{content:"";width:52%;height:52%;border-radius:50%;border:4px solid #1A0B06}
+.brand small{font:500 12px/1 var(--mono);color:var(--text3);letter-spacing:.04em}
+.nav nav{display:flex;gap:4px;margin-left:auto}
+.nav nav a{text-decoration:none;color:var(--text2);font-size:15px;font-weight:500;padding:8px 12px;border-radius:99px;transition:color .2s,background .2s}
+.nav nav a:hover{color:var(--text);background:var(--ink3)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;text-decoration:none;font-weight:700;border-radius:99px;padding:15px 26px;border:1px solid transparent;cursor:pointer;transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s,background .2s,border-color .2s;white-space:nowrap}
+.btn svg{width:18px;height:18px;flex:none}
+.btn.pri{background:linear-gradient(100deg,var(--ember),var(--ember2));color:var(--on-ember);box-shadow:0 14px 40px -12px var(--glow),inset 0 1px 0 rgba(255,255,255,.3);position:relative;overflow:hidden}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 35%,rgba(255,255,255,.45) 50%,transparent 65%);transform:translateX(-120%);animation:sheen 4.5s ease-in-out infinite}
+@keyframes sheen{0%,60%{transform:translateX(-120%)}85%,100%{transform:translateX(120%)}}
+.btn.pri:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 22px 50px -12px var(--glow),inset 0 1px 0 rgba(255,255,255,.3)}
+.btn.sec{background:var(--ink2);border-color:var(--line2);color:var(--text)}
+.btn.sec:hover{border-color:var(--ember);transform:translateY(-2px)}
+.btn.sm{padding:10px 18px;font-size:15px}
+@media (max-width:860px){.nav nav{display:none}.nav .btn{margin-left:auto}.brand small{display:none}}
+
+/* hero */
+.hero{position:relative;padding-block:clamp(48px,8vw,104px) 0;overflow:hidden}
+#waves{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:.9;-webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent)}
+.hero .wrap{position:relative}
+.pill{display:inline-flex;flex-wrap:wrap;align-items:center;gap:10px;padding:7px 14px 7px 8px;border:1px solid var(--line2);border-radius:99px;background:color-mix(in srgb,var(--ink2) 80%,transparent);font-size:14px;color:var(--text2)}
+.pill b{font:700 11.5px/1 var(--mono);background:var(--lagoon-soft);color:var(--lagoon);padding:6px 9px;border-radius:99px;letter-spacing:.06em}
+.hero h1{font-weight:800;font-size:clamp(2.7rem,8.2vw,6.4rem);margin-top:26px;max-width:14ch;letter-spacing:-.04em;line-height:.95}
+.hero h1 .w{display:inline-block;animation:rise .9s cubic-bezier(.2,.8,.2,1) both;animation-delay:calc(var(--i)*70ms)}
+@keyframes rise{from{opacity:0;transform:translateY(.5em) rotate(2deg);filter:blur(8px)}to{opacity:1;transform:none;filter:none}}
+.lede{font-size:clamp(1.06rem,1.6vw,1.3rem);color:var(--text2);max-width:56ch;margin-top:24px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:22px;color:var(--text3);font-size:14.5px}
+.facts span{display:inline-flex;align-items:center;gap:8px}
+.facts span::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--lagoon);box-shadow:0 0 0 4px var(--lagoon-soft)}
+
+/* fenêtre du logiciel */
+.stage{perspective:1800px;margin-top:clamp(40px,6vw,72px);position:relative}
+.stage::before{content:"";position:absolute;inset:8% 6% -6%;background:radial-gradient(60% 60% at 50% 40%,var(--glow),transparent 70%);filter:blur(50px);z-index:0}
+.app{position:relative;z-index:1;background:var(--ink0);border:1px solid var(--line2);border-radius:var(--r-xl) var(--r-xl) 0 0;border-bottom:0;padding:6px 6px 0;box-shadow:var(--shadow);transform:rotateX(calc(var(--tilt,1)*9deg)) scale(calc(1 - var(--tilt,1)*.04));transform-origin:50% 0;will-change:transform;display:grid;gap:6px}
+.app-top{display:flex;align-items:center;gap:12px;padding:8px 10px;min-width:0}
+.app-top .brand{font-size:14px}.app-top .logo{width:24px;height:24px;border-radius:7px}.app-top .logo::after{border-width:3px}
+.search{flex:1;min-width:0;display:flex;align-items:center;gap:10px;background:var(--ink2);border:1px solid var(--line2);border-radius:var(--r);padding:0 12px;height:42px;transition:border-color .2s,box-shadow .2s}
+.search:focus-within{border-color:var(--ember);box-shadow:0 0 0 4px var(--ember-soft)}
+.search svg{width:16px;height:16px;color:var(--text3);flex:none}
+.search input{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--text);font:500 14.5px var(--mono)}
+.search input::placeholder{color:var(--text3)}
+kbd{font:500 11.5px/1 var(--mono);background:var(--ink3);border:1px solid var(--line2);border-bottom-width:2px;border-radius:6px;padding:5px 7px;color:var(--text2);white-space:nowrap}
+.app-body{display:grid;grid-template-columns:150px minmax(0,1fr);gap:6px}
+.side{background:var(--ink1);border-radius:var(--r-l);padding:10px 8px;display:grid;gap:2px;align-content:start;font-size:13.5px;color:var(--text2)}
+.side span{padding:8px 10px;border-radius:8px;white-space:nowrap}
+.side .on{background:var(--ember-soft);color:var(--ember);font-weight:600}
+.pane{background:var(--ink1);border-radius:var(--r-l) var(--r-l) 0 0;padding:14px 14px 0;min-width:0;display:grid;gap:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 12.5px/1 var(--mono);padding:8px 11px;border-radius:99px;background:var(--ink3);border:1px solid var(--line);color:var(--text2);cursor:pointer;transition:all .2s}
+.chip:hover{color:var(--text);border-color:var(--line2)}
+.chip[aria-pressed="true"]{background:var(--ember-soft);border-color:var(--ember);color:var(--ember)}
+.count{margin-left:auto;font:500 12px var(--mono);color:var(--text3)}
+.rows{display:grid;min-height:372px;align-content:start}
+.row{display:grid;grid-template-columns:72px minmax(0,1fr) 54px 54px 54px 70px 104px;gap:12px;align-items:center;padding:9px 10px;border-radius:8px;font-size:14px;border:0;background:none;text-align:left;cursor:pointer;width:100%;transition:background .15s,opacity .35s,transform .35s}
+.row.head{font:500 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--text3);cursor:default;padding-block:4px}
+.row:not(.head):hover{background:var(--ink2)}
+.row.sel{background:var(--ink3)}
+.row.out{display:none}
+.row.pop{animation:pop .4s cubic-bezier(.2,.8,.2,1) both}
+@keyframes pop{from{opacity:.35;transform:translateY(6px)}to{opacity:1;transform:none}}
+.row svg.wv{width:72px;height:22px;color:var(--text3)}
+.row.sel svg.wv{color:var(--lagoon)}
+.row .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .n{font:500 13px var(--mono);color:var(--text2);font-variant-numeric:tabular-nums}
+.st{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text2);white-space:nowrap}
+.st::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--c,var(--text3))}
+.empty{padding:40px 10px;color:var(--text3);font-size:14.5px}
+.player{display:flex;align-items:center;gap:14px;background:var(--ink2);border:1px solid var(--line);border-bottom:0;border-radius:var(--r-l) var(--r-l) 0 0;padding:10px 14px;min-width:0}
+.pp{width:38px;height:38px;border-radius:50%;border:0;background:var(--lagoon);color:#04201C;display:grid;place-items:center;cursor:pointer;flex:none;transition:transform .2s}
+.pp:hover{transform:scale(1.08)}.pp svg{width:16px;height:16px}
+.np{min-width:0;flex:0 1 190px}.np b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.np span{font:500 11.5px var(--mono);color:var(--text3)}
+#pwave{flex:1;min-width:0;height:40px;width:100%}
+.demo-note{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;justify-content:center;text-align:center;padding-block:18px;padding-left:max(20px,env(safe-area-inset-left,0px));padding-right:max(20px,env(safe-area-inset-right,0px));color:var(--text3);font-size:13.5px;border-top:1px solid var(--line);background:var(--ink1);position:relative;z-index:2}
+.demo-note span{display:inline-flex;gap:8px;align-items:center}
+@media (max-width:860px){
+  .app-body{grid-template-columns:minmax(0,1fr)}.side{display:none}
+  .row{grid-template-columns:44px minmax(0,1fr) 44px 44px;gap:10px}
+  .row>:nth-child(n+5){display:none}.row svg.wv{width:44px}
+  .app-top .brand span,.app-top kbd{display:none}
+  .np{flex-basis:120px}.rows{min-height:330px}
+  .app{transform:rotateX(calc(var(--tilt,1)*5deg))}
+}
+
+/* bandeau défilant */
+.marq{overflow:hidden;border-block:1px solid var(--line);background:var(--ink1);padding-block:18px;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+.marq div{display:flex;gap:44px;width:max-content;animation:marq 38s linear infinite;font:700 clamp(1.1rem,2.4vw,1.6rem)/1 var(--display);color:var(--text3);white-space:nowrap}
+.marq i{font-style:normal;color:var(--ember)}
+@keyframes marq{to{transform:translateX(-50%)}}
+
+/* sections */
+section{padding-block:clamp(72px,10vw,136px)}
+.sh{display:grid;gap:16px;max-width:780px;margin-bottom:clamp(32px,5vw,56px)}
+.sh h2{font-weight:800;font-size:clamp(2rem,5.2vw,3.9rem);letter-spacing:-.035em}
+.sh p{color:var(--text2);font-size:clamp(1rem,1.4vw,1.15rem);max-width:60ch}
+.js .rv{opacity:.12;transform:translateY(34px) scale(.985);transition:opacity .9s cubic-bezier(.2,.8,.2,1),transform .9s cubic-bezier(.2,.8,.2,1);transition-delay:calc(var(--d,0)*90ms)}
+.js .rv.in{opacity:1;transform:none}
+
+/* tableau de production */
+.board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;background:var(--ink0);border:1px solid var(--line2);border-radius:var(--r-xl);padding:6px}
+.col{background:var(--ink1);border-radius:var(--r-l);padding:12px;min-height:214px;display:grid;gap:8px;align-content:start;transition:background .4s}
+.col.hot{background:var(--ink2)}
+.col h3{font:500 11.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--text3);display:flex;justify-content:space-between;padding:2px 2px 6px}
+.kc{background:var(--ink3);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;font-size:13.5px;font-weight:600;display:grid;gap:4px;min-width:0}
+.kc small{font:500 11.5px var(--mono);color:var(--text3)}
+.kc.star{background:linear-gradient(135deg,var(--ember-soft),transparent),var(--ink3);border-color:var(--ember);box-shadow:0 12px 30px -14px var(--glow);position:relative;z-index:2}
+.proof{margin-top:18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:15.5px;color:var(--text2);min-height:44px}
+.proof b{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--lagoon);background:var(--lagoon-soft);padding:8px 12px;border-radius:99px}
+#proofTxt{transition:opacity .3s}
+@media (max-width:860px){.board{grid-template-columns:minmax(0,1fr)}.col{min-height:0;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}.col h3{grid-column:1/-1}}
+
+/* grille des fonctions */
+.bento{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;background:var(--ink0);border-radius:var(--r-xl)}
+.card{position:relative;background:var(--ink1);border:1px solid var(--line);border-radius:var(--r-xl);padding:clamp(20px,2.6vw,30px);display:grid;gap:18px;align-content:start;min-width:0;overflow:hidden;grid-column:span 3}
+.card.w4{grid-column:span 4}.card.w2{grid-column:span 2}
+.card::before{content:"";position:absolute;inset:0;background:radial-gradient(420px circle at var(--mx,50%) var(--my,-40%),var(--ember-soft),transparent 65%);opacity:0;transition:opacity .4s;pointer-events:none}
+.card:hover::before{opacity:1}
+.card>*{position:relative}
+.card h3{font-weight:700;font-size:clamp(1.3rem,2.2vw,1.75rem)}
+.card p{color:var(--text2);font-size:15.5px;max-width:52ch}
+.tag{font:500 11.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--text3)}
+.viz{background:var(--ink0);border:1px solid var(--line);border-radius:var(--r-l);padding:16px;min-width:0}
+@media (max-width:960px){.card,.card.w4,.card.w2{grid-column:1/-1}}
+
+.meters{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px}
+.meter{background:var(--ink2);border-radius:var(--r);padding:12px 14px;display:grid;gap:6px}
+.meter span{font:500 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--text3)}
+.meter b{font:700 clamp(1.3rem,2.4vw,1.8rem)/1 var(--mono);font-variant-numeric:tabular-nums}
+.meter i{display:block;height:4px;border-radius:9px;background:var(--ink4);overflow:hidden}
+.meter i::after{content:"";display:block;height:100%;width:calc(var(--v,0)*100%);background:linear-gradient(90deg,var(--ember),var(--ember2));border-radius:9px;transition:width 1.4s cubic-bezier(.2,.8,.2,1)}
+.scan{position:relative;height:64px;margin-bottom:12px;border-radius:8px;overflow:hidden}
+.scan canvas{width:100%;height:100%;display:block}
+.scan::after{content:"";position:absolute;top:0;bottom:0;width:90px;left:-90px;background:linear-gradient(90deg,transparent,var(--lagoon-soft),var(--lagoon));opacity:.55;animation:scan 3.2s cubic-bezier(.5,0,.5,1) infinite}
+@keyframes scan{to{left:100%}}
+
+#wheel{width:100%;max-width:250px;display:block;margin:auto}
+#wheel path{fill:var(--ink2);stroke:var(--ink0);stroke-width:2;transition:fill .5s}
+#wheel path.c{fill:var(--lagoon-soft)}#wheel path.s{fill:var(--lagoon)}
+#wheel text{font:500 9px var(--mono);fill:var(--text3);text-anchor:middle;dominant-baseline:central;transition:fill .5s}
+#wheel text.c{fill:var(--lagoon)}#wheel text.s{fill:#04201C;font-weight:700}
+#wheel .mid{font:800 22px var(--display);fill:var(--text)}#wheel .mid2{font:500 7.5px var(--mono);fill:var(--text3);letter-spacing:.08em}
+
+.ab{display:flex;gap:6px;background:var(--ink2);padding:4px;border-radius:99px;width:max-content}
+.ab button{border:0;background:none;padding:8px 18px;border-radius:99px;font-weight:600;font-size:14px;color:var(--text2);cursor:pointer;transition:all .25s}
+.ab button[aria-pressed="true"]{background:var(--ember);color:var(--on-ember)}
+.bars{display:flex;align-items:center;gap:3px;height:96px;margin-block:14px}
+.bars i{flex:1;min-width:0;border-radius:3px;background:linear-gradient(var(--ember2),var(--ember));height:calc(var(--h)*var(--k,.45)*100%);transition:height .7s cubic-bezier(.2,.8,.2,1);transition-delay:calc(var(--n)*8ms)}
+.mast.after .bars i{--k:.98}
+.mrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px}
+.mrow div{background:var(--ink2);border-radius:var(--r);padding:10px 12px}
+.mrow span{display:block;font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--text3)}
+.mrow b{font:700 14px var(--mono);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+
+.cd{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.cd b{font:800 clamp(2.6rem,6vw,4rem)/1 var(--display);letter-spacing:-.04em}
+.cd span{font:500 14px var(--mono);color:var(--text2);font-variant-numeric:tabular-nums}
+.todo{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:6px}
+.todo li{display:flex;align-items:center;gap:10px;font-size:14.5px;color:var(--text2);background:var(--ink2);padding:9px 12px;border-radius:var(--r)}
+.todo li::before{content:"";width:16px;height:16px;border-radius:5px;border:1.5px solid var(--ink4);flex:none}
+.todo li.ok{color:var(--text3);text-decoration:line-through}
+.todo li.ok::before{background:var(--lagoon);border-color:var(--lagoon);box-shadow:inset 0 0 0 3px var(--ink2)}
+.todo li.next{color:var(--text);outline:1px solid var(--ember);background:var(--ember-soft)}
+
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+#pub{font:400 13.5px/1.7 var(--mono);white-space:pre-wrap;min-height:8.5em;margin-top:12px;color:var(--text)}
+#pub::after{content:"";display:inline-block;width:8px;height:1.1em;background:var(--ember);vertical-align:-3px;margin-left:2px;animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:0}}
+.cloud{display:flex;flex-wrap:wrap;gap:8px}
+.cloud span{padding:9px 14px;border-radius:99px;background:var(--ink2);border:1px solid var(--line);font-size:14.5px;color:var(--text2);transition:all .25s}
+.cloud span:hover{color:var(--text);border-color:var(--ember);transform:translateY(-2px)}
+
+/* partout */
+.every{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:clamp(28px,5vw,72px);align-items:center}
+.phone{width:min(100%,290px);margin-inline:auto;aspect-ratio:9/18.5;max-width:100%;background:var(--ink0);border:1px solid var(--line2);border-radius:38px;padding:8px;box-shadow:var(--shadow);animation:float 7s ease-in-out infinite;position:relative}
+@keyframes float{50%{transform:translateY(-14px) rotate(-1.2deg)}}
+.phone::before{content:"";position:absolute;inset:-12%;background:radial-gradient(50% 50% at 50% 50%,var(--glow),transparent 70%);filter:blur(40px);z-index:-1}
+.scr{height:100%;border-radius:30px;background:var(--ink1);padding:20px 14px 14px;display:flex;flex-direction:column;gap:10px;overflow:hidden;font-size:13px}
+.scr h4{font:800 19px var(--display);margin:0}
+.cover{aspect-ratio:1;border-radius:16px;background:conic-gradient(from var(--a,0deg) at 60% 40%,var(--ember),var(--ember2),var(--lagoon),var(--ember));animation:spin 14s linear infinite;position:relative;overflow:hidden;flex:none}
+@property --a{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes spin{to{--a:360deg}}
+.cover::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 30% 20%,transparent 30%,rgba(9,10,16,.55))}
+.eq{display:flex;gap:3px;align-items:flex-end;height:14px}
+.eq i{width:3px;background:var(--lagoon);border-radius:2px;animation:eq 1s ease-in-out infinite;animation-delay:calc(var(--n)*-.23s)}
+@keyframes eq{0%,100%{height:25%}50%{height:100%}}
+.li{display:flex;align-items:center;gap:10px;padding:8px;border-radius:10px;background:var(--ink2)}
+.li b{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.off{font:500 9.5px var(--mono);color:var(--lagoon);background:var(--lagoon-soft);padding:4px 6px;border-radius:6px;letter-spacing:.04em;white-space:nowrap}
+.stack{display:grid;gap:6px}
+.mini{background:var(--ink1);border:1px solid var(--line);border-radius:var(--r-xl);padding:22px;display:grid;gap:10px;min-width:0}
+.mini h3{font-size:1.3rem;font-weight:700}
+.mini p{color:var(--text2);font-size:15.5px}
+.car{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;background:var(--ink0);padding:4px;border-radius:var(--r);margin-top:4px}
+.car span{text-align:center;padding:10px 4px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--text3);animation:tab 8s infinite;animation-delay:calc(var(--n)*2s);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@keyframes tab{0%,24%{background:var(--ink3);color:var(--text)}25%,100%{background:transparent;color:var(--text3)}}
+.link{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--ink0);border-radius:var(--r);padding:10px 12px;font:500 12.5px var(--mono);color:var(--text2);margin-top:4px}
+.link em{font-style:normal;color:var(--lagoon)}
+@media (max-width:860px){.every{grid-template-columns:minmax(0,1fr)}}
+
+/* vie privée */
+.priv{background:var(--ink1);border-block:1px solid var(--line)}
+.tunnel{display:grid;grid-template-columns:auto minmax(40px,1fr) auto;align-items:center;gap:14px;margin-block:clamp(28px,4vw,48px)}
+.node{background:var(--ink2);border:1px solid var(--line2);border-radius:var(--r-l);padding:14px 18px;font-weight:700;display:grid;gap:2px;text-align:center}
+.node small{font:500 11px var(--mono);color:var(--text3);font-weight:500}
+.pipe{height:2px;background:repeating-linear-gradient(90deg,var(--lagoon) 0 10px,transparent 10px 20px);background-size:20px 2px;animation:dash 1s linear infinite;position:relative}
+.pipe::after{content:"tunnel chiffré";position:absolute;left:50%;top:-26px;transform:translateX(-50%);font:500 11px var(--mono);color:var(--lagoon);white-space:nowrap;letter-spacing:.06em}
+@keyframes dash{to{background-position:20px 0}}
+.four{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:6px}
+.four div{background:var(--ink2);border-radius:var(--r-l);padding:20px;color:var(--text2);font-size:15.5px}
+.four b{display:block;color:var(--text);font:700 1.1rem var(--display);margin-bottom:6px}
+
+/* installer */
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;counter-reset:s}
+.step{background:var(--ink1);border:1px solid var(--line);border-radius:var(--r-xl);padding:26px;display:grid;gap:10px;align-content:start;counter-increment:s;transition:transform .35s cubic-bezier(.2,.8,.2,1),border-color .3s}
+.step:hover{transform:translateY(-6px);border-color:var(--ember)}
+.step::before{content:counter(s);font:800 3.4rem/1 var(--display);background:linear-gradient(100deg,var(--ember),var(--ember2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.step h3{font-size:1.25rem;font-weight:700}.step p{color:var(--text2);font-size:15.5px}
+.req{margin-top:6px;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px}
+.req div{background:var(--ink1);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 18px;font-size:15px;color:var(--text2)}
+.req b{color:var(--text)}
+@media (max-width:860px){.steps{grid-template-columns:minmax(0,1fr)}}
+details{background:var(--ink1);border:1px solid var(--line);border-radius:var(--r-l);padding:0 20px;transition:border-color .3s}
+details[open]{border-color:var(--line2)}
+summary{cursor:pointer;font:700 1.08rem var(--display);padding:18px 0;list-style:none;display:flex;justify-content:space-between;gap:16px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font:500 22px var(--mono);color:var(--ember);transition:transform .3s}
+details[open] summary::after{transform:rotate(45deg)}
+details p{color:var(--text2);padding-bottom:18px;max-width:70ch;font-size:15.5px}
+.faq{display:grid;gap:6px;max-width:860px}
+
+/* final */
+.final{position:relative;text-align:center;overflow:hidden;padding-block:clamp(88px,13vw,170px)}
+.final::before{content:"";position:absolute;left:50%;top:50%;width:min(900px,140vw);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(closest-side,var(--glow),transparent);animation:pulse 5s ease-in-out infinite}
+@keyframes pulse{50%{transform:translate(-50%,-50%) scale(1.14);opacity:.7}}
+.ring{position:absolute;left:50%;top:50%;width:min(520px,90vw);aspect-ratio:1;border-radius:50%;border:clamp(34px,7vw,70px) solid var(--ember-soft);transform:translate(-50%,-50%);animation:pulse 7s ease-in-out infinite reverse}
+.final .wrap{position:relative;display:grid;justify-items:center;gap:26px}
+.final h2{font-weight:800;font-size:clamp(2.4rem,7.4vw,5.6rem);letter-spacing:-.04em;max-width:13ch}
+.final p{color:var(--text2);max-width:48ch}
+footer{border-top:1px solid var(--line);padding-block:34px;color:var(--text3);font-size:14.5px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:center;justify-content:space-between}
+footer nav{display:flex;flex-wrap:wrap;gap:8px 22px}
+footer a{color:var(--text2);text-decoration:none}footer a:hover{color:var(--ember)}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+  html{scroll-behavior:auto}.js .rv{opacity:1;transform:none}.app{transform:none}
+}
+</style>
+</head>
+<body>
+
+<div id="prog"></div>
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="logo"></span><span>Otoko Studio Vault Pro</span></a>
+    <nav aria-label="Sections">
+      <a href="#nouveau">Nouveautés</a><a href="#production">Production</a><a href="#fonctions">Fonctions</a><a href="#partout">Mobile</a><a href="#prive">Vie privée</a><a href="#installer">Installer</a>
+    </nav>
+    <a class="btn pri sm" href="https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest">Télécharger</a>
+  </div>
+</header>
+
+<main id="top">
+<div class="hero">
+  <canvas id="waves" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <a class="pill" href="#nouveau" style="text-decoration:none"><b id="relVer">v1.1.5</b> Nouvelle version · libre et gratuit · Windows + Android</a>
+    <h1 id="h1">Ta musique rangée, retrouvée, écoutée <span class="grad">partout.</span></h1>
+    <p class="lede">Le logiciel des producteurs qui ont trop de morceaux et plus le temps de les chercher. Tu pointes ton dossier : il reconnaît et analyse tout, sans jamais déplacer ni modifier un seul fichier.</p>
+    <div class="cta">
+      <a class="btn pri" data-dl="exe" href="https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m0 0l-5-5m5 5l5-5M4 21h16"/></svg>
+        Télécharger pour Windows</a>
+      <a class="btn sec" href="https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest/download/Otoko-Studio-Vault-Pro-presentation.mp4">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>
+        Voir la vidéo<span id="relVid"> · 2 min 43</span></a>
+    </div>
+    <div class="facts"><span>Pas de compte à créer</span><span>Pas de droits d'administrateur</span><span>Rien ne part dans le cloud</span></div>
+
+    <div class="stage">
+      <div class="app" id="app">
+        <div class="app-top">
+          <span class="brand"><span class="logo"></span><span>Bibliothèque</span></span>
+          <label class="search" for="q">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            <input id="q" type="text" autocomplete="off" spellcheck="false" placeholder="bpm:120-128 key:Am" aria-label="Chercher dans la bibliothèque d'exemple">
+          </label>
+          <kbd>Ctrl K</kbd>
+        </div>
+        <div class="app-body">
+          <div class="side" aria-hidden="true"><span>Accueil</span><span class="on">Bibliothèque</span><span>Production</span><span>Mastering</span><span>Sorties</span><span>Publier</span><span>Statistiques</span><span>Mobile et partage</span></div>
+          <div class="pane">
+            <div class="chips" id="chips">
+              <button class="chip" data-q="">tout</button>
+              <button class="chip" data-q="bpm:120-128">bpm:120-128</button>
+              <button class="chip" data-q="bpm:120-128 key:Am">bpm:120-128 key:Am</button>
+              <button class="chip" data-q="camelot:8A">camelot:8A</button>
+              <button class="chip" data-q="status:terminé">status:terminé</button>
+              <span class="count" id="count"></span>
+            </div>
+            <div class="rows" id="rows"></div>
+            <div class="player">
+              <button class="pp" id="pp" aria-label="Lecture ou pause de la démo"></button>
+              <div class="np"><b id="npT">I'm Alive</b><span id="npM">124 BPM · Am · 8A</span></div>
+              <canvas id="pwave" aria-hidden="true"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="demo-note"><span>Démo à essayer : tape une recherche, clique un morceau. Les titres sont des exemples.</span><span><kbd>Ctrl K</kbd> tout trouver</span><span><kbd>Espace</kbd> lecture</span><span><kbd>Ctrl D</kbd> comparer à volume égal</span><span><kbd>Ctrl Z</kbd> annuler</span></div>
+</div>
+
+<div class="marq" aria-label="Fonctionne avec ton logiciel de musique, quel qu'il soit">
+  <div id="marq"><span>FL Studio</span><i>●</i><span>Ableton Live</span><i>●</i><span>Cubase</span><i>●</i><span>Reaper</span><i>●</i><span>Bitwig</span><i>●</i><span>WAV</span><i>●</i><span>AIFF</span><i>●</i><span>FLAC</span><i>●</i><span>MP3</span><i>●</i><span>Android Auto</span><i>●</i></div>
+</div>
+
+<section id="nouveau" style="padding-bottom:0">
+  <div class="wrap">
+    <div class="sh rv"><span class="eyebrow" id="relNew">Nouveau dans la 1.1.5</span>
+      <h2 id="relTitle">Ton téléphone ne fait plus qu'écouter. Tes liens <span class="grad">te répondent.</span></h2>
+      <p id="relIntro">Des retours sur tes liens de partage, des sorties prêtes pour les plateformes de ton choix, et un logiciel plus simple à prendre en main.</p></div>
+    <div class="four" id="relCards">
+      <div class="rv"><b>Des retours sur tes liens</b>La personne qui écoute peut aimer un morceau et te laisser un avis. Tu vois jusqu'où elle a écouté.</div>
+      <div class="rv" style="--d:1"><b>Vers tes plateformes</b>DistroKid, TuneCore, CD Baby, Believe, SoundCloud, Bandcamp, YouTube. UPC, ISRC, label et langue ont leur champ, et le dossier pour ton distributeur se prépare tout seul.</div>
+      <div class="rv" style="--d:2"><b>Volume égal</b>Un réglage de volume, et un mode qui ramène chaque morceau à <span class="mono">-14 LUFS</span> pour comparer sans tricher.</div>
+      <div class="rv" style="--d:3"><b>Trier ses idées</b><kbd>P</kbd> garder, <kbd>X</kbd> rejeter, <kbd>N</kbd> neutre : le morceau suivant arrive tout seul.</div>
+      <div class="rv"><b>Statuts et notes sur le téléphone</b>Change le statut d'un morceau et note une idée, écrite ou dictée. Tes écoutes sont comptées même hors réseau.</div>
+      <div class="rv" style="--d:1"><b>Ctrl+Z va plus loin</b>Il annule aussi les modifications de fiches, et chaque morceau garde son historique.</div>
+      <div class="rv" style="--d:2"><b>Ton menu, tes pages</b>Choisis les pages affichées dans le menu, et exporte ton planning de sorties vers ton agenda (.ics).</div>
+      <div class="rv" style="--d:3"><b>Mises à jour vérifiées</b>L'empreinte SHA-256 est contrôlée avant chaque installation, et un autre PC se relie avec un code de liaison.</div>
+    </div>
+    <p style="margin-top:18px;font-size:15px"><a id="relNotes" href="https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest" style="color:var(--text2)">Toutes les notes de version sur GitHub →</a></p>
+  </div>
+</section>
+
+<section id="production">
+  <div class="wrap">
+    <div class="sh rv"><span class="eyebrow">Production</span>
+      <h2>De l'idée à la sortie, tes morceaux avancent tout seuls.</h2>
+      <p>Un tableau en cinq colonnes. Un morceau n'avance que sur une preuve, et ne recule jamais : un nouvel export, un master, un lien en ligne. Tu peux aussi glisser les cartes toi-même.</p></div>
+    <div class="board rv" id="board">
+      <div class="col"><h3>Idées</h3><div class="kc star" id="star">I'm Alive<small>124 BPM · Am</small></div><div class="kc">Sans titre 14<small>140 BPM · Dm</small></div></div>
+      <div class="col"><h3>En cours</h3><div class="kc">Lagune<small>118 BPM · C</small></div></div>
+      <div class="col"><h3>Mix et master</h3><div class="kc">Atelier<small>100 BPM · G</small></div></div>
+      <div class="col"><h3>Terminés</h3><div class="kc">Braise<small>122 BPM · Em</small></div></div>
+      <div class="col"><h3>Publiés</h3><div class="kc">Tokyo 03h<small>132 BPM · Fm</small></div></div>
+    </div>
+    <div class="proof rv"><b>Preuve</b><span id="proofTxt">Une idée posée dans le dossier surveillé.</span></div>
+  </div>
+</section>
+
+<section id="fonctions" style="padding-top:0">
+  <div class="wrap">
+    <div class="sh rv"><span class="eyebrow">Ce qu'il fait</span>
+      <h2>Tout ton studio, à part la musique elle-même.</h2>
+      <p>Bibliothèque, écoute, mastering, sorties, textes de publication. Chaque page parle aux autres.</p></div>
+    <div class="bento">
+      <article class="card w4 rv">
+        <span class="tag">Bibliothèque</span>
+        <h3>Tempo, tonalité, loudness, énergie et ambiance, détectés tout seuls.</h3>
+        <p>L'analyse tourne en fond et n'écrit jamais dans tes fichiers. Une valeur fausse ? Tempo ÷ 2, × 2, ou tape le rythme : ta correction n'est plus jamais remplacée.</p>
+        <div class="viz" id="ana">
+          <div class="scan"><canvas id="scanw" aria-hidden="true"></canvas></div>
+          <div class="meters">
+            <div class="meter"><span>Tempo</span><b data-to="124" data-suf="">0</b><i style="--v:.62"></i></div>
+            <div class="meter"><span>Tonalité</span><b data-txt="Am">–</b><i style="--v:.5"></i></div>
+            <div class="meter"><span>Loudness</span><b data-to="-8.9" data-dec="1">0</b><i style="--v:.82"></i></div>
+            <div class="meter"><span>Énergie</span><b data-to="78" data-suf=" %">0</b><i style="--v:.78"></i></div>
+          </div>
+        </div>
+      </article>
+      <article class="card w2 rv" style="--d:1">
+        <span class="tag">Écoute</span>
+        <h3>Les morceaux compatibles, sur la roue de Camelot.</h3>
+        <svg id="wheel" viewBox="-110 -110 220 220" role="img" aria-label="Roue de Camelot animée montrant les tonalités compatibles"></svg>
+        <p>Forme d'onde, repères, boucle A-B, file d'attente, et la comparaison de deux morceaux à volume égal.</p>
+      </article>
+      <article class="card rv mast" id="mast">
+        <span class="tag">Mastering</span>
+        <h3>Un master d'un clic. L'original n'est jamais touché.</h3>
+        <p>Le moteur libre PhaseLimiter s'installe depuis la page. Mesures avant et après, écoute à volume égal, et un EP entier avec les mêmes réglages.</p>
+        <div class="viz">
+          <div class="ab" role="group" aria-label="Avant ou après mastering"><button id="abA" aria-pressed="true">Avant</button><button id="abB" aria-pressed="false">Après</button></div>
+          <div class="bars" id="bars" aria-hidden="true"></div>
+          <div class="mrow"><div><span>Volume</span><b id="m1">-18,3 LUFS</b></div><div><span>Crête réelle</span><b id="m2">-0,1 dBTP</b></div><div><span>Fichier</span><b id="m3">original</b></div></div>
+        </div>
+        <span class="tag">valeurs d'exemple</span>
+      </article>
+      <article class="card rv" style="--d:1">
+        <span class="tag">Sorties</span>
+        <h3>Le compte à rebours, la prochaine étape, ce qui reste à faire.</h3>
+        <div class="viz">
+          <div class="cd"><b id="cdJ">J-12</b><span id="cdT">04 h 22 min 10 s</span></div>
+          <ul class="todo"><li class="ok">Pochette intégrée aux fichiers</li><li class="ok">Crédits et genres</li><li class="ok">Contrôle avant publication</li><li class="next">Prochaine étape : écrire les textes</li></ul>
+        </div>
+        <p>Galerie, planning, discographie en PDF ou en page web, dossier prêt pour ton distributeur. Ce que tes données prouvent déjà est proposé à cocher.</p>
+      </article>
+      <article class="card w4 rv">
+        <span class="tag">Publier</span>
+        <h3>Un texte par plateforme, qui te ressemble.</h3>
+        <p>Six tons, tes propres modèles avec des champs comme <span class="mono">{titre}</span>, <span class="mono">{bpm}</span> ou <span class="mono">{lien}</span>. Tout est écrit hors ligne, sur ton PC.</p>
+        <div class="viz">
+          <div class="tabs" id="ptabs"><button class="chip" data-p="0" aria-pressed="true">SoundCloud</button><button class="chip" data-p="1" aria-pressed="false">Instagram</button><button class="chip" data-p="2" aria-pressed="false">Story</button></div>
+          <div id="pub" aria-live="off"></div>
+        </div>
+      </article>
+      <article class="card w2 rv" style="--d:1">
+        <span class="tag">Ton logiciel de musique</span>
+        <h3>Chaque export retrouve son morceau.</h3>
+        <p>Le dossier où tu exportes est surveillé : « I'm Alive v3 » rejoint « I'm Alive », rangé comme version. Et le projet s'ouvre d'un clic dans son logiciel.</p>
+      </article>
+      <article class="card rv" style="grid-column:1/-1">
+        <span class="tag">Et aussi</span>
+        <div class="cloud"><span>Trouver les doublons</span><span>Renommer et réorganiser</span><span>Édition en lot</span><span>Export CSV</span><span>Statistiques</span><span>Construire un set DJ</span><span>Carnet de clients et commandes</span><span>Atelier Suno</span><span>Vues gardées</span><span>Thème sombre ou clair</span><span>Raccourcis modifiables</span><span>Sauvegarde quotidienne</span><span>Travail depuis un autre PC</span><span>Mise à jour en un clic</span></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="partout" style="padding-top:0">
+  <div class="wrap every">
+    <div class="rv">
+      <div class="phone" aria-hidden="true"><div class="scr">
+        <h4>Otoko Vault</h4>
+        <div class="cover"></div>
+        <div class="li" style="background:none;padding:2px 0"><b style="font-size:15px">I'm Alive</b><span class="eq"><i style="--n:0"></i><i style="--n:1"></i><i style="--n:2"></i><i style="--n:3"></i></span></div>
+        <div class="li"><b>Braise</b><span class="off">HORS LIGNE</span></div>
+        <div class="li"><b>Tokyo 03h</b><span class="off">HORS LIGNE</span></div>
+        <div class="li"><b>Lagune</b></div>
+        <div class="li"><b>Marée basse</b></div>
+      </div></div>
+    </div>
+    <div class="stack">
+      <div class="sh rv" style="margin-bottom:18px"><span class="eyebrow">Écouter partout</span>
+        <h2>Ton studio dans la poche. Et sur le tableau de bord.</h2>
+        <p>Un seul bouton sur le PC, deux codes à scanner sur le téléphone. Ta bibliothèque te suit, sans passer par un service en ligne.</p></div>
+      <div class="mini rv"><h3>Sur ton téléphone Android</h3><p>Écoute, statuts, notes, morceaux gardés hors ligne. L'app Otoko Vault reçoit ses mises à jour depuis ton PC.</p></div>
+      <div class="mini rv" style="--d:1"><h3>Dans ta voiture, avec Android Auto</h3><p>Quatre onglets, et toucher un morceau met tout son dossier en file d'attente.</p>
+        <div class="car" aria-hidden="true"><span style="--n:0">Sorties</span><span style="--n:1">Derniers publiés</span><span style="--n:2">Bibliothèque</span><span style="--n:3">Hors ligne</span></div></div>
+      <div class="mini rv" style="--d:2"><h3>Faire écouter, sans rien faire installer</h3><p>Un lien privé pour un morceau, une sortie ou ta discographie. Mot de passe et date de fin si tu veux. La personne peut aimer et laisser un avis, tu vois les écoutes, et tu coupes le lien quand tu veux.</p>
+        <div class="link" aria-hidden="true"><span>lien privé</span><em>● actif</em><span>mot de passe</span><span id="plays">7 écoutes</span><em>♥ 3</em><span>1 avis</span></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="priv" id="prive">
+  <div class="wrap">
+    <div class="sh rv"><span class="eyebrow">Ta vie privée</span>
+      <h2>Ta musique reste <span class="grad">chez toi.</span></h2>
+      <p>Pas de cloud, pas de compte, pas de suivi. Ton téléphone parle directement à ton PC.</p></div>
+    <div class="tunnel rv"><div class="node">Ton PC<small>musique + base</small></div><div class="pipe"></div><div class="node">Ton téléphone<small>Otoko Vault</small></div></div>
+    <div class="four">
+      <div class="rv"><b>Tout est sur ton PC</b>Tes fichiers audio et ta base ne quittent pas ta machine.</div>
+      <div class="rv" style="--d:1"><b>Un tunnel chiffré</b>Tes appareils se relient par Tailscale, sans rien ouvrir sur Internet.</div>
+      <div class="rv" style="--d:2"><b>Tu décides des liens</b>Seuls les liens que tu crées sont visibles en ligne. Un bouton les coupe d'un coup.</div>
+      <div class="rv" style="--d:3"><b>Rien n'est envoyé</b>Le logiciel ne contacte GitHub que pour savoir s'il existe une nouvelle version.</div>
+    </div>
+  </div>
+</section>
+
+<section id="installer">
+  <div class="wrap">
+    <div class="sh rv"><span class="eyebrow">Installer</span>
+      <h2>Deux minutes, et tes morceaux sont là.</h2></div>
+    <div class="steps">
+      <div class="step rv"><h3>Télécharge l'installateur</h3><p>Sur la page Releases de GitHub : <span class="mono" id="relExe" style="font-size:13px;word-break:break-word">Otoko-Studio-Vault-Pro-…-installation.exe</span></p></div>
+      <div class="step rv" style="--d:1"><h3>Double-clique</h3><p>Si Windows affiche « Windows a protégé votre ordinateur » : Informations complémentaires, puis Exécuter quand même. Le programme n'a pas de certificat payant.</p></div>
+      <div class="step rv" style="--d:2"><h3>Dis-lui où est ta musique</h3><p>Ton nom d'artiste, puis ton dossier. Tes morceaux apparaissent tout de suite, l'analyse continue en fond.</p></div>
+    </div>
+    <div class="req">
+      <div class="rv"><b>Ce qu'il te faut :</b> Windows 10 ou 11, 64 bits. C'est tout.</div>
+      <div class="rv" style="--d:1"><b>Le reste s'installe tout seul</b> quand tu en as besoin : Tailscale, ffmpeg et PhaseLimiter, depuis leurs sources officielles, empreinte vérifiée.</div>
+    </div>
+    <div class="cta rv" style="margin-top:28px">
+      <a class="btn pri" data-dl="exe" href="https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest">Télécharger l'installateur</a>
+      <a class="btn sec" href="https://github.com/otokonosound/otoko-studio-vault-pro/blob/HEAD/TUTORIEL.md">Le tutoriel pas à pas</a>
+    </div>
+
+    <div class="sh rv" style="margin-top:clamp(64px,9vw,110px)"><span class="eyebrow">Questions</span><h2>Avant de te lancer.</h2></div>
+    <div class="faq">
+      <details class="rv"><summary>C'est vraiment gratuit ?</summary><p>Oui. Otoko Studio Vault Pro est un logiciel libre sous licence GPL-3.0-or-later : tu peux l'utiliser, l'étudier, le modifier et le redistribuer. Tout le code est sur GitHub. Il est fourni sans garantie.</p></details>
+      <details class="rv"><summary>Est-ce qu'il touche à mes fichiers ?</summary><p>Non. Tes fichiers ne sont ni déplacés ni modifiés. Renommer, réorganiser ou écrire les tags ne se fait qu'à ta demande, et Ctrl+Z annule. Un master s'enregistre à côté de l'original.</p></details>
+      <details class="rv"><summary>Et si je me trompe ?</summary><p>Ta base (fiches, notes, sorties) est sauvegardée chaque jour. Tu peux revenir à une date ou repartir de zéro : une sauvegarde est faite juste avant, tu peux donc changer d'avis.</p></details>
+      <details class="rv"><summary>Sur quels appareils ?</summary><p>Le logiciel tourne sur Windows 10 et 11 en 64 bits. L'app Otoko Vault est pour Android et Android Auto. Les liens de partage s'écoutent dans n'importe quel navigateur.</p></details>
+      <details class="rv"><summary>J'utilisais Studio Vault. Je perds tout ?</summary><p>Non. Réglages › Général › Importer ma base Studio Vault reprend tes morceaux, sorties, clients, textes, prompts, tags, marqueurs, vues et liens de partage. Ta base d'origine est lue sur une copie, jamais modifiée.</p></details>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="ring" aria-hidden="true"></div>
+  <div class="wrap">
+    <h2 class="rv">Arrête de chercher. <span class="grad">Écoute.</span></h2>
+    <p class="rv">Libre, gratuit, en français. Installé en deux minutes, sans compte.</p>
+    <a class="btn pri rv" data-dl="exe" href="https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13m0 0l-5-5m5 5l5-5M4 21h16"/></svg>
+      Télécharger Otoko Studio Vault Pro</a>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span class="brand"><span class="logo"></span><span>Fait par Otoko</span><small>Rust · Slint · Kotlin · GPL-3.0-or-later</small></span>
+    <nav aria-label="Liens">
+      <a href="https://github.com/otokonosound/otoko-studio-vault-pro">Code source</a>
+      <a href="https://github.com/otokonosound/otoko-studio-vault-pro/releases/latest">Releases</a>
+      <a href="https://github.com/otokonosound/otoko-studio-vault-pro/issues">Une question, un souci</a>
+      <a href="https://soundcloud.com/otokonosound">SoundCloud</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function(){
+"use strict";
+var root=document.documentElement; root.classList.add("js");
+var RM=matchMedia("(prefers-reduced-motion: reduce)").matches;
+var $=function(s){return document.querySelector(s)};
+var T={};
+function readTokens(){var cs=getComputedStyle(root);["ember","ember2","lagoon","text3","ink4","ink3"].forEach(function(k){T[k]=cs.getPropertyValue("--"+k).trim()});}
+readTokens();
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change",function(){readTokens();drawStatic()});
+new MutationObserver(function(){readTokens();drawStatic()}).observe(root,{attributes:true,attributeFilter:["data-theme"]});
+function rnd(seed){var s=seed;return function(){s=(s*16807)%2147483647;return (s-1)/2147483646}}
+function fit(c){var d=Math.min(devicePixelRatio||1,2),r=c.getBoundingClientRect();if(!r.width)return null;c.width=r.width*d;c.height=r.height*d;var x=c.getContext("2d");x.setTransform(d,0,0,d,0,0);return {x:x,w:r.width,h:r.height}}
+
+/* titre : mots qui montent */
+var h1=$("#h1"),i=0;
+(function split(node){[].slice.call(node.childNodes).forEach(function(n){
+  if(n.nodeType===3){var f=document.createDocumentFragment();n.textContent.split(/(\s+)/).forEach(function(p){if(!p)return;if(/^\s+$/.test(p)){f.appendChild(document.createTextNode(" "));return}var s=document.createElement("span");s.className="w";s.style.setProperty("--i",i++);s.textContent=p;f.appendChild(s)});node.replaceChild(f,n)}
+  else if(n.classList&&n.classList.contains("grad")){n.classList.add("w");n.style.setProperty("--i",i++)}
+})})(h1);
+
+/* vagues du hero */
+var wc=$("#waves"),W=null,px=.5;
+function sizeWaves(){W=fit(wc)}
+function drawWaves(t){
+  if(!W)return;var x=W.x,w=W.w,h=W.h;x.clearRect(0,0,w,h);
+  var g=x.createLinearGradient(0,0,w,0);g.addColorStop(0,T.ember);g.addColorStop(.55,T.ember2);g.addColorStop(1,T.lagoon);
+  x.strokeStyle=g;
+  for(var k=0;k<7;k++){
+    x.beginPath();x.globalAlpha=.42-k*.05;x.lineWidth=k===0?2:1.2;
+    for(var X=0;X<=w;X+=8){
+      var e=Math.sin(Math.PI*X/w),near=Math.exp(-Math.pow((X/w-px)*3.2,2));
+      var a=h*.11*(.35+.65*e)*(1+near*.9);
+      var y=h*.42+k*9+Math.sin(X*.0042*(1+k*.13)+t*.00055*(1+k*.18)+k)*a+Math.sin(X*.012+t*.0011+k*2.1)*a*.34;
+      X?x.lineTo(X,y):x.moveTo(X,y);
+    }
+    x.stroke();
+  }
+  x.globalAlpha=1;
+}
+addEventListener("pointermove",function(e){px=e.clientX/innerWidth},{passive:true});
+
+/* bibliothèque d'exemple */
+var TR=[["I'm Alive",124,"Am","8A",-8.9,"publié"],["Nuit Électrique",126,"Am","8A",-9.4,"terminé"],["Braise",122,"Em","9A",-10.2,"terminé"],["Marée basse",128,"Am","8A",-9.1,"terminé"],["Ligne claire",120,"Am","8A",-13.0,"en cours"],["Lagune",118,"C","8B",-12.6,"en cours"],["Tokyo 03h",132,"Fm","4A",-8.7,"publié"],["Atelier",100,"G","9B",-11.8,"en cours"],["Sans titre 14",140,"Dm","7A",-14.3,"idée"]];
+var SC={"publié":"var(--lagoon)","terminé":"var(--ember2)","en cours":"var(--ember)","idée":"var(--text3)"};
+var rows=$("#rows"),q=$("#q"),count=$("#count"),cur=0,els=[];
+function mini(seed){var r=rnd(seed*97+13),s="";for(var b=0;b<24;b++){var e=Math.sin(Math.PI*(b+.5)/24),hh=Math.max(2,(0.25+r()*.75)*e*20);s+='<rect x="'+(b*3)+'" y="'+(11-hh/2).toFixed(1)+'" width="2" height="'+hh.toFixed(1)+'" rx="1" fill="currentColor"/>'}return '<svg class="wv" viewBox="0 0 72 22" preserveAspectRatio="none" aria-hidden="true">'+s+'</svg>'}
+rows.innerHTML='<div class="row head"><span>Onde</span><span>Titre</span><span>BPM</span><span>Ton.</span><span>Cam.</span><span>LUFS</span><span>Statut</span></div>'+TR.map(function(t,n){return '<button class="row" data-n="'+n+'">'+mini(n+1)+'<span class="t">'+t[0]+'</span><span class="n">'+t[1]+'</span><span class="n">'+t[2]+'</span><span class="n">'+t[3]+'</span><span class="n">'+String(t[4].toFixed(1)).replace(".",",")+'</span><span class="st" style="--c:'+SC[t[5]]+'">'+t[5]+'</span></button>'}).join("")+'<div class="empty" id="empty" hidden>Aucun morceau d\'exemple ne correspond. Essaie <span class="mono">bpm:120-128</span>.</div>';
+els=[].slice.call(rows.querySelectorAll("button.row"));
+function norm(s){return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"")}
+function match(t,query){
+  return query.trim().split(/\s+/).filter(Boolean).every(function(tok){
+    var m=tok.match(/^(\w+):(.*)$/);
+    if(!m)return norm(t[0]).indexOf(norm(tok))>-1;
+    var k=m[1].toLowerCase(),v=norm(m[2]);if(!v)return true;
+    if(k==="bpm"){var r=v.split("-").map(Number);return r.length>1&&r[1]?t[1]>=r[0]&&t[1]<=r[1]:String(t[1]).indexOf(v)===0}
+    if(k==="key")return norm(t[2])===v;
+    if(k==="camelot")return norm(t[3])===v;
+    if(k==="status")return norm(t[5]).indexOf(v)===0;
+    return true;
+  });
+}
+function filter(){
+  var n=0,v=q.value;
+  els.forEach(function(el,ix){var ok=match(TR[ix],v),was=el.classList.contains("out");el.classList.toggle("out",!ok);if(ok){n++;if(was){el.classList.remove("pop");void el.offsetWidth;el.classList.add("pop")}}});
+  $("#empty").hidden=n>0;
+  count.textContent=n+" / "+TR.length+" morceaux";
+  [].forEach.call(document.querySelectorAll("#chips .chip"),function(c){c.setAttribute("aria-pressed",String(c.dataset.q===v.trim()))});
+}
+function select(n){cur=n;els.forEach(function(el,ix){el.classList.toggle("sel",ix===n)});var t=TR[n];$("#npT").textContent=t[0];$("#npM").textContent=t[1]+" BPM · "+t[2]+" · "+t[3];pos=0;peaks=makePeaks(n+1);drawPlayer()}
+var auto=true;function stopAuto(){auto=false}
+q.addEventListener("input",function(){stopAuto();filter()});q.addEventListener("focus",stopAuto);
+$("#chips").addEventListener("click",function(e){var c=e.target.closest(".chip");if(!c)return;stopAuto();q.value=c.dataset.q;filter()});
+rows.addEventListener("click",function(e){var r=e.target.closest("button.row");if(!r)return;stopAuto();select(+r.dataset.n);playing=true;icon()});
+/* démo automatique tant que personne n'y touche */
+var script=["bpm:120-128","bpm:120-128 key:Am","status:terminé","camelot:8A",""],si=0;
+function typeTo(target,done){var v=q.value;(function step(){if(!auto)return;if(v!==target.slice(0,v.length)){v=v.slice(0,-1)}else if(v.length<target.length){v=target.slice(0,v.length+1)}else{return setTimeout(done,2600)}q.value=v;filter();setTimeout(step,v.length<target.length?70:28)})()}
+function autoLoop(){if(!auto)return;typeTo(script[si],function(){if(!auto)return;var vis=els.filter(function(e){return !e.classList.contains("out")});if(vis.length)select(+vis[(si*2)%vis.length].dataset.n);si=(si+1)%script.length;autoLoop()})}
+
+/* lecteur */
+var pc=$("#pwave"),P=null,pos=0,playing=!RM,peaks;
+function makePeaks(seed){var r=rnd(seed*131+7),a=[];for(var k=0;k<160;k++){var s=k/160,env=.35+.65*Math.abs(Math.sin(s*Math.PI*3.2+seed))*(s>.42&&s<.5?.3:1);a.push(Math.max(.08,env*(.45+r()*.55)))}return a}
+peaks=makePeaks(1);
+function drawPlayer(){if(!P)return;var x=P.x,w=P.w,h=P.h,n=Math.max(20,Math.floor(w/4));x.clearRect(0,0,w,h);for(var k=0;k<n;k++){var v=peaks[Math.floor(k/n*peaks.length)],bh=v*h*.92;x.fillStyle=k/n<pos?T.lagoon:T.ink4;x.fillRect(k*(w/n),(h-bh)/2,Math.max(1.5,w/n-1.6),bh)}}
+function icon(){$("#pp").innerHTML=playing?'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>':'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'}
+$("#pp").addEventListener("click",function(){playing=!playing;icon()});icon();
+
+/* analyse : onde + compteurs */
+var sc=$("#scanw"),S=null;
+function drawScan(){if(!S)return;var x=S.x,w=S.w,h=S.h,r=rnd(4242),n=Math.floor(w/5);x.clearRect(0,0,w,h);var g=x.createLinearGradient(0,0,w,0);g.addColorStop(0,T.ember);g.addColorStop(1,T.ember2);x.fillStyle=g;for(var k=0;k<n;k++){var s=k/n,e=(.3+.7*Math.abs(Math.sin(s*9)))*(s>.55&&s<.63?.25:1),bh=Math.max(3,e*(.4+r()*.6)*h);x.globalAlpha=.85;x.fillRect(k*5,(h-bh)/2,3,bh)}x.globalAlpha=1}
+function countUp(el){if(el.dataset.txt){setTimeout(function(){el.textContent=el.dataset.txt},700);return}var to=+el.dataset.to,dec=+(el.dataset.dec||0),suf=el.dataset.suf||"",t0=performance.now();(function f(t){var p=Math.min(1,(t-t0)/1500),e=1-Math.pow(1-p,3);el.textContent=(to*e).toFixed(dec).replace(".",",")+suf;if(p<1)requestAnimationFrame(f)})(t0)}
+
+/* roue de Camelot */
+var wheel=$("#wheel"),KA=["Abm","Ebm","Bbm","Fm","Cm","Gm","Dm","Am","Em","Bm","F#m","Dbm"],KB=["B","F#","Db","Ab","Eb","Bb","F","C","G","D","A","E"];
+function arc(r1,r2,a1,a2){function p(r,a){return (r*Math.sin(a)).toFixed(2)+" "+(-r*Math.cos(a)).toFixed(2)}return "M"+p(r2,a1)+"A"+r2+" "+r2+" 0 0 1 "+p(r2,a2)+"L"+p(r1,a2)+"A"+r1+" "+r1+" 0 0 0 "+p(r1,a1)+"Z"}
+var wh="";for(var n=0;n<12;n++){var a1=(n*30-15)*Math.PI/180,a2=(n*30+15)*Math.PI/180,am=n*30*Math.PI/180;
+  wh+='<path data-k="'+(n+1)+'B" d="'+arc(74,104,a1,a2)+'"/><path data-k="'+(n+1)+'A" d="'+arc(44,72,a1,a2)+'"/>';
+  wh+='<text data-k="'+(n+1)+'B" x="'+(89*Math.sin(am)).toFixed(1)+'" y="'+(-89*Math.cos(am)).toFixed(1)+'">'+(n+1)+'B</text><text data-k="'+(n+1)+'A" x="'+(58*Math.sin(am)).toFixed(1)+'" y="'+(-58*Math.cos(am)).toFixed(1)+'">'+(n+1)+'A</text>'}
+wheel.innerHTML=wh+'<text class="mid" id="wk" y="-5">Am</text><text class="mid2" id="wc" y="14">8A</text>';
+var seq=["8A","9A","9B","8B","7B","7A","4A"],wi=0;
+function setKey(k){var num=parseInt(k,10),L=k.slice(-1),comp=[((num+10)%12+1)+L,(num%12+1)+L,num+(L==="A"?"B":"A")];
+  [].forEach.call(wheel.querySelectorAll("[data-k]"),function(el){var d=el.dataset.k;el.classList.toggle("s",d===k);el.classList.toggle("c",comp.indexOf(d)>-1)});
+  $("#wk").textContent=(L==="A"?KA:KB)[num-1];$("#wc").textContent=k+" · "+comp.join(" ")}
+setKey("8A");
+
+/* mastering avant / après */
+var bars=$("#bars"),br=rnd(77),bh="";for(var b=0;b<56;b++){var e2=.35+.65*Math.abs(Math.sin(b/56*Math.PI*2.6));bh+='<i style="--h:'+(e2*(.5+br()*.5)).toFixed(2)+';--n:'+b+'"></i>'}bars.innerHTML=bh;
+var mast=$("#mast"),mAuto=true;
+function setAB(after){mast.classList.toggle("after",after);$("#abA").setAttribute("aria-pressed",String(!after));$("#abB").setAttribute("aria-pressed",String(after));$("#m1").textContent=after?"-9,0 LUFS":"-18,3 LUFS";$("#m2").textContent=after?"-1,0 dBTP":"-0,1 dBTP";$("#m3").textContent=after?"titre (master).wav":"original"}
+$("#abA").addEventListener("click",function(){mAuto=false;setAB(false)});$("#abB").addEventListener("click",function(){mAuto=false;setAB(true)});
+
+/* compte à rebours d'exemple */
+var target=Date.now()+12*864e5+4*36e5+22*6e4+10e3;
+function pad(n){return String(n).padStart(2,"0")}
+function tick(){var d=Math.max(0,target-Date.now()),j=Math.floor(d/864e5),h=Math.floor(d%864e5/36e5),m=Math.floor(d%36e5/6e4),s=Math.floor(d%6e4/1e3);$("#cdJ").textContent="J-"+j;$("#cdT").textContent=pad(h)+" h "+pad(m)+" min "+pad(s)+" s"}
+tick();
+
+/* publier : texte tapé */
+var PUB=["I'm Alive · 124 BPM\nNouveau morceau, disponible maintenant.\nBonne écoute, et dis-moi ce que tu en penses.\n\n→ {lien}","I'm Alive est sorti.\n124 BPM, à écouter fort.\n\nLe lien est dans la bio.\n#nouveaute #musique","NOUVEAU\nI'm Alive\nÉcoute maintenant ↑"],pubT=0,pubEl=$("#pub");
+function typePub(ix){var id=++pubT,txt=PUB[ix],k=0;[].forEach.call(document.querySelectorAll("#ptabs .chip"),function(c){c.setAttribute("aria-pressed",String(+c.dataset.p===ix))});
+  if(RM){pubEl.textContent=txt;return}
+  pubEl.textContent="";(function f(){if(id!==pubT)return;pubEl.textContent=txt.slice(0,++k);if(k<txt.length)setTimeout(f,18)})()}
+var pubAuto=true,pubI=0;
+$("#ptabs").addEventListener("click",function(e){var c=e.target.closest(".chip");if(!c)return;pubAuto=false;typePub(+c.dataset.p)});
+pubEl.textContent=PUB[0];
+
+/* tableau de production : la carte avance sur preuve */
+var star=$("#star"),cols=[].slice.call(document.querySelectorAll("#board .col")),proof=$("#proofTxt"),ki=0,boardOn=false;
+var PR=["Une idée posée dans le dossier surveillé.","Nouvel export détecté : le morceau passe En cours.","Envoyé au mastering depuis sa fiche.","Master enregistré : le morceau passe Terminé.","Lien SoundCloud collé : le morceau passe Publié."];
+function move(ix){var a=star.getBoundingClientRect();cols.forEach(function(c,n){c.classList.toggle("hot",n===ix)});cols[ix].insertBefore(star,cols[ix].children[1]||null);var b=star.getBoundingClientRect();
+  if(!RM&&star.animate)star.animate([{transform:"translate("+(a.left-b.left)+"px,"+(a.top-b.top)+"px) rotate(-3deg) scale(1.06)"},{transform:"none"}],{duration:900,easing:"cubic-bezier(.2,.8,.2,1)"});
+  proof.style.opacity=0;setTimeout(function(){proof.textContent=PR[ix];proof.style.opacity=1},280)}
+function boardLoop(){if(!boardOn)return;ki=(ki+1)%5;move(ki);setTimeout(boardLoop,ki===4?4200:2600)}
+
+/* révélations au défilement */
+var seen=new WeakSet();
+function onSee(el){
+  if(el.id==="board"&&!boardOn&&!RM){boardOn=true;setTimeout(boardLoop,1400)}
+  if(el.querySelector&&el.querySelector("#ana")){[].forEach.call(el.querySelectorAll(".meter b"),countUp)}
+  if(el.id==="mast"&&!RM){(function loop(){if(!mAuto)return;setAB(!mast.classList.contains("after"));setTimeout(loop,2800)})()}
+  if(el.querySelector&&el.querySelector("#pub")&&!RM){(function loop(){if(!pubAuto)return;typePub(pubI);pubI=(pubI+1)%3;setTimeout(loop,5200)})()}
+}
+var rv=[].slice.call(document.querySelectorAll(".rv"));
+if("IntersectionObserver" in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting&&!seen.has(e.target)){seen.add(e.target);e.target.classList.add("in");onSee(e.target);io.unobserve(e.target)}})},{threshold:.12,rootMargin:"0px 0px -6% 0px"});rv.forEach(function(e){io.observe(e)})}
+else rv.forEach(function(e){e.classList.add("in");onSee(e)});
+if(RM){[].forEach.call(document.querySelectorAll(".meter b"),function(b){b.textContent=b.dataset.txt||String(b.dataset.to).replace(".",",")+(b.dataset.suf||"")})}
+
+/* survol : halo qui suit le pointeur */
+[].forEach.call(document.querySelectorAll(".card"),function(c){c.addEventListener("pointermove",function(e){var r=c.getBoundingClientRect();c.style.setProperty("--mx",(e.clientX-r.left)+"px");c.style.setProperty("--my",(e.clientY-r.top)+"px")})});
+
+/* bandeau : doubler le contenu pour la boucle */
+var mq=$("#marq");mq.innerHTML+=mq.innerHTML;
+
+/* défilement : progression + redressement de la fenêtre */
+var app=$("#app"),prog=$("#prog");
+function onScroll(){var max=document.documentElement.scrollHeight-innerHeight;prog.style.transform="scaleX("+(max>0?scrollY/max:0)+")";
+  if(!RM){var r=app.getBoundingClientRect(),t=Math.max(0,Math.min(1,(r.top-innerHeight*.12)/(innerHeight*.6)));app.style.setProperty("--tilt",t.toFixed(3))}}
+addEventListener("scroll",onScroll,{passive:true});
+
+function drawStatic(){drawPlayer();drawScan();if(RM)drawWaves(0)}
+function resize(){sizeWaves();P=fit(pc);S=fit(sc);drawStatic();onScroll()}
+addEventListener("resize",resize);resize();
+filter();select(0);
+
+var last=0,wk=0,pl=0,cd=0;
+function frame(t){
+  var dt=t-last;last=t;
+  if(!RM)drawWaves(t);
+  if(playing){pos+=dt/22000;if(pos>=1)pos=0;drawPlayer()}
+  if(t-cd>1000){cd=t;tick()}
+  if(!RM&&t-wk>2200){wk=t;wi=(wi+1)%seq.length;setKey(seq[wi])}
+  if(!RM&&t-pl>3400){pl=t;var p=$("#plays"),n=parseInt(p.textContent,10)+1;p.textContent=(n>24?7:n)+" écoutes"}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+if(!RM)setTimeout(autoLoop,1800);
+})();
+</script>
+
+<script>
+/* Le site suit la dernière version publiée sur GitHub : numéro, téléchargement direct,
+   durée de la vidéo et nouveautés sont lus dans la release. Si GitHub ne répond pas,
+   la page garde ce qui est écrit plus haut et les boutons mènent à la page Releases. */
+(function(){
+"use strict";
+var REPO="otokonosound/otoko-studio-vault-pro",ECRIT="v1.1.5",CLE="otoko-release";
+var $=function(s){return document.querySelector(s)};
+function brut(s){return s.replace(/\[([^\]]+)\]\([^)]*\)/g,"$1").replace(/\*\*([^*]+)\*\*/g,"$1").replace(/`([^`]+)`/g,"$1").trim()}
+function nouveautes(md){
+  var bloc=(md.split(/^## +Les nouveautés.*$/m)[1]||"").split(/^## /m)[0],out=[];
+  bloc.split(/^### +/m).slice(1).forEach(function(part){
+    var l=part.split(/\r?\n/),puces=l.slice(1).filter(function(x){return /^\s*[-*] /.test(x)}).map(function(x){return brut(x.replace(/^\s*[-*] /,""))});
+    if(l[0].trim()&&puces.length)out.push([brut(l[0]),puces.slice(0,2).join(" ")]);
+  });
+  return out;
+}
+function appliquer(r){
+  if(!r||!r.tag_name)return;
+  var v=r.tag_name.replace(/^v/i,""),md=r.body||"",exe=null;
+  (r.assets||[]).forEach(function(a){if(/installation\.exe$/i.test(a.name))exe=a});
+  $("#relVer").textContent="v"+v;
+  if(exe){
+    [].forEach.call(document.querySelectorAll('[data-dl="exe"]'),function(a){a.href=exe.browser_download_url});
+    $("#relExe").textContent=exe.name;
+  }
+  if(r.html_url)$("#relNotes").href=r.html_url;
+  var vid=((md.split(/^## +La vidéo.*$/m)[1]||"").split(/^## /m)[0].match(/(\d+)\s*min(?:\s*(\d+))?/));
+  $("#relVid").textContent=vid?" · "+vid[1]+" min"+(vid[2]?" "+vid[2]:""):"";
+  if(r.tag_name===ECRIT)return; /* le texte écrit à la main vaut pour cette version */
+  var cartes=nouveautes(md),intro=brut((md.split(/^## /m)[0].split(/\r?\n\s*\r?\n/)[0]||"").split(/\r?\n/)[0]).replace(/\s*:$/,".");
+  $("#relNew").textContent="Nouveau dans la "+v;
+  $("#relTitle").textContent="Ce qui change dans la "+v+".";
+  var p=$("#relIntro");p.textContent=intro;p.hidden=!intro;
+  var box=$("#relCards");
+  if(!cartes.length){box.hidden=true;return}
+  box.textContent="";
+  cartes.forEach(function(c){var d=document.createElement("div"),b=document.createElement("b");b.textContent=c[0];d.appendChild(b);d.appendChild(document.createTextNode(c[1]));box.appendChild(d)});
+}
+var cache=null;
+try{cache=JSON.parse(sessionStorage.getItem(CLE))}catch(e){}
+if(cache&&Date.now()-cache.t<6e5){appliquer(cache.r);return}
+if(!window.fetch)return;
+fetch("https://api.github.com/repos/"+REPO+"/releases/latest",{headers:{Accept:"application/vnd.github+json"}})
+  .then(function(x){return x.ok?x.json():null})
+  .then(function(r){if(!r)return;appliquer(r);try{sessionStorage.setItem(CLE,JSON.stringify({t:Date.now(),r:{tag_name:r.tag_name,body:r.body,html_url:r.html_url,assets:(r.assets||[]).map(function(a){return {name:a.name,browser_download_url:a.browser_download_url}})}}))}catch(e){}})
+  .catch(function(){});
+})();
+</script>
+</body>
+</html>
