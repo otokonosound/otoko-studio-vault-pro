@@ -120,10 +120,13 @@ fun OtokoApp(vm: MainViewModel) {
     var castOpen by remember { mutableStateOf(false) }
     // Messages de la diffusion (Mu-so perdue, morceau indisponible…)
     LaunchedEffect(Unit) { vm.cast.messages.collect { toast = it } }
-    // Une nouvelle version proposée par ton PC : un clic la télécharge, Android demande de l'installer
+    // Une nouvelle version proposée par ton PC : l'appli la télécharge elle-même, Android demande de l'installer
     val context = LocalContext.current
     var updateUrl by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { updateUrl = runCatching { vm.updateUrl() }.getOrNull() }
+    // Pendant le téléchargement : le pourcentage (-1 si inconnu), sinon rien
+    var updating by remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
 
     MaterialTheme(colorScheme = darkColorScheme(surface = Palette.Surface, background = Palette.Black)) {
         Box(Modifier.fillMaxSize().background(Palette.Black)) {
@@ -164,12 +167,27 @@ fun OtokoApp(vm: MainViewModel) {
 
             updateUrl?.let { url ->
                 Text(
-                    "Nouvelle version d'Otoko Vault : installer", color = Palette.Black, fontFamily = Body, fontSize = 14.sp,
+                    when {
+                        updating == null -> "Nouvelle version d'Otoko Vault : installer"
+                        updating!! < 0 -> "Téléchargement de la nouvelle version…"
+                        else -> "Téléchargement de la nouvelle version… $updating %"
+                    },
+                    color = Palette.Black, fontFamily = Body, fontSize = 14.sp,
                     modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 8.dp)
                         .background(Palette.White, RoundedCornerShape(14.dp))
-                        .clickable {
-                            context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
-                            updateUrl = null
+                        .clickable(enabled = updating == null) {
+                            // Une fois pour toutes : Android doit autoriser l'appli à installer sa mise à jour
+                            if (com.otoko.mobile.Updater.needsPermission(context)) {
+                                toast = "Autorise Otoko Vault à installer des applis, puis reviens toucher « installer »"
+                                com.otoko.mobile.Updater.openPermissionSettings(context)
+                                return@clickable
+                            }
+                            updating = -1
+                            scope.launch {
+                                val r = runCatching { com.otoko.mobile.Updater.install(context.applicationContext, url) { p -> updating = p } }
+                                updating = null
+                                r.exceptionOrNull()?.let { toast = "Mise à jour impossible : ${it.message ?: "le PC ne répond pas"}" }
+                            }
                         }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                 )
