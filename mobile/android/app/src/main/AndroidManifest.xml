@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Copie dans Musique sur Android 9 et avant (inutile ensuite : MediaStore) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- Installer la nouvelle version proposée par le PC, sans passer par le navigateur -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".App"
@@ -71,6 +73,11 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
+
+        <!-- Réponse d'Android pendant l'installation d'une mise à jour -->
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
 
         <!-- Pochettes en content:// pour Android Auto (lecture seule) -->
         <provider
