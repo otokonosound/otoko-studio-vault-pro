@@ -502,6 +502,18 @@ pub fn write_tags(path: &Path, v: &TagValues) -> Result<(), String> {
         if let Some(t) = f.tag_mut(TagType::RiffInfo) {
             // Le bloc INFO n'a ni tempo ni tonalité.
             set_tag(t, &TagValues { bpm: None, key: None, ..v.clone() });
+            // Le n° de piste : lofty ne l'écrit que sous IPRT, que l'Explorateur de Windows et la plupart des
+            // lecteurs ignorent ; ils lisent ITRK. Et il relit l'un comme l'autre en un même champ, qu'il réécrirait
+            // en deux IPRT. On remet donc à chaque écriture un seul IPRT et un seul ITRK, de même valeur.
+            use lofty::tag::{Accessor, ItemKey, ItemValue, TagItem};
+            let itrk = ItemKey::Unknown("ITRK".into());
+            let n = t.track();
+            t.remove_track();
+            t.remove_key(&itrk);
+            if let Some(n) = n {
+                t.set_track(n);
+                t.insert_unchecked(TagItem::new(itrk, ItemValue::Text(n.to_string())));
+            }
         }
     }
     f.save_to_path(path, WriteOptions::default()).map_err(|e| match e.kind() {
@@ -998,6 +1010,40 @@ mod tests {
         // Effacer un champ.
         write_tags(&p, &TagValues { genre: Some(String::new()), ..Default::default() }).unwrap();
         assert_eq!(super::super::scan::read_tags(&p).genre, None);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Le bloc INFO d'un WAV porte le n° de piste sous ITRK (ce que lit Windows) et IPRT ; le changer ou l'effacer
+    /// touche les deux, sans doublon.
+    #[test]
+    fn wav_track_number_for_windows() {
+        let p = std::env::temp_dir().join(format!("otoko-piste-{}.wav", std::process::id()));
+        wav(&p);
+        // Lu dans le fichier brut : lofty ramène ITRK et IPRT au même champ.
+        let info = |p: &Path| {
+            let raw = std::fs::read(p).unwrap();
+            let mut out: Vec<(String, String)> = Vec::new();
+            for k in ["IPRT", "ITRK"] {
+                let at: Vec<usize> = raw.windows(4).enumerate().filter(|(_, w)| *w == k.as_bytes()).map(|(i, _)| i).collect();
+                assert!(at.len() <= 1, "{k} en double");
+                if let Some(&i) = at.first() {
+                    let len = u32::from_le_bytes(raw[i + 4..i + 8].try_into().unwrap()) as usize;
+                    out.push((k.into(), String::from_utf8_lossy(&raw[i + 8..i + 8 + len]).trim_end_matches('\0').to_string()));
+                }
+            }
+            out
+        };
+        write_tags(&p, &TagValues { title: Some("Nuit".into()), track_no: Some("3".into()), ..Default::default() }).unwrap();
+        assert_eq!(info(&p), vec![("IPRT".into(), "3".into()), ("ITRK".into(), "3".into())]);
+        write_tags(&p, &TagValues { track_no: Some("7".into()), ..Default::default() }).unwrap();
+        assert_eq!(info(&p), vec![("IPRT".into(), "7".into()), ("ITRK".into(), "7".into())]);
+        assert_eq!(super::super::scan::read_tags(&p).track_no, Some(7));
+        // Un autre champ seul ne touche pas au numéro.
+        write_tags(&p, &TagValues { album: Some("Esprit".into()), ..Default::default() }).unwrap();
+        assert_eq!(info(&p).len(), 2);
+        write_tags(&p, &TagValues { track_no: Some(String::new()), ..Default::default() }).unwrap();
+        assert!(info(&p).is_empty());
+        assert_eq!(super::super::scan::read_tags(&p).track_no, None);
         let _ = std::fs::remove_file(&p);
     }
 
