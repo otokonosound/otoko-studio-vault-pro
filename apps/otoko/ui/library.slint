@@ -171,6 +171,9 @@ export global Lib {
     in property <bool> details-has-cover;
     in property <string> details-error;
     in property <bool> details-attached;
+    // Le prompt Suno qui a donné ce morceau (vide : aucun), et son nom s'il est encore dans l'Atelier.
+    in property <string> details-prompt;
+    in property <string> details-prompt-name;
     // Dialogue (renommer, réorganiser, doublons, compléter, rattacher) : vide quand il est fermé.
     in property <string> dialog;
     in property <string> dialog-title;
@@ -415,6 +418,16 @@ component DetailsPanel inherits Rectangle {
                         accepted => { Lib.edits-done(); }
                         changed has-focus => { if !self.has-focus { Lib.edits-done(); } }
                     }
+                }
+            }
+            if Lib.details-batch == 0 && Lib.details-tab == 0 && Lib.details-prompt != "": VerticalLayout {
+                spacing: 4px;
+                Text { text: Lib.details-prompt-name == "" ? "PROMPT SUNO" : "PROMPT SUNO · " + Lib.details-prompt-name; color: Theme.text3; font-size: 10.5px; font-weight: 700; wrap: word-wrap; }
+                Text { text: Lib.details-prompt; color: Theme.text2; font-size: 11.5px; font-family: Theme.mono-font; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Btn { text: "Ouvrir le prompt"; height: 28px; clicked => { Lib.action("suno-open"); } }
+                    Btn { text: "Refaire une variation"; height: 28px; ghost: true; clicked => { Lib.action("suno-variation"); } }
                 }
             }
             if Lib.details-batch == 0 && Lib.details-tab == 0: HorizontalLayout {

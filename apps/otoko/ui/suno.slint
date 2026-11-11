@@ -1,7 +1,8 @@
 // Carrière › Atelier Suno (comme l'atelier de prompts Suno v6 de Studio Vault) : la bibliothèque
 // de prompts ; le champ Style en six cases, avec étiquettes à cliquer ; « à exclure » ; les réglages
 // créatifs et leurs préréglages ; les paroles et leurs tags de section ; l'aperçu, les compteurs et
-// les vérifications avec correction en un clic ; l'import des fichiers rapportés de Suno.
+// les vérifications avec correction en un clic ; l'import des fichiers rapportés de Suno, à la main ou
+// depuis le dossier de téléchargements surveillé ; le volet des modèles, des versions et de « ce qui marche ».
 // Tout passe par le global `SunoUi` (suno.rs).
 import { Theme } from "theme.slint";
 import { Btn, Hit } from "components.slint";
@@ -42,6 +43,15 @@ export struct SPresetUi {
 export struct ImportFileUi {
     name: string,
     current: bool,
+}
+
+// Une ligne du volet (modèles, versions, ce qui marche) : un titre de partie, ou une ligne à cliquer.
+export struct SRowUi {
+    title: string,
+    sub: string,
+    right: string,
+    head: bool,
+    removable: bool,
 }
 
 export global SunoUi {
@@ -93,6 +103,29 @@ export global SunoUi {
     in-out property <string> imp-tags;
     in-out property <string> imp-prompt;
     in property <string> imp-preview;
+    // Le dossier de téléchargements surveillé (vide : aucun) et ce qui y attend d'être rangé.
+    in property <string> watch-text;
+    in property <int> waiting;
+    in property <string> waiting-text;
+    // La date des connaissances sur Suno.
+    in property <string> caps-text;
+    // Le volet : « templates », « versions », « works » (vide : fermé).
+    in property <string> panel;
+    in property <string> panel-title;
+    in property <string> panel-note;
+    in property <string> panel-extra-label;
+    in property <[SRowUi]> panel-rows;
+    callback watch-pick();
+    callback watch-stop();
+    callback waiting-store();
+    callback waiting-review();
+    callback waiting-ignore();
+    callback panel-open(string);
+    callback panel-pick(int);
+    callback panel-remove(int);
+    callback panel-extra();
+    callback panel-close();
+    callback import-drop();
     callback search(string);
     callback load(int);
     callback new();
@@ -215,7 +248,26 @@ component SliderRow inherits HorizontalLayout {
 }
 
 export component SunoView inherits Rectangle {
+    VerticalLayout {
+        spacing: 10px;
+        // ---------- les téléchargements qui attendent d'être rangés
+        if SunoUi.waiting > 0: Rectangle {
+            border-radius: 10px;
+            background: Theme.ember-soft;
+            border-width: 1px;
+            border-color: Theme.ember;
+            HorizontalLayout {
+                padding: 8px;
+                padding-left: 12px;
+                spacing: 8px;
+                Text { horizontal-stretch: 1; text: SunoUi.waiting-text; color: Theme.text; font-size: 12px; wrap: word-wrap; vertical-alignment: center; }
+                VerticalLayout { alignment: center; Btn { text: "Ranger"; primary: true; height: 28px; clicked => { SunoUi.waiting-store(); } } }
+                VerticalLayout { alignment: center; Btn { text: "Voir avant…"; height: 28px; clicked => { SunoUi.waiting-review(); } } }
+                VerticalLayout { alignment: center; Btn { text: "Ignorer"; ghost: true; height: 28px; clicked => { SunoUi.waiting-ignore(); } } }
+            }
+        }
     HorizontalLayout {
+        vertical-stretch: 1;
         spacing: 12px;
         // ---------- bibliothèque de prompts
         VerticalLayout {
@@ -226,6 +278,7 @@ export component SunoView inherits Rectangle {
             HorizontalLayout {
                 spacing: 6px;
                 Btn { text: "+ Nouveau"; height: 28px; primary: true; clicked => { SunoUi.new(); } }
+                Btn { text: "Modèles…"; height: 28px; clicked => { SunoUi.panel-open("templates"); } }
             }
             Rectangle {
                 vertical-stretch: 1;
@@ -248,7 +301,20 @@ export component SunoView inherits Rectangle {
                 Btn { text: "Copie"; height: 28px; ghost: true; clicked => { SunoUi.fork(); } }
                 Btn { text: "Supprimer"; height: 28px; ghost: true; clicked => { SunoUi.delete(); } }
             }
+            HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Versions…"; height: 28px; ghost: true; clicked => { SunoUi.panel-open("versions"); } }
+                Btn { text: "Ce qui marche"; height: 28px; ghost: true; clicked => { SunoUi.panel-open("works"); } }
+            }
             Btn { text: "Importer des fichiers Suno…"; height: 30px; clicked => { SunoUi.import-show(); } }
+            if SunoUi.watch-text == "": Btn { text: "Surveiller mes téléchargements…"; height: 28px; ghost: true; clicked => { SunoUi.watch-pick(); } }
+            if SunoUi.watch-text != "": Text { text: "Téléchargements surveillés : " + SunoUi.watch-text; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
+            if SunoUi.watch-text != "": HorizontalLayout {
+                spacing: 6px;
+                Btn { text: "Changer…"; height: 26px; ghost: true; clicked => { SunoUi.watch-pick(); } }
+                Btn { text: "Arrêter"; height: 26px; ghost: true; clicked => { SunoUi.watch-stop(); } }
+            }
+            Text { text: SunoUi.caps-text; color: Theme.text3; font-size: 10.5px; wrap: word-wrap; }
         }
         // ---------- l'essentiel : la composition se fait sur le site de Suno
         if !SunoUi.full: VerticalLayout {
@@ -259,7 +325,7 @@ export component SunoView inherits Rectangle {
                 SInput { horizontal-stretch: 1; placeholder: "Nom du prompt"; value <=> SunoUi.name; changed(t) => { SunoUi.edited("name", t); } }
                 Btn { text: "Composer en détail"; ghost: true; height: 30px; clicked => { SunoUi.full = true; } }
             }
-            Text { text: "Tu composes sur le site de Suno : garde ici tes prompts, copie-les, et rapporte tes fichiers avec « Importer »."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+            Text { text: "Tu composes sur le site de Suno : garde ici tes prompts et copie-les. Tes téléchargements reviennent tout seuls si tu fais surveiller leur dossier, reliés au dernier prompt copié ; sinon, « Importer »."; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
             SHead { text: "CHAMP STYLE"; }
             Rectangle {
                 border-radius: 8px;
@@ -468,6 +534,58 @@ export component SunoView inherits Rectangle {
             }
         }
     }
+    }
+
+    // ---------- le volet : modèles de départ, versions, ce qui marche
+    if SunoUi.panel != "": Rectangle {
+        background: #00000088;
+        TouchArea { clicked => { SunoUi.panel-close(); } }
+        Rectangle {
+            x: (parent.width - self.width) / 2;
+            y: 24px;
+            width: min(700px, parent.width - 40px);
+            height: parent.height - 48px;
+            border-radius: 14px;
+            background: Theme.ink1;
+            border-width: 1px;
+            border-color: Theme.line2;
+            TouchArea { }
+            VerticalLayout {
+                padding: 18px;
+                spacing: 8px;
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text { horizontal-stretch: 1; text: SunoUi.panel-title; color: Theme.text; font-size: 18px; font-weight: 800; font-family: Theme.display-font; overflow: elide; vertical-alignment: center; }
+                    Btn { text: "Fermer"; ghost: true; height: 28px; clicked => { SunoUi.panel-close(); } }
+                }
+                Text { text: SunoUi.panel-note; color: Theme.text3; font-size: 12px; wrap: word-wrap; }
+                Rectangle {
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    background: Theme.ink2;
+                    clip: true;
+                    ListView {
+                        for r[i] in SunoUi.panel-rows: Rectangle {
+                            height: r.head ? 30px : 46px;
+                            background: !r.head && ra.has-hover ? Theme.ink3 : transparent;
+                            property <length> side: r.removable ? 86px : (r.right != "" ? 96px : 0px);
+                            if r.head: Text { x: 10px; y: 12px; width: parent.width - 20px; text: r.title; color: Theme.ember2; font-size: 10px; font-weight: 800; letter-spacing: 1px; }
+                            if !r.head: Text { x: 10px; y: 6px; width: parent.width - 20px - parent.side; text: r.title; color: Theme.text; font-size: 12.5px; font-weight: 700; overflow: elide; }
+                            if !r.head: Text { x: 10px; y: 25px; width: parent.width - 20px - parent.side; text: r.sub; color: Theme.text3; font-size: 10.5px; overflow: elide; }
+                            if !r.head && r.right != "": Text { x: parent.width - 96px; width: 86px; height: parent.height; text: r.right; color: Theme.lagoon; font-size: 12px; font-weight: 700; horizontal-alignment: right; vertical-alignment: center; }
+                            ra := TouchArea { enabled: !r.head; mouse-cursor: r.head ? default : pointer; clicked => { SunoUi.panel-pick(i); } }
+                            if r.removable: Btn { x: parent.width - 84px; y: 9px; width: 76px; height: 28px; text: "Retirer"; ghost: true; clicked => { SunoUi.panel-remove(i); } }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    if SunoUi.panel-extra-label != "": Btn { text: SunoUi.panel-extra-label; height: 30px; clicked => { SunoUi.panel-extra(); } }
+                    Text { horizontal-stretch: 1; text: SunoUi.msg; color: Theme.lagoon; font-size: 11.5px; vertical-alignment: center; overflow: elide; }
+                }
+            }
+        }
+    }
 
     // ---------- importer des fichiers rapportés de Suno
     if SunoUi.import-open: Rectangle {
@@ -542,10 +660,15 @@ export component SunoView inherits Rectangle {
                         SInput { placeholder: "v1, v2, remix, extended…"; value <=> SunoUi.imp-version; changed => { SunoUi.import-edited(); } }
                         Text { text: "Tags"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
                         SInput { placeholder: "techno, dark, sample… (« suno » est ajouté)"; value <=> SunoUi.imp-tags; changed => { SunoUi.import-edited(); } }
-                        Text { text: "Prompt Suno utilisé"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
+                        Text { text: "Prompt Suno utilisé (vide : le Style du prompt relié)"; color: Theme.text2; font-size: 11.5px; font-weight: 700; }
                         TextEdit { vertical-stretch: 1; text <=> SunoUi.imp-prompt; edited => { SunoUi.import-edited(); } }
                         Text { text: SunoUi.imp-preview; color: Theme.ember; font-size: 11.5px; wrap: word-wrap; }
-                        HorizontalLayout { alignment: start; Btn { text: "Appliquer prompt et tags à tous les fichiers"; height: 28px; ghost: true; clicked => { SunoUi.import-apply-all(); } } }
+                        HorizontalLayout {
+                            alignment: start;
+                            spacing: 6px;
+                            Btn { text: "Appliquer prompt et tags à tous les fichiers"; height: 28px; ghost: true; clicked => { SunoUi.import-apply-all(); } }
+                            Btn { text: "Retirer ce fichier de la liste"; height: 28px; ghost: true; clicked => { SunoUi.import-drop(); } }
+                        }
                     }
                 }
                 HorizontalLayout {

@@ -1,6 +1,6 @@
 {
   "_meta": {
-    "version": "2026-10-22",
+    "version": "2026-11-11",
     "source": "Suno v6, v6-wild et v6-mini (9 septembre 2026), Studio 2.0. Sources : suno.com/blog/introducing-v6, suno.com/release-notes.",
     "editable": "Ce fichier peut être modifié à la main quand Suno ajoute des modèles, des tags ou des réglages. Les limites exactes de V6 ne sont pas publiées : celles-ci restent prudentes."
   },
@@ -442,36 +442,276 @@
   },
   "workflow_templates": [
     {
-      "id": "otoko_dark_techno",
+      "id": "dark_techno",
       "name": "Techno sombre hypnotique",
       "style_slots": {
         "genre": "dark techno, industrial",
-        "tempo": "128 BPM, driving",
-        "instruments": "analog bass, distorted 909, metallic percs",
-        "vocals": "female haunting whisper",
-        "production": "underground, gritty",
-        "mood": "dystopian, hypnotic"
+        "tempo": "driving",
+        "instruments": "distorted 909 and analog bass",
+        "vocals": "haunting female whisper",
+        "production": "underground",
+        "mood": "dystopian"
       },
       "sliders": {
         "weirdness": 35,
         "style_influence": 75
-      }
+      },
+      "lyrics": "[Intro]\n\n[Build up]\n\n[Drop]\n\n[Break]\n\n[Build up]\n\n[Drop]\n\n[Outro]\n"
+    },
+    {
+      "id": "house",
+      "name": "House chaleureuse",
+      "style_slots": {
+        "genre": "deep house",
+        "tempo": "mid-tempo groove",
+        "instruments": "Rhodes chords, round bassline",
+        "vocals": "soulful female vocal",
+        "production": "warm club mix",
+        "mood": "late night dancefloor"
+      },
+      "sliders": {
+        "weirdness": 35,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "drum_and_bass",
+      "name": "Drum and bass liquide",
+      "style_slots": {
+        "genre": "liquid drum and bass",
+        "tempo": "fast",
+        "instruments": "rolling breakbeats, deep sub bass",
+        "vocals": "airy female vocal",
+        "production": "clean and wide",
+        "mood": "sunrise drive"
+      },
+      "sliders": {
+        "weirdness": 40,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Build up]\n\n[Drop]\n\n[Break]\n\n[Build up]\n\n[Drop]\n\n[Outro]\n"
     },
     {
       "id": "cinematic_ambient",
       "name": "Ambient cinématique",
       "style_slots": {
-        "genre": "dark ambient, cinematic",
-        "tempo": "slow, floating",
-        "instruments": "granular pads, distant piano, field recordings",
-        "vocals": "female wordless choir, ethereal",
-        "production": "reverb-heavy, atmospheric",
-        "mood": "sacred, dystopian"
+        "genre": "dark ambient",
+        "tempo": "slow",
+        "instruments": "granular pads, distant piano",
+        "vocals": "wordless female choir",
+        "production": "reverb-heavy",
+        "mood": "sacred"
       },
       "sliders": {
         "weirdness": 55,
         "style_influence": 60
-      }
+      },
+      "notes": "Morceau sans voix : coche « Instrumental » sur Suno."
+    },
+    {
+      "id": "synthwave",
+      "name": "Synthwave rétro",
+      "style_slots": {
+        "genre": "synthwave",
+        "tempo": "mid-tempo",
+        "instruments": "analog synth arpeggios, gated drums",
+        "vocals": "smooth male vocal",
+        "production": "1980s tape warmth",
+        "mood": "neon night drive"
+      },
+      "sliders": {
+        "weirdness": 35,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "lofi_hiphop",
+      "name": "Lo-fi hip-hop pour travailler",
+      "style_slots": {
+        "genre": "lo-fi hip-hop",
+        "tempo": "slow, laid-back",
+        "instruments": "dusty piano, soft boom bap drums",
+        "vocals": "",
+        "production": "lo-fi tape hiss",
+        "mood": "rainy window study session"
+      },
+      "sliders": {
+        "weirdness": 30,
+        "style_influence": 70
+      },
+      "notes": "Morceau sans voix : coche « Instrumental » sur Suno."
+    },
+    {
+      "id": "trap",
+      "name": "Trap moderne",
+      "style_slots": {
+        "genre": "trap",
+        "tempo": "bouncy",
+        "instruments": "808 bass, crisp hi-hats",
+        "vocals": "confident male rap",
+        "production": "modern digital",
+        "mood": "midnight city"
+      },
+      "sliders": {
+        "weirdness": 40,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Hook]\n\n[Verse 1]\n\n[Hook]\n\n[Verse 2]\n\n[Hook]\n\n[Outro]\n"
+    },
+    {
+      "id": "pop",
+      "name": "Pop à refrain",
+      "style_slots": {
+        "genre": "electropop",
+        "tempo": "upbeat",
+        "instruments": "bright synths, punchy drums",
+        "vocals": "clear female vocal",
+        "production": "polished radio-ready",
+        "mood": "summer road trip with friends"
+      },
+      "sliders": {
+        "weirdness": 30,
+        "style_influence": 75
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "indie_rock",
+      "name": "Rock indé",
+      "style_slots": {
+        "genre": "indie rock",
+        "tempo": "driving",
+        "instruments": "jangly guitars, live drums",
+        "vocals": "earnest male vocal",
+        "production": "garage band recording",
+        "mood": "small town restlessness"
+      },
+      "sliders": {
+        "weirdness": 40,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "metal",
+      "name": "Metal lourd",
+      "style_slots": {
+        "genre": "metal",
+        "tempo": "fast",
+        "instruments": "down-tuned guitars, double kick drums",
+        "vocals": "powerful male screams",
+        "production": "thick and heavy",
+        "mood": "storm over a battlefield"
+      },
+      "sliders": {
+        "weirdness": 40,
+        "style_influence": 75
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "folk",
+      "name": "Folk acoustique",
+      "style_slots": {
+        "genre": "indie folk",
+        "tempo": "gentle",
+        "instruments": "fingerpicked acoustic guitar, upright bass",
+        "vocals": "intimate female vocal",
+        "production": "close and natural",
+        "mood": "empty house on a Sunday morning"
+      },
+      "sliders": {
+        "weirdness": 30,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "rnb",
+      "name": "R&B et néo-soul",
+      "style_slots": {
+        "genre": "neo-soul",
+        "tempo": "slow groove",
+        "instruments": "Rhodes, warm bass guitar",
+        "vocals": "silky female vocal",
+        "production": "vintage tube warmth",
+        "mood": "candlelit apartment at midnight"
+      },
+      "sliders": {
+        "weirdness": 35,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "jazz",
+      "name": "Jazz de club",
+      "style_slots": {
+        "genre": "jazz",
+        "tempo": "mid-tempo swing",
+        "instruments": "upright bass, brushed drums",
+        "vocals": "smoky female vocal",
+        "production": "live room recording",
+        "mood": "small club after hours"
+      },
+      "sliders": {
+        "weirdness": 40,
+        "style_influence": 65
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "orchestral",
+      "name": "Musique de film orchestrale",
+      "style_slots": {
+        "genre": "cinematic orchestral",
+        "tempo": "slow build",
+        "instruments": "soaring strings, French horns, timpani",
+        "vocals": "",
+        "production": "wide concert hall",
+        "mood": "epic journey at dawn"
+      },
+      "sliders": {
+        "weirdness": 40,
+        "style_influence": 70
+      },
+      "notes": "Morceau sans voix : coche « Instrumental » sur Suno."
+    },
+    {
+      "id": "afrobeat",
+      "name": "Afrobeat ensoleillé",
+      "style_slots": {
+        "genre": "afrobeat",
+        "tempo": "danceable",
+        "instruments": "syncopated percussion, highlife guitar",
+        "vocals": "warm male vocal",
+        "production": "bright and punchy",
+        "mood": "street party at sunset"
+      },
+      "sliders": {
+        "weirdness": 35,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
+    },
+    {
+      "id": "reggaeton",
+      "name": "Reggaeton",
+      "style_slots": {
+        "genre": "reggaeton",
+        "tempo": "mid-tempo dembow",
+        "instruments": "deep bass, plucked synth",
+        "vocals": "melodic male vocal",
+        "production": "modern club mix",
+        "mood": "hot summer night"
+      },
+      "sliders": {
+        "weirdness": 35,
+        "style_influence": 70
+      },
+      "lyrics": "[Intro]\n\n[Verse 1]\n\n[Chorus]\n\n[Verse 2]\n\n[Chorus]\n\n[Bridge]\n\n[Chorus]\n\n[Outro]\n"
     }
   ],
   "default_model": "v6",

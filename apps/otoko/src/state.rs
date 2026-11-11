@@ -61,6 +61,10 @@ pub enum Done {
     RemoteTest { url: String, code: String, connect: bool, result: Result<String, String> },
     /// Un morceau arrivé du PC principal.
     Audio { id: i64, at: f64, result: Result<(), String> },
+    /// Les fichiers arrivés dans le dossier de téléchargements surveillé par l'Atelier Suno.
+    SunoDownloads(Vec<PathBuf>),
+    /// Les connaissances sur Suno lues sur GitHub (ou l'erreur).
+    SunoCaps(Result<String, String>),
 }
 
 pub struct State {
@@ -177,6 +181,8 @@ pub fn collect(app: &AppWindow, st: &mut State, rx: &mpsc::Receiver<Done>) {
             Done::DistantCopy(r) => crate::distant::copied(app, st, r),
             Done::RemoteTest { url, code, connect, result } => crate::distant::tried(app, &url, &code, connect, result),
             Done::Audio { id, at, result } => crate::distant::audio_landed(app, st, id, at, result),
+            Done::SunoDownloads(list) => crate::suno::downloads_found(app, st, list),
+            Done::SunoCaps(r) => crate::suno::caps_landed(app, st, r),
         }
     }
     if st.pending == 0 {
