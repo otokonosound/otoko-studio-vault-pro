@@ -804,6 +804,7 @@ fn batch_details(app: &AppWindow, st: &State) {
     g.set_details_has_cover(false);
     g.set_details_error(st.lib.details_error.as_str().into());
     g.set_details_attached(false);
+    g.set_details_prompt("".into());
     g.set_details_open(true);
 }
 
@@ -1062,6 +1063,12 @@ pub fn action(app: &AppWindow, st: &mut State, what: &str) {
         w if w.starts_with("release:") => {
             if let Ok(id) = w[8..].parse() {
                 crate::sorties::open(app, st, id);
+            }
+            return;
+        }
+        "suno-open" | "suno-variation" => {
+            if let Some(id) = st.lib.details {
+                crate::suno::from_track(app, st, id, what == "suno-variation");
             }
             return;
         }
@@ -1337,6 +1344,9 @@ pub fn details(app: &AppWindow, st: &mut State) {
     g.set_details_cover(cover.unwrap_or_default());
     g.set_details_error(st.lib.details_error.as_str().into());
     g.set_details_attached(r.parent_id.is_some());
+    let (prompt_name, prompt_text) = otoko_library::career::suno::prompt_of(c.conn(), id).map(|(_, name, text)| (name, text)).unwrap_or_default();
+    g.set_details_prompt_name(prompt_name.into());
+    g.set_details_prompt(prompt_text.into());
     g.set_details_open(true);
 }
 

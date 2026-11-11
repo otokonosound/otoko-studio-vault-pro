@@ -2,17 +2,23 @@
 //! de prompts (dernier utilisé d'abord, copie, suppression, versions gardées) ; le champ Style en six
 //! cases avec étiquettes à cliquer ; « à exclure » ; les réglages créatifs et leurs préréglages ;
 //! les paroles et leurs tags ; l'aperçu, les compteurs et le vérificateur avec correction en un clic ;
-//! l'import des fichiers rapportés de Suno (renommés, rangés, liés au prompt).
+//! l'import des fichiers rapportés de Suno (renommés, rangés, liés au prompt), à la main ou depuis le dossier de
+//! téléchargements surveillé ; les modèles de départ, les versions à reprendre et « ce qui marche » (un même volet) ;
+//! les connaissances sur Suno relues sur GitHub.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::time::{Duration, SystemTime};
 
 use otoko_library::career::suno::{self, SunoPrompt};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
 
-use crate::state::State;
-use crate::{AppWindow, ChipGroupUi, ImportFileUi, IssueUi, SPresetUi, SPromptUi, SlotUi, SunoUi};
+use crate::state::{Done, State};
+use crate::{AppWindow, ChipGroupUi, ImportFileUi, IssueUi, SPresetUi, SPromptUi, SRowUi, SlotUi, SunoUi};
+
+/// L'intervalle entre deux coups d'œil au dossier de téléchargements.
+const DOWNLOADS_EVERY: Duration = Duration::from_secs(20);
 
 macro_rules! suno_on {
     ($app:expr, $state:expr, $setter:ident, |$a:ident, $st:ident $(, $arg:ident)*| $body:block) => {{
@@ -49,6 +55,25 @@ pub struct Suno {
     pub import_copy: bool,
     pub import_group: bool,
     pub import_ids: Vec<Option<i64>>,
+    /// Les téléchargements qui attendent d'être rangés.
+    pub waiting: Vec<PathBuf>,
+    pub watch_busy: bool,
+    /// La minuterie du dossier de téléchargements : elle ne tourne que si un dossier est surveillé.
+    pub timer: Option<Timer>,
+    /// Le volet ouvert (« templates », « versions », « works ») et ce que désigne chacune de ses lignes.
+    pub panel: String,
+    pub panel_rows: Vec<PanelRow>,
+}
+
+/// Ce que désigne une ligne du volet.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PanelRow {
+    Head,
+    Template(String),
+    Version(i64),
+    Prompt(i64),
+    /// (case, mot)
+    Word(String, String),
 }
 
 fn model<T: Clone + 'static>(v: Vec<T>) -> ModelRc<T> {
@@ -213,12 +238,15 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
         if p.id != 0 {
             if let Some(c) = st.career.as_ref() {
                 let _ = suno::mark_used(c.conn(), p.id);
+                // Le prochain téléchargement sera relié à ce prompt.
+                let _ = suno::set_last_copied(c.conn(), p.id);
             }
         }
         if !st.selftest {
             crate::publish::copy(&text);
         }
         say(&app, msg);
+        push_waiting(&app, st);
     });
     suno_on!(app, state, on_open_suno, |app, st| {
         if !st.selftest {
@@ -230,13 +258,13 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
     suno_on!(app, state, on_import_show, |app, st| { import_show(&app, st); });
     suno_on!(app, state, on_import_dest_pick, |app, st| {
         let mut dlg = rfd::FileDialog::new().set_title("Dossier de destination des imports Suno");
-        let cur = st.career.as_ref().and_then(|c| c.setting("suno_import_folder")).unwrap_or_default();
+        let cur = st.career.as_ref().and_then(|c| c.setting(suno::IMPORT_DIR_KEY)).unwrap_or_default();
         if !cur.is_empty() {
             dlg = dlg.set_directory(&cur);
         }
         if let Some(d) = dlg.pick_folder() {
             if let Some(c) = st.career.as_ref() {
-                let _ = c.set_setting("suno_import_folder", &d.to_string_lossy());
+                let _ = c.set_setting(suno::IMPORT_DIR_KEY, &d.to_string_lossy());
             }
             app.global::<SunoUi>().set_import_dest(d.to_string_lossy().as_ref().into());
             import_push(&app, st);
@@ -282,6 +310,80 @@ pub fn wire(app: &AppWindow, state: &Rc<RefCell<State>>) {
         st.suno.import.clear();
         app.global::<SunoUi>().set_import_open(false);
     });
+    suno_on!(app, state, on_import_drop, |app, st| { import_drop(&app, st); });
+    // Le dossier de téléchargements surveillé.
+    suno_on!(app, state, on_watch_pick, |app, st| {
+        let current = st.career.as_ref().and_then(|c| suno::watch_dir(c.conn()));
+        let start = current.or_else(|| std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join("Downloads"))).filter(|d| d.is_dir());
+        let mut dlg = rfd::FileDialog::new().set_title("Le dossier où ton navigateur télécharge les fichiers de Suno");
+        if let Some(d) = start {
+            dlg = dlg.set_directory(d);
+        }
+        if let Some(d) = dlg.pick_folder() {
+            set_watch(&app, st, Some(d));
+        }
+    });
+    suno_on!(app, state, on_watch_stop, |app, st| { set_watch(&app, st, None); });
+    suno_on!(app, state, on_waiting_store, |app, st| { waiting_store(&app, st); });
+    suno_on!(app, state, on_waiting_review, |app, st| {
+        let files = st.suno.waiting.clone();
+        import_open(&app, st, files);
+    });
+    suno_on!(app, state, on_waiting_ignore, |app, st| {
+        let files = std::mem::take(&mut st.suno.waiting);
+        if let Some(c) = st.career.as_ref() {
+            let _ = suno::ignore_downloads(c.conn(), &files);
+        }
+        push_waiting(&app, st);
+        say(&app, &format!("{} fichier(s) laissé(s) où ils sont : ils ne seront plus proposés.", files.len()));
+    });
+    // Le volet : modèles de départ, versions, ce qui marche.
+    suno_on!(app, state, on_panel_open, |app, st, kind| { panel_open(&app, st, kind.as_str()); });
+    suno_on!(app, state, on_panel_pick, |app, st, i| { panel_pick(&app, st, i.max(0) as usize); });
+    suno_on!(app, state, on_panel_remove, |app, st, i| {
+        let Some(PanelRow::Template(id)) = st.suno.panel_rows.get(i.max(0) as usize).cloned() else { return };
+        if let Some(c) = st.career.as_ref() {
+            let _ = suno::delete_template(c.conn(), &id);
+        }
+        panel_open(&app, st, "templates");
+    });
+    suno_on!(app, state, on_panel_extra, |app, st| {
+        // Garder le prompt ouvert comme modèle de départ.
+        if st.suno.prompt.name.trim().is_empty() || suno::assemble_style_field(&st.suno.prompt).is_empty() {
+            say(&app, "Donne un nom au prompt et remplis son Style pour en faire un modèle.");
+            return;
+        }
+        if let Some(c) = st.career.as_ref() {
+            match suno::save_template(c.conn(), &st.suno.prompt) {
+                Ok(()) => say(&app, &format!("« {} » est gardé dans tes modèles de départ.", st.suno.prompt.name.trim())),
+                Err(e) => say(&app, &format!("Modèle non gardé : {e}")),
+            }
+        }
+        panel_open(&app, st, "templates");
+    });
+    suno_on!(app, state, on_panel_close, |app, st| {
+        st.suno.panel.clear();
+        st.suno.panel_rows.clear();
+        app.global::<SunoUi>().set_panel("".into());
+    });
+}
+
+/// La minuterie du dossier de téléchargements : elle ne tourne que si un dossier est surveillé.
+pub fn install(app: &AppWindow, state: &Rc<RefCell<State>>) {
+    let timer = Timer::default();
+    let (weak, s) = (app.as_weak(), state.clone());
+    timer.start(TimerMode::Repeated, DOWNLOADS_EVERY, move || {
+        let Some(app) = weak.upgrade() else { return };
+        if let Ok(mut st) = s.try_borrow_mut() {
+            downloads(&app, &mut st);
+        }
+    });
+    let mut st = state.borrow_mut();
+    if !st.career.as_ref().is_some_and(|c| suno::watch_dir(c.conn()).is_some()) {
+        timer.stop();
+    }
+    st.suno.timer = Some(timer);
+    downloads(app, &mut st);
 }
 
 /// L'onglet : la bibliothèque, puis le prompt ouvert.
@@ -304,6 +406,7 @@ pub fn fill(app: &AppWindow, st: &mut State) {
 }
 
 fn push_all(app: &AppWindow, st: &mut State) {
+    push_waiting(app, st);
     push_list(app, st);
     push_slots(app, st);
     push_texts(app, st);
@@ -429,6 +532,293 @@ fn refresh(app: &AppWindow, st: &State) {
     g.set_issues(model(issues.into_iter().map(|i| IssueUi { id: i.id.into(), message: i.message.into(), fixable: i.fixable }).collect()));
 }
 
+// ---------------------------------------------------------------------- depuis la fiche d'un morceau
+
+/// Ouvre dans l'Atelier le prompt qui a donné ce morceau, ou une variation prête à modifier.
+pub fn from_track(app: &AppWindow, st: &mut State, track: i64, variation: bool) {
+    let Some(c) = st.career.as_ref() else { return };
+    let found = if variation { suno::variation_of(c.conn(), track) } else { suno::prompt_of(c.conn(), track).and_then(|(p, ..)| p).or_else(|| suno::variation_of(c.conn(), track)) };
+    let Some(p) = found else {
+        app.set_message("Ce morceau n'est relié à aucun prompt.".into());
+        return;
+    };
+    let msg = if p.id == 0 { format!("« {} » : modifie-la, puis « Enregistrer » pour la garder.", p.name) } else { format!("Le prompt « {} », qui a donné ce morceau.", p.name) };
+    st.suno.prompt = p;
+    st.pages_lues[4] = false;
+    crate::raccourcis::tab(app, st, 4);
+    say(app, &msg);
+}
+
+// ---------------------------------------------------------------------- le volet : modèles, versions, ce qui marche
+
+fn row(title: &str, sub: &str, right: &str) -> SRowUi {
+    SRowUi { title: title.into(), sub: sub.into(), right: right.into(), head: false, removable: false }
+}
+
+fn head(title: &str) -> SRowUi {
+    SRowUi { title: title.into(), head: true, ..Default::default() }
+}
+
+fn score_text(s: &suno::Score) -> String {
+    let n = |n: i64, one: &str, many: &str| format!("{n} {}", if n > 1 { many } else { one });
+    let mut bits = vec![n(s.kept, "gardé", "gardés"), n(s.rejected, "rejeté", "rejetés")];
+    if s.waiting > 0 {
+        bits.push(format!("{} à juger", s.waiting));
+    }
+    bits.join(" · ")
+}
+
+fn rate_text(s: &suno::Score) -> String {
+    if s.judged() == 0 { "—".into() } else { format!("{} %", s.rate()) }
+}
+
+pub fn panel_open(app: &AppWindow, st: &mut State, kind: &str) {
+    let Some(c) = st.career.as_ref() else { return };
+    let (mut rows, mut what): (Vec<SRowUi>, Vec<PanelRow>) = (Vec::new(), Vec::new());
+    let (title, note, extra);
+    match kind {
+        "versions" => {
+            title = format!("Les versions de « {} »", st.suno.prompt.name);
+            extra = "";
+            let list = if st.suno.prompt.id == 0 { Vec::new() } else { suno::versions(c.conn(), st.suno.prompt.id) };
+            note = if list.is_empty() {
+                "Ce prompt n'est pas encore enregistré : chaque « Enregistrer » garde une version, que tu retrouveras ici.".to_string()
+            } else {
+                "Chaque « Enregistrer » a gardé une version. Clique celle que tu veux reprendre : elle s'ouvre dans l'atelier, et rien n'est changé tant que tu n'enregistres pas.".to_string()
+            };
+            for (i, (no, when, style)) in list.iter().enumerate() {
+                let day = suno::date_fr(when.get(..10).unwrap_or(when));
+                rows.push(row(&format!("Version {no} · {day}"), if style.is_empty() { "(Style vide)" } else { style }, if i == 0 { "la dernière" } else { "" }));
+                what.push(PanelRow::Version(*no));
+            }
+        }
+        "works" => {
+            title = "Ce qui marche".to_string();
+            extra = "";
+            let (prompts, words) = suno::what_works(c.conn());
+            note = if prompts.is_empty() {
+                "Rien à montrer pour l'instant. Importe tes fichiers Suno en les reliant à un prompt, puis garde ou rejette les morceaux en les écoutant : tu verras ici quels prompts et quels mots te donnent des morceaux que tu gardes.".to_string()
+            } else {
+                "D'après les morceaux que tu as gardés ou rejetés. Le pourcentage est la part de morceaux gardés parmi ceux que tu as jugés : avec peu de morceaux, il ne dit pas grand-chose. Clique un prompt pour l'ouvrir, un mot pour l'ajouter au prompt ouvert.".to_string()
+            };
+            if !prompts.is_empty() {
+                rows.push(head("PROMPTS"));
+                what.push(PanelRow::Head);
+                for s in &prompts {
+                    rows.push(row(&s.label, &score_text(s), &rate_text(s)));
+                    what.push(PanelRow::Prompt(s.id));
+                }
+                rows.push(head("MOTS DU STYLE"));
+                what.push(PanelRow::Head);
+                let labels: std::collections::HashMap<String, String> = suno::slots().into_iter().map(|(k, l, ..)| (k, l)).collect();
+                for s in words.iter().take(60) {
+                    rows.push(row(&s.label, &format!("{} · {}", labels.get(&s.slot).map(String::as_str).unwrap_or(&s.slot), score_text(s)), &rate_text(s)));
+                    what.push(PanelRow::Word(s.slot.clone(), s.label.clone()));
+                }
+            }
+        }
+        _ => {
+            title = "Partir d'un modèle".to_string();
+            extra = "Garder le prompt ouvert comme modèle";
+            note = "Un point de départ par grand genre, à adapter : clique un modèle pour l'ouvrir dans l'atelier. Tes propres modèles restent en tête de liste.".to_string();
+            let list = suno::templates(Some(c.conn()));
+            for mine in [true, false] {
+                let part: Vec<&suno::Template> = list.iter().filter(|t| t.mine == mine).collect();
+                if part.is_empty() {
+                    continue;
+                }
+                rows.push(head(if mine { "TES MODÈLES" } else { "MODÈLES FOURNIS" }));
+                what.push(PanelRow::Head);
+                for t in part {
+                    rows.push(SRowUi { removable: mine, ..row(&t.name, &suno::assemble_style_field(&t.prompt), "") });
+                    what.push(PanelRow::Template(t.id.clone()));
+                }
+            }
+        }
+    }
+    st.suno.panel = kind.to_string();
+    st.suno.panel_rows = what;
+    let g = app.global::<SunoUi>();
+    g.set_panel_title(title.into());
+    g.set_panel_note(note.into());
+    g.set_panel_extra_label(extra.into());
+    g.set_panel_rows(model(rows));
+    g.set_panel(kind.into());
+}
+
+fn panel_pick(app: &AppWindow, st: &mut State, i: usize) {
+    let Some(what) = st.suno.panel_rows.get(i).cloned() else { return };
+    let Some(c) = st.career.as_ref() else { return };
+    let mut close = true;
+    match what {
+        PanelRow::Head => return,
+        PanelRow::Template(id) => {
+            let Some(t) = suno::templates(Some(c.conn())).into_iter().find(|t| t.id == id) else { return };
+            st.suno.prompt = t.prompt;
+            push_all(app, st);
+            say(app, &format!("Modèle « {} » : adapte-le, puis « Enregistrer » pour le garder dans tes prompts.", t.name));
+        }
+        PanelRow::Version(no) => {
+            let Some(p) = suno::version(c.conn(), st.suno.prompt.id, no) else { return };
+            st.suno.prompt = p;
+            push_all(app, st);
+            say(app, &format!("Version {no} reprise : « Enregistrer » pour la garder (l'actuelle reste dans les versions)."));
+        }
+        PanelRow::Prompt(id) => {
+            let Some(p) = suno::get(c.conn(), id) else { return };
+            st.suno.prompt = p;
+            push_all(app, st);
+        }
+        PanelRow::Word(slot, word) => {
+            // Ajouté à sa case, sans doublon ; le volet reste ouvert pour en prendre d'autres.
+            let p = &mut st.suno.prompt;
+            let current = p.slot(&slot).trim().to_string();
+            if current.split(',').any(|w| w.trim().eq_ignore_ascii_case(&word)) {
+                say(app, &format!("« {word} » est déjà dans le prompt ouvert."));
+            } else {
+                p.set(&slot, &if current.is_empty() { word.clone() } else { format!("{current}, {word}") });
+                push_slots(app, st);
+                refresh(app, st);
+                say(app, &format!("« {word} » ajouté au prompt ouvert."));
+            }
+            close = false;
+        }
+    }
+    if close {
+        st.suno.panel.clear();
+        st.suno.panel_rows.clear();
+        app.global::<SunoUi>().set_panel("".into());
+    }
+}
+
+// ---------------------------------------------------------------------- les connaissances sur Suno
+
+fn caps_file(name: &str) -> PathBuf {
+    crate::donnees::data_dir().join(name)
+}
+
+/// Lit les connaissances fournies avec le logiciel, ou plus récentes si elles ont déjà été rapportées de GitHub.
+pub fn init_caps() {
+    suno::init_caps(Some(&caps_file(suno::CAPS_FILE)), Some(&caps_file(suno::CAPS_FETCHED)));
+}
+
+/// Regarde, en fond, si des connaissances plus récentes sont publiées. Rien n'est envoyé : c'est la lecture d'un
+/// fichier public. Un fichier posé à la main garde la main.
+pub fn check_caps(st: &mut State) {
+    if st.selftest || caps_file(suno::CAPS_FILE).exists() {
+        return;
+    }
+    st.spawn(|| Done::SunoCaps(crate::fond::fetch_text(suno::CAPS_URL)));
+}
+
+/// Les connaissances lues sur GitHub : mises en service si elles sont plus récentes. Un échec ne dérange personne :
+/// celles du logiciel continuent de servir.
+pub fn caps_landed(app: &AppWindow, st: &mut State, r: Result<String, String>) {
+    let Ok(text) = r else { return };
+    let _ = std::fs::create_dir_all(crate::donnees::data_dir());
+    if let Ok(Some(version)) = suno::install_caps(&text, &caps_file(suno::CAPS_FETCHED)) {
+        app.set_message(format!("Atelier Suno : connaissances mises à jour ({}).", suno::date_fr(&version)).into());
+        if st.pages_lues[4] {
+            fill(app, st);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------- le dossier de téléchargements
+
+/// L'autotest ne regarde pas les dossiers de l'utilisateur, et ce travail appartient au PC principal.
+fn idle(st: &State) -> bool {
+    st.selftest || st.distant.is_some()
+}
+
+/// Choisit le dossier surveillé (`None` : arrête). Seuls les fichiers qui arrivent ensuite seront proposés.
+pub fn set_watch(app: &AppWindow, st: &mut State, dir: Option<PathBuf>) {
+    let Some(c) = st.career.as_ref() else { return };
+    if suno::set_watch(c.conn(), dir.as_deref(), SystemTime::now()).is_err() {
+        return;
+    }
+    st.suno.waiting.clear();
+    if let Some(t) = st.suno.timer.as_ref() {
+        if dir.is_some() { t.restart() } else { t.stop() }
+    }
+    push_waiting(app, st);
+    say(
+        app,
+        &match dir {
+            Some(d) => format!("« {} » est surveillé : chaque fichier audio que tu y télécharges te sera proposé ici.", d.display()),
+            None => "Le dossier de téléchargements n'est plus surveillé.".to_string(),
+        },
+    );
+}
+
+/// Regarde, en fond, ce qui est arrivé dans le dossier surveillé.
+pub fn downloads(_app: &AppWindow, st: &mut State) {
+    if idle(st) || st.suno.watch_busy || !st.career.as_ref().is_some_and(|c| suno::watch_dir(c.conn()).is_some()) {
+        return;
+    }
+    st.suno.watch_busy = true;
+    let path = st.career_path.clone();
+    st.spawn(move || Done::SunoDownloads(otoko_library::career::Career::open(&path).map(|c| suno::pending_downloads(c.conn(), SystemTime::now())).unwrap_or_default()));
+}
+
+pub fn downloads_found(app: &AppWindow, st: &mut State, list: Vec<PathBuf>) {
+    st.suno.watch_busy = false;
+    if list == st.suno.waiting {
+        return;
+    }
+    let new = list.iter().filter(|f| !st.suno.waiting.contains(f)).count();
+    st.suno.waiting = list;
+    push_waiting(app, st);
+    if new > 0 {
+        let n = st.suno.waiting.len();
+        app.set_message(if n > 1 { format!("Suno : {n} fichiers téléchargés attendent d'être rangés (Atelier Suno).") } else { "Suno : un fichier téléchargé attend d'être rangé (Atelier Suno).".to_string() }.into());
+    }
+}
+
+/// Le prompt auquel un téléchargement est relié : le dernier copié, sinon celui qui est ouvert.
+fn linked_prompt(st: &State) -> Option<SunoPrompt> {
+    let c = st.career.as_ref()?;
+    suno::last_copied(c.conn()).or_else(|| (st.suno.prompt.id != 0).then(|| st.suno.prompt.clone()))
+}
+
+fn push_waiting(app: &AppWindow, st: &State) {
+    let g = app.global::<SunoUi>();
+    let dir = st.career.as_ref().and_then(|c| suno::watch_dir(c.conn()));
+    g.set_watch_text(dir.map(|d| d.to_string_lossy().into_owned()).unwrap_or_default().into());
+    g.set_caps_text(format!("Connaissances Suno du {}", suno::date_fr(&suno::caps_version())).into());
+    let n = st.suno.waiting.len();
+    g.set_waiting(n as i32);
+    if n == 0 {
+        g.set_waiting_text("".into());
+        return;
+    }
+    let names: Vec<String> = st.suno.waiting.iter().take(3).filter_map(|f| f.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
+    let more = n.saturating_sub(names.len());
+    let link = match linked_prompt(st) {
+        Some(p) => format!("Relié au prompt « {} ».", p.name),
+        None => "Relié à aucun prompt : copie un prompt avant de composer, et le lien se fera tout seul.".to_string(),
+    };
+    g.set_waiting_text(
+        format!("{} : {}{}. {link}", if n > 1 { format!("{n} fichiers téléchargés attendent") } else { "Un fichier téléchargé attend".to_string() }, names.join(", "), if more > 0 { format!(" et {more} autre(s)") } else { String::new() }).into(),
+    );
+}
+
+/// Range d'un clic ce qui attend : dans le dossier des imports, relié au dernier prompt copié.
+fn waiting_store(app: &AppWindow, st: &mut State) {
+    let files = st.suno.waiting.clone();
+    if files.is_empty() {
+        return;
+    }
+    let dest = st.career.as_ref().and_then(|c| c.setting(suno::IMPORT_DIR_KEY)).unwrap_or_default();
+    if dest.trim().is_empty() {
+        import_open(app, st, files);
+        say(app, "Choisis d'abord le dossier où ranger tes fichiers Suno : il sera retenu pour les prochaines fois.");
+        return;
+    }
+    import_prepare(app, st, files);
+    import_run(app, st);
+}
+
 fn save(app: &AppWindow, st: &mut State) {
     if st.suno.prompt.name.trim().is_empty() {
         say(app, "Donne un nom au prompt pour l'enregistrer dans la bibliothèque.");
@@ -455,30 +845,67 @@ pub fn import_show(app: &AppWindow, st: &mut State) {
 
 /// Ouvre l'import sur ces fichiers (aussi utilisé par l'autotest, sans boîte de dialogue).
 pub fn import_open(app: &AppWindow, st: &mut State, files: Vec<PathBuf>) {
+    if import_prepare(app, st, files) {
+        app.global::<SunoUi>().set_import_open(true);
+    }
+}
+
+/// Prépare l'import : un titre et une version pour chaque fichier, le prompt auquel les relier. Faux s'il n'y a rien.
+fn import_prepare(app: &AppWindow, st: &mut State, files: Vec<PathBuf>) -> bool {
+    let dest = st.career.as_ref().and_then(|c| c.setting(suno::IMPORT_DIR_KEY)).unwrap_or_default();
     st.suno.import = files
         .into_iter()
         .filter(|f| otoko_library::career::scan::is_audio(f))
         .map(|f| {
             let t = otoko_library::career::scan::read_tags(&f);
             let stem = f.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-            ImportFile { title: t.title.filter(|x| !x.is_empty()).unwrap_or(stem), version: "v1".into(), path: f, ..Default::default() }
+            ImportFile { title: suno::clean_title(&t.title.filter(|x| !x.trim().is_empty()).unwrap_or(stem)), path: f, ..Default::default() }
         })
         .collect();
     if st.suno.import.is_empty() {
         say(app, "Aucun fichier audio à importer.");
-        return;
+        return false;
+    }
+    // Deux fichiers du même titre (les deux propositions de Suno) : v1 et v2, à la suite de ce qui est déjà rangé.
+    let titles: Vec<String> = st.suno.import.iter().map(|f| f.title.clone()).collect();
+    for (f, v) in st.suno.import.iter_mut().zip(suno::next_versions(std::path::Path::new(&dest), &titles)) {
+        f.version = v;
     }
     st.suno.import_at = 0;
     st.suno.import_group = true;
     let list = st.career.as_ref().map(|c| suno::list(c.conn(), "")).unwrap_or_default();
     st.suno.import_ids = std::iter::once(None).chain(list.iter().map(|p| Some(p.id))).collect();
+    let linked = linked_prompt(st).map(|p| p.id);
     let g = app.global::<SunoUi>();
     g.set_import_prompts(strings(std::iter::once("— Aucun (juste le tag « suno ») —".to_string()).chain(list.iter().map(|p| p.name.clone()))));
-    g.set_import_prompt(st.suno.import_ids.iter().position(|i| *i == Some(st.suno.prompt.id)).unwrap_or(0) as i32);
-    g.set_import_dest(st.career.as_ref().and_then(|c| c.setting("suno_import_folder")).unwrap_or_default().into());
+    g.set_import_prompt(st.suno.import_ids.iter().position(|i| i.is_some() && *i == linked).unwrap_or(0) as i32);
+    g.set_import_dest(dest.into());
     import_fields(app, st);
     import_push(app, st);
-    g.set_import_open(true);
+    true
+}
+
+/// Retire de la liste le fichier montré : il reste où il est, et ne sera plus proposé.
+fn import_drop(app: &AppWindow, st: &mut State) {
+    import_store(app, st);
+    if st.suno.import_at >= st.suno.import.len() {
+        return;
+    }
+    let f = st.suno.import.remove(st.suno.import_at);
+    if st.suno.waiting.contains(&f.path) {
+        if let Some(c) = st.career.as_ref() {
+            let _ = suno::ignore_downloads(c.conn(), std::slice::from_ref(&f.path));
+        }
+        st.suno.waiting.retain(|w| *w != f.path);
+        push_waiting(app, st);
+    }
+    if st.suno.import.is_empty() {
+        app.global::<SunoUi>().set_import_open(false);
+        return;
+    }
+    st.suno.import_at = st.suno.import_at.min(st.suno.import.len() - 1);
+    import_fields(app, st);
+    import_push(app, st);
 }
 
 fn import_store(app: &AppWindow, st: &mut State) {
@@ -543,8 +970,13 @@ fn import_run(app: &AppWindow, st: &mut State) {
     let prompt_id = st.suno.import_ids.get(g.get_import_prompt().max(0) as usize).copied().flatten();
     let group = st.suno.import_group.then(suno::generation_group);
     let Some(c) = st.career.as_ref() else { return };
-    let (mut ok, mut errors) = (0, Vec::new());
-    for f in st.suno.import.clone() {
+    // Le Style du prompt relié est gardé avec le morceau : il reste lisible même si le prompt change ou disparaît.
+    let linked_style = prompt_id.and_then(|id| suno::get(c.conn(), id)).map(|p| suno::assemble_style_field(&p)).unwrap_or_default();
+    let (mut ok, mut errors, mut left) = (0, Vec::new(), Vec::new());
+    for mut f in st.suno.import.clone() {
+        if f.prompt.trim().is_empty() {
+            f.prompt = linked_style.clone();
+        }
         let ext = f.path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
         let title = if f.title.is_empty() { f.path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default() } else { f.title.clone() };
         let name = suno::import_name(&title, &f.version, "");
@@ -565,6 +997,9 @@ fn import_run(app: &AppWindow, st: &mut State) {
             errors.push(format!("{} : {e}", f.path.display()));
             continue;
         }
+        if f.path.exists() && dst != f.path {
+            left.push(f.path.clone());
+        }
         let ignored = otoko_library::career::scan::ignored_folders(c.conn());
         match otoko_library::career::scan::upsert(c.conn(), &dst, &ignored) {
             Ok((_, tid)) => {
@@ -577,7 +1012,10 @@ fn import_run(app: &AppWindow, st: &mut State) {
             Err(e) => errors.push(format!("{} : {e}", dst.display())),
         }
     }
+    // Une copie laisse l'original dans les téléchargements : il ne sera pas proposé une seconde fois.
+    let _ = suno::ignore_downloads(c.conn(), &left);
     let total = st.suno.import.len();
+    st.suno.waiting.retain(|w| w.exists() && !left.contains(w));
     st.suno.import.clear();
     g.set_import_open(false);
     say(

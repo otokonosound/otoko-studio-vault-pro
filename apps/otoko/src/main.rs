@@ -188,8 +188,9 @@ fn main() {
             preferences::daily_backup(&mut st);
         }
     }
-    // Les connaissances sur Suno : une copie posée dans les données remplace celles fournies.
-    otoko_library::career::suno::init_caps(Some(&donnees::data_dir().join("suno_capabilities.json")));
+    // Les connaissances sur Suno : une copie posée dans les données remplace celles fournies ; sinon les plus récentes
+    // entre celles du logiciel et celles déjà rapportées de GitHub.
+    suno::init_caps();
     // Le serveur de l'app mobile, si on a demandé que le logiciel le fasse tourner (jamais sur une copie).
     if !mesure && state.borrow().distant.is_none() {
         mobile::autostart(&mut state.borrow_mut());
@@ -218,11 +219,14 @@ fn main() {
     // Le dossier d'arrivée, et le contrôle des copies s'il est dû.
     let arrival = fond::install(&app, &state);
     state.borrow_mut().arrival_timer = Some(arrival);
+    // Le dossier de téléchargements de l'Atelier Suno.
+    suno::install(&app, &state);
     if !mesure {
         let mut st = state.borrow_mut();
         fond::arrivals(&app, &mut st);
         fond::copies_if_due(&app, &mut st);
         majs::check(&mut st);
+        suno::check_caps(&mut st);
     }
     distant::show(&app, &state.borrow());
     // Le lien avec le PC principal : une minuterie, seulement si ce PC y est relié.

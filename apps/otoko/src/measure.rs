@@ -138,6 +138,14 @@ fn vitrine(app: &AppWindow, state: &Rc<RefCell<State>>, quoi: &str, texte: &str,
                 s.invoke_load(p.id);
             }
         }
+        // Le volet de l'Atelier Suno (« templates », « versions », « works ») ; le bandeau des téléchargements qui
+        // attendent dans le dossier surveillé de la base ouverte.
+        "suno-volet" => app.global::<crate::SunoUi>().invoke_panel_open(texte.into()),
+        "suno-attente" => {
+            let mut st = state.borrow_mut();
+            let found = st.career.as_ref().map(|c| otoko_library::career::suno::pending_downloads(c.conn(), std::time::SystemTime::now())).unwrap_or_default();
+            crate::suno::downloads_found(app, &mut st, found);
+        }
         "sortie" => crate::sorties::open(app, &mut state.borrow_mut(), id),
         "planning" => crate::sorties::planning(app, &mut state.borrow_mut()),
         "publier" => {
@@ -546,6 +554,145 @@ pub fn install(app: &AppWindow, state: &Rc<RefCell<State>>, args: &[String]) -> 
     timers
 }
 
+/// Atelier Suno, de bout en bout, sur la base d'essai ouverte (avec ou sans Studio Vault importé).
+fn essai_suno(app: &AppWindow, state: &Rc<RefCell<State>>, check: &mut dyn FnMut(bool, &str) -> u32) {
+    // Atelier Suno v6 : les prompts de Studio Vault, un prompt composé, vérifié, corrigé, gardé, copié ;
+    // puis l'import d'un fichier Suno.
+    app.invoke_goto(4, 4);
+    let s = app.global::<crate::SunoUi>();
+    let prompts = s.get_prompts().row_count();
+    s.invoke_new();
+    s.invoke_chip("genre".into(), "uk garage".into());
+    s.invoke_edited("mood".into(), "late night drive, sad, 120 BPM".into());
+    check(s.get_issues().iter().any(|i| i.fixable), "le vérificateur signale le tempo dans le style");
+    s.invoke_set_tag_tab("structure".into());
+    let tag = s.get_tags().row_data(0).map(|t| t.to_string()).unwrap_or_default();
+    s.invoke_tag(tag.as_str().into());
+    s.invoke_fix_all();
+    let style = s.get_style().to_string();
+    check(
+        style.starts_with("uk garage") && !style.contains("BPM") && !s.get_any_fixable() && s.get_lyrics().contains(tag.as_str()),
+        &format!("composer, ajouter un tag, tout corriger : « {style} »"),
+    );
+    s.invoke_preset(0);
+    s.invoke_save();
+    s.invoke_copy("all".into());
+    let kept = state.borrow().suno.prompt.id;
+    let stored = state.borrow().career.as_ref().and_then(|c| otoko_library::career::suno::get(c.conn(), kept));
+    check(
+        s.get_prompts().row_count() == prompts + 1 && stored.is_some_and(|p| p.weirdness == 30 && p.genre.starts_with("uk garage")),
+        &format!("garder le prompt, préréglage compris ({prompts} importés de Studio Vault)"),
+    );
+    // Import : un fichier « téléchargé de Suno », copié et renommé dans un dossier d'essai.
+    let tmp = std::env::temp_dir().join(format!("otoko-autotest-suno-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(tmp.join("in"));
+    let src = tmp.join("in").join("3f9c2a1e-suno.wav");
+    {
+        let spec = hound::WavSpec { channels: 2, sample_rate: 44_100, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+        if let Ok(mut w) = hound::WavWriter::create(&src, spec) {
+            for i in 0..44_100 {
+                let v = ((i as f32 * 0.06).sin() * 8000.0) as i16;
+                let _ = w.write_sample(v);
+                let _ = w.write_sample(v);
+            }
+            let _ = w.finalize();
+        }
+    }
+    if let Some(c) = state.borrow().career.as_ref() {
+        let _ = c.set_setting("suno_import_folder", &tmp.join("out").to_string_lossy());
+    }
+    {
+        let mut st = state.borrow_mut();
+        crate::suno::import_open(app, &mut st, vec![src.clone()]);
+    }
+    s.set_imp_title("Nuit d'essai".into());
+    s.set_imp_version("v2".into());
+    s.set_imp_tags("garage".into());
+    s.set_imp_prompt("uk garage, late night drive".into());
+    s.invoke_import_edited();
+    s.invoke_import_toggle("copy".into());
+    s.invoke_import_run();
+    let dst = tmp.join("out").join("Nuit d'essai - v2.wav");
+    let row = state.borrow().career.as_ref().and_then(|c| {
+        c.conn()
+            .query_row(
+                "SELECT t.role || '|' || IFNULL(t.version_label, '') || '|' || IFNULL(t.suno_prompt, '') || '|' || (SELECT COUNT(*) FROM track_tags tt JOIN tags g ON g.id = tt.tag_id WHERE tt.track_id = t.id AND g.name IN ('suno', 'garage'))
+                 FROM tracks t WHERE t.path = ?1",
+                [dst.to_string_lossy()],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+    });
+    check(src.exists() && dst.exists() && row.as_deref() == Some("suno_generation|v2|uk garage, late night drive|2"), &format!("import Suno : copié, renommé, indexé ({})", row.unwrap_or_default()));
+    // Deux téléchargements arrivent dans le dossier surveillé : proposés, puis rangés d'un clic, reliés
+    // au dernier prompt copié, en v1 et v2.
+    s.invoke_import_toggle("copy".into());
+    let dl = tmp.join("telechargements");
+    let _ = std::fs::create_dir_all(&dl);
+    {
+        let mut st = state.borrow_mut();
+        crate::suno::set_watch(app, &mut st, Some(dl.clone()));
+    }
+    for name in ["Nuit claire.wav", "Nuit claire (1).wav"] {
+        synth_wav(&dl.join(name), 1);
+    }
+    {
+        let mut st = state.borrow_mut();
+        let later = std::time::SystemTime::now() + Duration::from_secs(60);
+        let found = st.career.as_ref().map(|c| otoko_library::career::suno::pending_downloads(c.conn(), later)).unwrap_or_default();
+        crate::suno::downloads_found(app, &mut st, found);
+    }
+    let waiting = s.get_waiting();
+    s.invoke_waiting_store();
+    let (v1, v2) = (tmp.join("out").join("Nuit claire - v1.wav"), tmp.join("out").join("Nuit claire - v2.wav"));
+    let linked = state.borrow().career.as_ref().and_then(|c| {
+        c.conn().query_row("SELECT COUNT(*) FROM tracks WHERE prompt_id = ?1 AND title = 'Nuit claire' AND prompt_version_no IS NOT NULL AND IFNULL(suno_prompt, '') <> ''", [kept], |r| r.get::<_, i64>(0)).ok()
+    });
+    check(
+        waiting == 2 && s.get_waiting() == 0 && v1.exists() && v2.exists() && !dl.join("Nuit claire.wav").exists() && linked == Some(2),
+        &format!("téléchargements Suno : {waiting} proposés, rangés d'un clic en v1 et v2, reliés au dernier prompt copié ({linked:?})"),
+    );
+    // Ce qui marche : un morceau gardé, l'autre rejeté.
+    if let Some(c) = state.borrow().career.as_ref() {
+        let _ = c.conn().execute("UPDATE tracks SET pick = 1 WHERE path = ?1", [v1.to_string_lossy()]);
+        let _ = c.conn().execute("UPDATE tracks SET pick = -1 WHERE path = ?1", [v2.to_string_lossy()]);
+    }
+    s.invoke_panel_open("works".into());
+    let works: Vec<String> = s.get_panel_rows().iter().filter(|r| !r.head).map(|r| format!("{} {}", r.title, r.right)).collect();
+    check(works.iter().any(|w| w.ends_with("50 %")) && works.iter().any(|w| w.starts_with("uk garage")), &format!("ce qui marche : {} ligne(s), le prompt et ses mots à 50 %", works.len()));
+    s.invoke_panel_close();
+    // Les versions : le prompt change, l'ancienne version se reprend.
+    s.invoke_load(kept as i32);
+    s.invoke_edited("mood".into(), "foggy harbour at dawn".into());
+    s.invoke_save();
+    s.invoke_panel_open("versions".into());
+    let versions = s.get_panel_rows().row_count();
+    s.invoke_panel_pick(versions as i32 - 1);
+    check(versions >= 2 && s.get_style() == style.as_str() && s.get_panel() == "", &format!("versions : {versions} gardées, la première reprise (« {} »)", s.get_style()));
+    // Un modèle de départ fourni passe le vérificateur ; le prompt ouvert se garde comme modèle.
+    s.invoke_panel_open("templates".into());
+    s.invoke_panel_extra();
+    let mine = s.get_panel_rows().iter().filter(|r| r.removable).count();
+    let first = s.get_panel_rows().iter().position(|r| !r.head && !r.removable).unwrap_or(0);
+    s.invoke_panel_pick(first as i32);
+    check(
+        mine == 1 && state.borrow().suno.prompt.id == 0 && !s.get_style().is_empty() && s.get_issues().row_count() == 0,
+        &format!("modèles de départ : le mien gardé, un modèle fourni ouvert sans piège (« {} »)", s.get_style()),
+    );
+    // Depuis un morceau : une variation de son prompt, pas encore enregistrée.
+    let tid = state.borrow().career.as_ref().and_then(|c| c.conn().query_row("SELECT id FROM tracks WHERE path = ?1", [v1.to_string_lossy()], |r| r.get::<_, i64>(0)).ok()).unwrap_or(0);
+    {
+        let mut st = state.borrow_mut();
+        crate::suno::from_track(app, &mut st, tid, true);
+    }
+    check(s.get_name().ends_with("(variation)") && state.borrow().suno.prompt.parent_id == Some(kept), &format!("variation depuis un morceau : « {} »", s.get_name()));
+    {
+        let mut st = state.borrow_mut();
+        crate::suno::set_watch(app, &mut st, None);
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
 /// Pilote l'interface comme un utilisateur et vérifie chaque effet sur la base et le lecteur.
 fn selftest(app: &AppWindow, state: &Rc<RefCell<State>>) -> Timer {
     let weak = app.as_weak();
@@ -591,6 +738,9 @@ fn selftest(app: &AppWindow, state: &Rc<RefCell<State>>) -> Timer {
                     app.invoke_career_import();
                 } else {
                     check(true, "pas de Studio Vault sur ce PC : import sauté");
+                    // L'Atelier Suno n'a besoin d'aucune donnée : il est essayé quand même.
+                    essai_suno(&app, &state, &mut check);
+                    app.invoke_goto(4, 0);
                     step = 262;
                 }
             }
@@ -828,75 +978,7 @@ fn selftest(app: &AppWindow, state: &Rc<RefCell<State>>) -> Timer {
                                 check(true, "aucun fichier de morceau sur ce PC : publication sautée");
                             }
                         }
-                        // Atelier Suno v6 : les prompts de Studio Vault, un prompt composé, vérifié, corrigé, gardé, copié ;
-                        // puis l'import d'un fichier Suno.
-                        app.invoke_goto(4, 4);
-                        let s = app.global::<crate::SunoUi>();
-                        let prompts = s.get_prompts().row_count();
-                        s.invoke_new();
-                        s.invoke_chip("genre".into(), "uk garage".into());
-                        s.invoke_edited("mood".into(), "late night drive, sad, 120 BPM".into());
-                        check(s.get_issues().iter().any(|i| i.fixable), "le vérificateur signale le tempo dans le style");
-                        s.invoke_set_tag_tab("structure".into());
-                        let tag = s.get_tags().row_data(0).map(|t| t.to_string()).unwrap_or_default();
-                        s.invoke_tag(tag.as_str().into());
-                        s.invoke_fix_all();
-                        let style = s.get_style().to_string();
-                        check(
-                            style.starts_with("uk garage") && !style.contains("BPM") && !s.get_any_fixable() && s.get_lyrics().contains(tag.as_str()),
-                            &format!("composer, ajouter un tag, tout corriger : « {style} »"),
-                        );
-                        s.invoke_preset(0);
-                        s.invoke_save();
-                        s.invoke_copy("all".into());
-                        let kept = state.borrow().suno.prompt.id;
-                        let stored = state.borrow().career.as_ref().and_then(|c| otoko_library::career::suno::get(c.conn(), kept));
-                        check(
-                            s.get_prompts().row_count() == prompts + 1 && stored.is_some_and(|p| p.weirdness == 30 && p.genre.starts_with("uk garage")),
-                            &format!("garder le prompt, préréglage compris ({prompts} importés de Studio Vault)"),
-                        );
-                        // Import : un fichier « téléchargé de Suno », copié et renommé dans un dossier d'essai.
-                        let tmp = std::env::temp_dir().join(format!("otoko-autotest-suno-{}", std::process::id()));
-                        let _ = std::fs::create_dir_all(tmp.join("in"));
-                        let src = tmp.join("in").join("3f9c2a1e-suno.wav");
-                        {
-                            let spec = hound::WavSpec { channels: 2, sample_rate: 44_100, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
-                            if let Ok(mut w) = hound::WavWriter::create(&src, spec) {
-                                for i in 0..44_100 {
-                                    let v = ((i as f32 * 0.06).sin() * 8000.0) as i16;
-                                    let _ = w.write_sample(v);
-                                    let _ = w.write_sample(v);
-                                }
-                                let _ = w.finalize();
-                            }
-                        }
-                        if let Some(c) = state.borrow().career.as_ref() {
-                            let _ = c.set_setting("suno_import_folder", &tmp.join("out").to_string_lossy());
-                        }
-                        {
-                            let mut st = state.borrow_mut();
-                            crate::suno::import_open(&app, &mut st, vec![src.clone()]);
-                        }
-                        s.set_imp_title("Nuit d'essai".into());
-                        s.set_imp_version("v2".into());
-                        s.set_imp_tags("garage".into());
-                        s.set_imp_prompt("uk garage, late night drive".into());
-                        s.invoke_import_edited();
-                        s.invoke_import_toggle("copy".into());
-                        s.invoke_import_run();
-                        let dst = tmp.join("out").join("Nuit d'essai - v2.wav");
-                        let row = state.borrow().career.as_ref().and_then(|c| {
-                            c.conn()
-                                .query_row(
-                                    "SELECT t.role || '|' || IFNULL(t.version_label, '') || '|' || IFNULL(t.suno_prompt, '') || '|' || (SELECT COUNT(*) FROM track_tags tt JOIN tags g ON g.id = tt.tag_id WHERE tt.track_id = t.id AND g.name IN ('suno', 'garage'))
-                                     FROM tracks t WHERE t.path = ?1",
-                                    [dst.to_string_lossy()],
-                                    |r| r.get::<_, String>(0),
-                                )
-                                .ok()
-                        });
-                        check(src.exists() && dst.exists() && row.as_deref() == Some("suno_generation|v2|uk garage, late night drive|2"), &format!("import Suno : copié, renommé, indexé ({})", row.unwrap_or_default()));
-                        let _ = std::fs::remove_dir_all(&tmp);
+                        essai_suno(&app, &state, &mut check);
                         // Statistiques.
                         app.invoke_goto(4, 5);
                         check(!app.get_stats_facts().is_empty(), &format!("statistiques : {}", app.get_stats_facts()));
